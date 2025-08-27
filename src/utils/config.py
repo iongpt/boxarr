@@ -226,12 +226,14 @@ class Settings(BaseSettings):
             for section, values in config_data.items():
                 if isinstance(values, dict):
                     for key, value in values.items():
-                        # Convert section_key to section__key for nested delimiter
+                        # Use single underscore for attribute names to match Settings class
                         if isinstance(value, dict):
                             for sub_key, sub_value in value.items():
-                                flat_config[f"{section}__{key}__{sub_key}"] = sub_value
+                                # Three-level nesting: section_key_subkey
+                                flat_config[f"{section}_{key}_{sub_key}"] = sub_value
                         else:
-                            flat_config[f"{section}__{key}"] = value
+                            # Two-level nesting: section_key
+                            flat_config[f"{section}_{key}"] = value
                 else:
                     flat_config[section] = values
             
@@ -285,6 +287,7 @@ def load_settings() -> Settings:
     
     # Try to load from config file
     config_paths = [
+        Path("/config/local.yaml"),  # First check mounted volume
         Path("/config/config.yaml"),
         Path("config/local.yaml"),
         Path("config/default.yaml"),

@@ -193,8 +193,10 @@ class BoxOfficeService:
                 if len(cells) < 3:
                     continue
                 
-                # Extract movie title
-                title_cell = cells[1]
+                # Extract movie title - Box Office Mojo structure has title in cell[2]
+                title_cell = cells[2] if len(cells) > 2 else None
+                if not title_cell:
+                    continue
                 title_link = title_cell.find("a")
                 if not title_link:
                     continue
@@ -205,20 +207,24 @@ class BoxOfficeService:
                 if self._is_studio_name(title):
                     continue
                 
-                # Extract financial data
+                # Extract financial data - adjusted for new cell positions
                 weekend_gross = None
                 total_gross = None
                 weeks_released = None
                 theater_count = None
                 
+                # Weekend gross is now in cell[3] (was cell[2])
                 if len(cells) >= 4:
                     weekend_gross = self.parse_money_value(cells[3].get_text(strip=True))
+                # Theater count is now in cell[6] (was cell[5])
                 if len(cells) >= 7:
-                    total_gross = self.parse_money_value(cells[6].get_text(strip=True))
-                if len(cells) >= 9:
-                    weeks_released = self.parse_integer_value(cells[8].get_text(strip=True))
-                if len(cells) >= 6:
-                    theater_count = self.parse_integer_value(cells[5].get_text(strip=True))
+                    theater_count = self.parse_integer_value(cells[6].get_text(strip=True))
+                # Total gross is now in cell[7] (was cell[6])
+                if len(cells) >= 8:
+                    total_gross = self.parse_money_value(cells[7].get_text(strip=True))
+                # Weeks released is now in cell[9] (was cell[8])
+                if len(cells) >= 10:
+                    weeks_released = self.parse_integer_value(cells[9].get_text(strip=True))
                 
                 movie = BoxOfficeMovie(
                     rank=idx,

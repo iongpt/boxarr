@@ -1,7 +1,7 @@
 """FastAPI application for Boxarr."""
 
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 import yaml
 
@@ -511,9 +511,6 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
     @app.get("/dashboard", response_class=HTMLResponse)
     async def dashboard(request: Request):
         """Dashboard to browse available weeks."""
-        if not templates:
-            return HTMLResponse(content="<h1>Templates not found</h1>")
-        
         # Get available weeks
         weeks = []
         if weekly_pages_dir.exists():
@@ -539,19 +536,222 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
                         "matched_movies": metadata.get("matched_movies", 0),
                     })
         
-        return templates.TemplateResponse("dashboard.html", {
-            "request": request,
-            "weeks": weeks,
-            "radarr_configured": settings.is_configured,
-            "scheduler_enabled": settings.boxarr_scheduler_enabled,
-            "next_update": app.state.scheduler.get_next_run_time() if app.state.scheduler else None,
-        })
+        # Generate weeks HTML
+        weeks_html = ""
+        if weeks:
+            for week in weeks:
+                weeks_html += f"""
+                <div class="week-card">
+                    <h3>📅 {week['year']} Week {week['week']:02d}</h3>
+                    <p>Movies: {week['total_movies']} | Matched: {week['matched_movies']}</p>
+                    <p class="timestamp">{week.get('generated_at', 'No timestamp')}</p>
+                    <a href="/{week['filename']}" class="btn-view">View Week</a>
+                </div>
+                """
+        else:
+            weeks_html = '<p class="no-data">No weekly pages generated yet. Click "Update Last Week" to fetch box office data.</p>'
+        
+        # Get next update time
+        next_update = "Not scheduled"
+        if settings.boxarr_scheduler_enabled and app.state.scheduler:
+            next_run = app.state.scheduler.get_next_run_time()
+            if next_run:
+                next_update = next_run.strftime("%Y-%m-%d %H:%M")
+        
+        return HTMLResponse(content=f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Boxarr Dashboard</title>
+            <style>
+                body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+                       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                       color: #333; margin: 0; padding: 20px; min-height: 100vh; }}
+                .container {{ max-width: 1200px; margin: 0 auto; }}
+                .header {{ background: white; border-radius: 10px; padding: 30px; margin-bottom: 20px; 
+                          box-shadow: 0 4px 6px rgba(0,0,0,0.1); }}
+                h1 {{ color: #667eea; margin: 0 0 10px 0; }}
+                .status {{ display: flex; gap: 30px; margin: 20px 0; flex-wrap: wrap; }}
+                .status-item {{ background: #f7fafc; padding: 10px 15px; border-radius: 5px; }}
+                .status-item strong {{ color: #667eea; }}
+                .actions {{ margin: 20px 0; }}
+                .btn {{ background: #667eea; color: white; padding: 12px 24px; border: none; 
+                       border-radius: 5px; cursor: pointer; text-decoration: none; 
+                       display: inline-block; margin-right: 10px; }}
+                .btn:hover {{ background: #5a67d8; }}
+                .weeks-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); 
+                              gap: 20px; margin-top: 20px; }}
+                .week-card {{ background: white; padding: 20px; border-radius: 10px; 
+                             box-shadow: 0 4px 6px rgba(0,0,0,0.1); }}
+                .week-card h3 {{ color: #667eea; margin: 0 0 10px 0; }}
+                .timestamp {{ color: #718096; font-size: 0.9em; }}
+                .btn-view {{ background: #48bb78; color: white; padding: 8px 16px; 
+                            border-radius: 5px; text-decoration: none; display: inline-block; 
+                            margin-top: 10px; }}
+                .btn-view:hover {{ background: #38a169; }}
+                .no-data {{ background: white; padding: 40px; border-radius: 10px; 
+                           text-align: center; color: #718096; }}
+                #updateMessage {{ margin-top: 10px; padding: 10px; border-radius: 5px; display: none; }}
+                .success {{ background: #c6f6d5; color: #22543d; }}
+                .error {{ background: #fed7d7; color: #742a2a; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>🎬 Boxarr Dashboard</h1>
+                    <div class="status">
+                        <div class="status-item">
+                            <strong>Status:</strong> {('✅ Configured' if settings.is_configured else '❌ Not Configured')}
+                        </div>
+                        <div class="status-item">
+                            <strong>Scheduler:</strong> {('✅ Enabled' if settings.boxarr_scheduler_enabled else '❌ Disabled')}
+                        </div>
+                        <div class="status-item">
+                            <strong>Next Update:</strong> {next_update}
+                        </div>
+                        <div class="status-item">
+                            <strong>Weekly Pages:</strong> {len(weeks)}
+                        </div>
+                    </div>
+                    <div class="actions">
+                        <button class="btn" onclick="triggerUpdate()">🔄 Update Last Week</button>
+                        <button class="btn" onclick="toggleHistorical()">📅 Update Historical Week</button>
+                        <a href="/setup" class="btn">⚙️ Settings</a>
+                        {('<a href="/' + str((datetime.now() - timedelta(days=7)).year) + 'W' + str((datetime.now() - timedelta(days=7)).isocalendar()[1]).zfill(2) + '.html" class="btn">👁️ View Last Week</a>' if len(weeks) > 0 else '')}
+                    </div>
+                    <div id="historicalForm" style="display:none; margin-top: 20px; background: #f7fafc; padding: 20px; border-radius: 5px;">
+                        <h3>Update Historical Week</h3>
+                        <div style="display: flex; gap: 10px; align-items: center;">
+                            <label>Year:</label>
+                            <select id="yearSelect">
+                                {''.join([f'<option value="{y}">{y}</option>' for y in range(datetime.now().year, 1999, -1)])}
+                            </select>
+                            <label>Week:</label>
+                            <select id="weekSelect">
+                                {''.join([f'<option value="{w}">{w}</option>' for w in range(1, 54)])}
+                            </select>
+                            <button class="btn" onclick="updateHistoricalWeek()">Fetch Week</button>
+                            <button onclick="toggleHistorical()" style="background: #e53e3e; color: white; padding: 8px 16px; border: none; border-radius: 5px; cursor: pointer;">Cancel</button>
+                        </div>
+                        <small style="color: #718096; display: block; margin-top: 10px;">Note: Past weeks that already exist will be skipped (they don't change).</small>
+                    </div>
+                    <div id="updateMessage"></div>
+                </div>
+                
+                <div class="weeks-grid">
+                    {weeks_html}
+                </div>
+            </div>
+            
+            <script>
+            function toggleHistorical() {{
+                const form = document.getElementById('historicalForm');
+                form.style.display = form.style.display === 'none' ? 'block' : 'none';
+                if (form.style.display === 'block') {{
+                    // Set current week as default
+                    const now = new Date();
+                    const week = getWeekNumber(now);
+                    document.getElementById('weekSelect').value = week;
+                }}
+            }}
+            
+            function getWeekNumber(date) {{
+                const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+                const dayNum = d.getUTCDay() || 7;
+                d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+                const yearStart = new Date(Date.UTC(d.getUTCFullYear(),0,1));
+                return Math.ceil((((d - yearStart) / 86400000) + 1)/7);
+            }}
+            
+            async function triggerUpdate() {{
+                const message = document.getElementById('updateMessage');
+                message.style.display = 'block';
+                message.className = '';
+                message.textContent = 'Triggering update for last week...';
+                
+                try {{
+                    const response = await fetch('/api/trigger-update', {{
+                        method: 'POST',
+                        headers: {{'Content-Type': 'application/json'}}
+                    }});
+                    
+                    const result = await response.json();
+                    if (result.success) {{
+                        message.className = 'success';
+                        message.textContent = '✅ ' + result.message + ' - This may take a few moments...';
+                        setTimeout(() => location.reload(), 5000);
+                    }} else {{
+                        message.className = 'error';
+                        message.textContent = '❌ ' + (result.message || 'Update failed');
+                    }}
+                }} catch (e) {{
+                    message.className = 'error';
+                    message.textContent = '❌ Failed to trigger update';
+                }}
+            }}
+            
+            async function updateHistoricalWeek() {{
+                const year = parseInt(document.getElementById('yearSelect').value);
+                const week = parseInt(document.getElementById('weekSelect').value);
+                const message = document.getElementById('updateMessage');
+                
+                message.style.display = 'block';
+                message.className = '';
+                message.textContent = `Fetching box office for ${{year}} Week ${{week}}...`;
+                
+                try {{
+                    const response = await fetch('/api/update-week', {{
+                        method: 'POST',
+                        headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify({{ year, week }})
+                    }});
+                    
+                    const result = await response.json();
+                    if (result.success) {{
+                        message.className = 'success';
+                        message.textContent = '✅ ' + result.message + ' - This may take a few moments...';
+                        toggleHistorical();
+                        setTimeout(() => location.reload(), 5000);
+                    }} else {{
+                        message.className = 'error';
+                        message.textContent = '❌ ' + (result.message || 'Update failed');
+                    }}
+                }} catch (e) {{
+                    message.className = 'error';
+                    message.textContent = '❌ Failed to update week';
+                }}
+            }}
+            </script>
+        </body>
+        </html>
+        """)
     
     @app.get("/setup", response_class=HTMLResponse)
     async def setup(request: Request):
         """Setup wizard for first-time configuration."""
+        # Load existing configuration if available
+        from src.utils.config import settings as current_settings
+        
+        # Pre-populate with current values or defaults
+        radarr_url = str(current_settings.radarr_url) if current_settings.is_configured else "http://localhost:7878"
+        radarr_api_key = current_settings.radarr_api_key if current_settings.is_configured else ""
+        auto_add = "checked" if current_settings.boxarr_features_auto_add else ""
+        scheduler_enabled = "checked" if current_settings.boxarr_scheduler_enabled else ""
+        
+        # Parse cron to get day and hour
+        import re
+        cron = current_settings.boxarr_scheduler_cron
+        cron_match = re.match(r"0 (\d+) \* \* (\d+)", cron)
+        if cron_match:
+            hour = int(cron_match.group(1))
+            day = int(cron_match.group(2))
+        else:
+            hour = 23  # Default 11 PM
+            day = 1    # Default Tuesday
+        
         # Always use inline HTML for setup (no templates needed)
-        return HTMLResponse(content="""
+        return HTMLResponse(content=f"""
             <!DOCTYPE html>
             <html>
             <head>
@@ -559,9 +759,14 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
                 <style>
                     body { font-family: sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }
                     h1 { color: #667eea; }
-                    input, select { width: 100%; padding: 8px; margin: 10px 0; }
+                    input[type="text"], input[type="url"], select { width: 100%; padding: 8px; margin: 10px 0; box-sizing: border-box; }
                     button { background: #667eea; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; }
+                    button:hover { background: #5a67d8; }
                     .form-group { margin: 20px 0; }
+                    .checkbox-group { display: flex; align-items: center; margin: 15px 0; }
+                    .checkbox-group input[type="checkbox"] { width: auto; margin: 0 10px 0 0; }
+                    .schedule-options { margin-left: 30px; margin-top: 10px; display: none; }
+                    .schedule-options select { width: auto; margin: 0 5px; }
                     .error { color: #f56565; }
                     .success { color: #48bb78; }
                 </style>
@@ -572,12 +777,12 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
                 <form id="setupForm">
                     <div class="form-group">
                         <label>Radarr URL:</label>
-                        <input type="url" id="radarr_url" placeholder="http://localhost:7878" value="http://localhost:7878" required>
+                        <input type="url" id="radarr_url" placeholder="http://localhost:7878" value="{radarr_url}" required>
                         <small>URL to your Radarr instance</small>
                     </div>
                     <div class="form-group">
                         <label>Radarr API Key:</label>
-                        <input type="text" id="radarr_api_key" placeholder="Your API key from Radarr settings" required>
+                        <input type="text" id="radarr_api_key" placeholder="Your API key from Radarr settings" value="{radarr_api_key}" required>
                         <small>Found in Radarr → Settings → General → Security</small>
                     </div>
                     <button type="button" onclick="testConnection()">Test Connection</button>
@@ -602,17 +807,29 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
                                 <option value="">Loading folders...</option>
                             </select>
                         </div>
-                        <div class="form-group">
-                            <label>
-                                <input type="checkbox" id="auto_add" checked> 
-                                Automatically add missing movies to Radarr
-                            </label>
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="auto_add" {auto_add}> 
+                            <label for="auto_add">Automatically add missing movies to Radarr</label>
                         </div>
-                        <div class="form-group">
-                            <label>
-                                <input type="checkbox" id="enable_scheduler" checked> 
-                                Enable automatic updates (Tuesdays 11 PM)
-                            </label>
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="enable_scheduler" {scheduler_enabled}> 
+                            <label for="enable_scheduler">Enable automatic updates</label>
+                        </div>
+                        <div class="schedule-options" id="scheduleOptions">
+                            <label>Run every </label>
+                            <select id="schedule_day">
+                                <option value="0" {"selected" if day == 0 else ""}>Monday</option>
+                                <option value="1" {"selected" if day == 1 else ""}>Tuesday</option>
+                                <option value="2" {"selected" if day == 2 else ""}>Wednesday</option>
+                                <option value="3" {"selected" if day == 3 else ""}>Thursday</option>
+                                <option value="4" {"selected" if day == 4 else ""}>Friday</option>
+                                <option value="5" {"selected" if day == 5 else ""}>Saturday</option>
+                                <option value="6" {"selected" if day == 6 else ""}>Sunday</option>
+                            </select>
+                            <label> at </label>
+                            <select id="schedule_hour">
+                                {''.join([f'<option value="{h}" {"selected" if h == hour else ""}>{h % 12 or 12}:00 {"AM" if h < 12 else "PM"}</option>' for h in range(24)])}
+                            </select>
                         </div>
                         <button type="submit">Save Configuration</button>
                     </div>
@@ -620,29 +837,39 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
                 </form>
                 
                 <script>
-                async function testConnection() {
+                // Show/hide schedule options
+                document.getElementById('enable_scheduler').addEventListener('change', function() {{
+                    const scheduleOptions = document.getElementById('scheduleOptions');
+                    scheduleOptions.style.display = this.checked ? 'block' : 'none';
+                }});
+                // Show schedule options on load if scheduler is checked
+                if (document.getElementById('enable_scheduler').checked) {{
+                    document.getElementById('scheduleOptions').style.display = 'block';
+                }}
+                
+                async function testConnection() {{
                     const message = document.getElementById('message');
                     const url = document.getElementById('radarr_url').value;
                     const apiKey = document.getElementById('radarr_api_key').value;
                     
-                    if (!url || !apiKey) {
+                    if (!url || !apiKey) {{
                         message.innerHTML = '<p class="error">Please enter URL and API key</p>';
                         return;
-                    }
+                    }}
                     
                     message.innerHTML = 'Testing connection...';
                     
-                    try {
+                    try {{
                         // Test connection
-                        const response = await fetch('/api/config/test', {
+                        const response = await fetch('/api/config/test', {{
                             method: 'POST',
-                            headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({ url, api_key: apiKey })
-                        });
+                            headers: {{'Content-Type': 'application/json'}},
+                            body: JSON.stringify({{ url, api_key: apiKey }})
+                        }});
                         
                         const result = await response.json();
                         
-                        if (result.success) {
+                        if (result.success) {{
                             message.innerHTML = '<p class="success">✅ Connection successful!</p>';
                             document.getElementById('advancedSettings').style.display = 'block';
                             
@@ -652,76 +879,86 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
                             profileSelect.innerHTML = '';
                             upgradeSelect.innerHTML = '<option value="">(None)</option>';
                             
-                            result.profiles.forEach(profile => {
+                            result.profiles.forEach(profile => {{
                                 const option1 = new Option(profile.name, profile.name);
                                 const option2 = new Option(profile.name, profile.name);
                                 profileSelect.add(option1);
                                 upgradeSelect.add(option2);
                                 
                                 // Select defaults
-                                if (profile.name.includes('1080p')) {
+                                if (profile.name.includes('1080p')) {{
                                     profileSelect.value = profile.name;
-                                }
-                                if (profile.name.includes('Ultra') || profile.name.includes('2160')) {
+                                }}
+                                if (profile.name.includes('Ultra') || profile.name.includes('2160')) {{
                                     upgradeSelect.value = profile.name;
-                                }
-                            });
+                                }}
+                            }});
                             
                             // Populate root folders
                             const folderSelect = document.getElementById('root_folder');
                             folderSelect.innerHTML = '';
-                            result.folders.forEach(folder => {
+                            result.folders.forEach(folder => {{
                                 const option = new Option(folder.path + ' (' + folder.freeSpace + ')', folder.path);
                                 folderSelect.add(option);
-                            });
-                            if (result.folders.length > 0) {
+                            }});
+                            if (result.folders.length > 0) {{
                                 folderSelect.value = result.folders[0].path;
-                            }
+                            }}
                             
-                        } else {
+                        }} else {{
                             message.innerHTML = '<p class="error">❌ ' + result.message + '</p>';
                             document.getElementById('advancedSettings').style.display = 'none';
-                        }
-                    } catch (e) {
+                        }}
+                    }} catch (e) {{
                         message.innerHTML = '<p class="error">❌ Connection failed: ' + e + '</p>';
                         document.getElementById('advancedSettings').style.display = 'none';
-                    }
-                }
+                    }}
+                }}
                 
-                document.getElementById('setupForm').onsubmit = async (e) => {
+                document.getElementById('setupForm').onsubmit = async (e) => {{
                     e.preventDefault();
                     const message = document.getElementById('message');
                     message.innerHTML = 'Saving configuration...';
                     
-                    const data = {
+                    const schedulerEnabled = document.getElementById('enable_scheduler').checked;
+                    let cronExpression = '0 23 * * 2'; // Default: Tuesday 11 PM
+                    
+                    if (schedulerEnabled) {{
+                        const day = document.getElementById('schedule_day').value;
+                        const hour = document.getElementById('schedule_hour').value;
+                        cronExpression = `0 ${{hour}} * * ${{day}}`;
+                    }}
+                    
+                    const data = {{
                         radarr_url: document.getElementById('radarr_url').value,
                         radarr_api_key: document.getElementById('radarr_api_key').value,
                         radarr_quality_profile_default: document.getElementById('quality_profile').value,
-                        radarr_quality_profile_upgrade: document.getElementById('upgrade_profile').value,
+                        radarr_quality_profile_upgrade: document.getElementById('upgrade_profile').value || '',
                         radarr_root_folder: document.getElementById('root_folder').value,
                         boxarr_features_auto_add: document.getElementById('auto_add').checked,
-                        boxarr_scheduler_enabled: document.getElementById('enable_scheduler').checked
-                    };
+                        boxarr_scheduler_enabled: schedulerEnabled,
+                        boxarr_scheduler_cron: cronExpression
+                    }};
                     
-                    try {
-                        const response = await fetch('/api/config/save', {
+                    try {{
+                        const response = await fetch('/api/config/save', {{
                             method: 'POST',
-                            headers: {'Content-Type': 'application/json'},
+                            headers: {{'Content-Type': 'application/json'}},
                             body: JSON.stringify(data)
-                        });
+                        }});
                         
                         const result = await response.json();
                         
-                        if (result.success) {
+                        if (result.success) {{
                             message.innerHTML = '<p class="success">✅ Configuration saved! Redirecting...</p>';
                             setTimeout(() => window.location.href = '/', 2000);
-                        } else {
+                        }} else {{
                             message.innerHTML = '<p class="error">❌ ' + result.message + '</p>';
-                        }
-                    } catch (e) {
+                        }}
+                    }} catch (e) {{
                         message.innerHTML = '<p class="error">❌ Save failed</p>';
-                    }
-                };
+                    }}
+                }};
                 </script>
             </body>
             </html>
@@ -813,25 +1050,36 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
     async def save_configuration(config_data: Dict[str, Any]):
         """Save configuration and test Radarr connection."""
         try:
+            # Log received data for debugging
+            logger.info(f"Received config data keys: {list(config_data.keys())}")
+            
+            # Validate required fields
+            radarr_url = config_data.get("radarr_url")
+            radarr_api_key = config_data.get("radarr_api_key")
+            
+            if not radarr_url:
+                return {"success": False, "message": "Radarr URL is required"}
+            if not radarr_api_key:
+                return {"success": False, "message": "Radarr API key is required"}
+            
             # Test Radarr connection
-            test_service = RadarrService(
-                url=config_data.get("radarr_url"),
-                api_key=config_data.get("radarr_api_key")
-            )
+            try:
+                test_service = RadarrService(url=radarr_url, api_key=radarr_api_key)
+                if not test_service.test_connection():
+                    return {"success": False, "message": "Could not connect to Radarr"}
+                test_service.close()
+            except Exception as e:
+                logger.error(f"Radarr connection test failed: {e}")
+                return {"success": False, "message": f"Radarr connection failed: {str(e)}"}
             
-            if not test_service.test_connection():
-                return {"success": False, "message": "Could not connect to Radarr"}
-            
-            test_service.close()
-            
-            # Save configuration
-            config_file = Path("config/local.yaml")
-            config_file.parent.mkdir(exist_ok=True)
+            # Save configuration to mounted volume
+            config_file = settings.boxarr_data_directory / "local.yaml"
+            config_file.parent.mkdir(parents=True, exist_ok=True)
             
             config_dict = {
                 "radarr": {
-                    "url": config_data.get("radarr_url"),
-                    "api_key": config_data.get("radarr_api_key"),
+                    "url": radarr_url,
+                    "api_key": radarr_api_key,
                     "root_folder": config_data.get("radarr_root_folder", "/movies"),
                     "quality_profile_default": config_data.get("radarr_quality_profile_default", "HD-1080p"),
                     "quality_profile_upgrade": config_data.get("radarr_quality_profile_upgrade", ""),
@@ -839,7 +1087,7 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
                 "boxarr": {
                     "scheduler": {
                         "enabled": config_data.get("boxarr_scheduler_enabled", True),
-                        "cron": "0 23 * * 2",  # Tuesday 11 PM
+                        "cron": config_data.get("boxarr_scheduler_cron", "0 23 * * 2"),  # Use custom cron or default
                     },
                     "features": {
                         "auto_add": config_data.get("boxarr_features_auto_add", True),
@@ -854,10 +1102,29 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
             # Reload settings
             settings.load_from_yaml(config_file)
             
-            # Restart services
+            # Restart services with new configuration
             if app.state.radarr_service:
                 app.state.radarr_service.close()
-            app.state.radarr_service = RadarrService()
+            
+            # Create new RadarrService with updated settings
+            try:
+                app.state.radarr_service = RadarrService()
+                logger.info("RadarrService reinitialized with new configuration")
+            except Exception as e:
+                logger.warning(f"Could not reinitialize RadarrService: {e}")
+                # Service will be created on next use
+            
+            # Restart scheduler with new configuration
+            if app.state.scheduler:
+                app.state.scheduler.stop()
+                logger.info("Stopped existing scheduler")
+            
+            # Initialize new scheduler if enabled
+            if settings.boxarr_scheduler_enabled:
+                app.state.scheduler = scheduler
+                if settings.is_configured:
+                    app.state.scheduler.start()
+                    logger.info("Scheduler started with new configuration")
             
             return {"success": True, "message": "Configuration saved successfully"}
             
@@ -867,11 +1134,70 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
     
     @app.post("/api/trigger-update")
     async def trigger_manual_update(background_tasks: BackgroundTasks):
-        """Trigger a manual box office update."""
+        """Trigger a manual box office update for last completed week."""
         if not app.state.scheduler:
             raise HTTPException(status_code=503, detail="Scheduler not available")
         
-        background_tasks.add_task(app.state.scheduler.update_box_office)
-        return {"success": True, "message": "Update triggered"}
+        # Get last completed week (not current week)
+        from datetime import datetime, timedelta
+        now = datetime.now()
+        # Go back to last week
+        last_week_date = now - timedelta(days=7)
+        year = last_week_date.year
+        week = last_week_date.isocalendar()[1]
+        
+        # Check if page already exists
+        page_file = weekly_pages_dir / f"{year}W{week:02d}.html"
+        if page_file.exists():
+            return {"success": False, "message": f"Page for {year} Week {week} already exists. Use 'Update Historical Week' to regenerate past weeks."}
+        
+        # Update for specific year/week
+        async def update_task():
+            try:
+                return await app.state.scheduler.update_box_office(year=year, week=week)
+            except Exception as e:
+                logger.error(f"Update failed: {e}")
+                raise
+        
+        background_tasks.add_task(update_task)
+        return {"success": True, "message": f"Update triggered for {year} Week {week}"}
+    
+    @app.post("/api/update-week")
+    async def update_specific_week(data: Dict[str, Any], background_tasks: BackgroundTasks):
+        """Update box office for a specific week."""
+        year = data.get("year")
+        week = data.get("week")
+        
+        if not year or not week:
+            raise HTTPException(status_code=400, detail="Year and week are required")
+        
+        # Validate year and week
+        current_year = datetime.now().year
+        if year < 2000 or year > current_year:
+            raise HTTPException(status_code=400, detail=f"Year must be between 2000 and {current_year}")
+        if week < 1 or week > 53:
+            raise HTTPException(status_code=400, detail="Week must be between 1 and 53")
+        
+        # Check if page already exists for past weeks
+        page_file = weekly_pages_dir / f"{year}W{week:02d}.html"
+        current_week = datetime.now().isocalendar()[1]
+        
+        # If it's a past week and page exists, skip
+        if year < current_year or (year == current_year and week < current_week):
+            if page_file.exists():
+                return {"success": False, "message": f"Page for {year} Week {week} already exists. Past weeks don't change."}
+        
+        # For current or future weeks, allow regeneration
+        async def update_week_task():
+            try:
+                # Use the scheduler's update method with specific year/week
+                results = await app.state.scheduler.update_box_office(year=year, week=week)
+                return results
+            except Exception as e:
+                logger.error(f"Failed to update week {year}W{week:02d}: {e}")
+                raise
+        
+        background_tasks.add_task(update_week_task)
+        return {"success": True, "message": f"Update triggered for {year} Week {week:02d}"}
     
     return app

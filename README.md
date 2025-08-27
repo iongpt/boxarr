@@ -15,6 +15,8 @@ Automatically track and add box office hits to your Radarr collection. Boxarr mo
 - **Quality Profile Management**: One-click quality profile upgrades
 - **Historical Data**: Browse and analyze past weeks' box office rankings
 - **Beautiful Dashboard**: Responsive web interface optimized for all screen sizes
+- **Settings Persistence**: Configuration is saved and pre-populated in settings page
+- **Week Navigation**: Easy navigation between recent weeks with dropdown for older data
 - **API Integration**: RESTful API for third-party integrations
 - **Docker Support**: Easy deployment with Docker and Docker Compose
 
@@ -57,13 +59,17 @@ services:
 2. **Visit** http://localhost:8888 
 3. **Enter** your Radarr URL and API key
 4. **Test Connection** to validate and fetch quality profiles
-5. **Configure** your preferences and save
+5. **Choose** your quality profiles, root folder, and schedule
+6. **Configure** auto-add and other preferences
+7. **Save** to complete setup and start tracking
 
 The setup wizard will:
 - Validate your Radarr connection
 - Fetch available quality profiles dynamically
 - Show root folders with free space
-- Let you configure auto-add and scheduling options
+- Let you configure auto-add and custom scheduling options
+- Pre-populate settings when you return to the settings page
+- Remember your configuration across container restarts
 
 ### Manual Configuration (Optional)
 
@@ -146,33 +152,35 @@ Boxarr provides a RESTful API for integrations:
 
 ### Endpoints
 
-- `GET /api/boxoffice/current` - Get current week's box office
-- `GET /api/boxoffice/history/{year}/W{week}` - Get historical data
-- `GET /api/movies/{id}` - Get movie details
-- `POST /api/movies/{id}/upgrade` - Upgrade movie quality profile
-- `GET /api/widget` - Get embeddable HTML widget
-- `GET /api/widget/json` - Get widget data as JSON
+- `GET /api/health` - Health check with Radarr connection status
+- `POST /api/trigger-update` - Update last week's box office data
+- `POST /api/update-week` - Update specific week (year and week in body)
+- `POST /api/config/test` - Test Radarr connection
+- `POST /api/config/save` - Save configuration
+- `GET /dashboard` - View dashboard with all weekly pages
+- `GET /{year}W{week}.html` - View specific week's box office
 
-### WebSocket
+### Weekly Updates
 
-Connect to `ws://boxarr:8889/ws` for real-time updates:
-- `movie:added` - Movie added to Radarr
-- `movie:upgraded` - Quality profile upgraded
-- `boxoffice:updated` - Box office data refreshed
+Boxarr automatically updates box office data:
+- **Default Schedule**: Every Monday at 11 PM (configurable)
+- **Last Week Update**: Always fetches the completed week's data
+- **Historical Updates**: Can update any past week via the dashboard
+- **Immutable History**: Past weeks won't be re-updated automatically
 
-## 📊 Homepage Integration
+## 📊 Dashboard Features
 
-Add Boxarr widget to your Homepage dashboard:
+### Navigation
+- **Recent Weeks**: Quick access to last 8 weeks
+- **Older Weeks Dropdown**: Access all historical data
+- **Back to Dashboard**: Easy navigation from any week view
+- **View Last Week**: One-click access to the most recent box office data
 
-```yaml
-- Boxarr:
-    icon: boxarr.png
-    href: http://boxarr:8888
-    widget:
-      type: customapi
-      url: http://boxarr:8889/api/widget/json
-      refreshInterval: 10000
-```
+### Week View
+- **Movie Cards**: Visual display with posters and status
+- **Quality Management**: Upgrade profiles with one click
+- **Status Indicators**: See download/cinema/missing status
+- **Radarr Integration**: Direct links to movies in Radarr
 
 ## 🤝 Contributing
 
@@ -202,6 +210,11 @@ This project is licensed under the GNU General Public License v3.0 - see the [LI
 
 ## 🗺️ Roadmap
 
+- [✅] Web UI configuration wizard
+- [✅] Settings persistence and pre-population  
+- [✅] Custom scheduling with day/time selection
+- [✅] Historical week updates
+- [✅] Improved navigation with dropdown for older weeks
 - [ ] Multi-region box office support
 - [ ] Machine learning predictions
 - [ ] Mobile applications
