@@ -569,35 +569,135 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
                 <form id="setupForm">
                     <div class="form-group">
                         <label>Radarr URL:</label>
-                        <input type="url" id="radarr_url" placeholder="http://localhost:7878" required>
+                        <input type="url" id="radarr_url" placeholder="http://localhost:7878" value="http://localhost:7878" required>
+                        <small>URL to your Radarr instance</small>
                     </div>
                     <div class="form-group">
                         <label>Radarr API Key:</label>
                         <input type="text" id="radarr_api_key" placeholder="Your API key from Radarr settings" required>
+                        <small>Found in Radarr → Settings → General → Security</small>
                     </div>
-                    <div class="form-group">
-                        <label>Default Quality Profile:</label>
-                        <input type="text" id="quality_profile" placeholder="HD-1080p" value="HD-1080p">
+                    <button type="button" onclick="testConnection()">Test Connection</button>
+                    
+                    <div id="advancedSettings" style="display:none; margin-top: 20px;">
+                        <h3>✅ Connection Successful!</h3>
+                        <div class="form-group">
+                            <label>Default Quality Profile:</label>
+                            <select id="quality_profile" required>
+                                <option value="">Loading profiles...</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Upgrade Quality Profile:</label>
+                            <select id="upgrade_profile">
+                                <option value="">Loading profiles...</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Root Folder Path:</label>
+                            <select id="root_folder" required>
+                                <option value="">Loading folders...</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>
+                                <input type="checkbox" id="auto_add" checked> 
+                                Automatically add missing movies to Radarr
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label>
+                                <input type="checkbox" id="enable_scheduler" checked> 
+                                Enable automatic updates (Tuesdays 11 PM)
+                            </label>
+                        </div>
+                        <button type="submit">Save Configuration</button>
                     </div>
-                    <div class="form-group">
-                        <label>Root Folder Path:</label>
-                        <input type="text" id="root_folder" placeholder="/movies" value="/movies">
-                    </div>
-                    <button type="submit">Test Connection & Save</button>
                     <div id="message"></div>
                 </form>
                 
                 <script>
+                async function testConnection() {
+                    const message = document.getElementById('message');
+                    const url = document.getElementById('radarr_url').value;
+                    const apiKey = document.getElementById('radarr_api_key').value;
+                    
+                    if (!url || !apiKey) {
+                        message.innerHTML = '<p class="error">Please enter URL and API key</p>';
+                        return;
+                    }
+                    
+                    message.innerHTML = 'Testing connection...';
+                    
+                    try {
+                        // Test connection
+                        const response = await fetch('/api/config/test', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ url, api_key: apiKey })
+                        });
+                        
+                        const result = await response.json();
+                        
+                        if (result.success) {
+                            message.innerHTML = '<p class="success">✅ Connection successful!</p>';
+                            document.getElementById('advancedSettings').style.display = 'block';
+                            
+                            // Populate quality profiles
+                            const profileSelect = document.getElementById('quality_profile');
+                            const upgradeSelect = document.getElementById('upgrade_profile');
+                            profileSelect.innerHTML = '';
+                            upgradeSelect.innerHTML = '<option value="">(None)</option>';
+                            
+                            result.profiles.forEach(profile => {
+                                const option1 = new Option(profile.name, profile.name);
+                                const option2 = new Option(profile.name, profile.name);
+                                profileSelect.add(option1);
+                                upgradeSelect.add(option2);
+                                
+                                // Select defaults
+                                if (profile.name.includes('1080p')) {
+                                    profileSelect.value = profile.name;
+                                }
+                                if (profile.name.includes('Ultra') || profile.name.includes('2160')) {
+                                    upgradeSelect.value = profile.name;
+                                }
+                            });
+                            
+                            // Populate root folders
+                            const folderSelect = document.getElementById('root_folder');
+                            folderSelect.innerHTML = '';
+                            result.folders.forEach(folder => {
+                                const option = new Option(folder.path + ' (' + folder.freeSpace + ')', folder.path);
+                                folderSelect.add(option);
+                            });
+                            if (result.folders.length > 0) {
+                                folderSelect.value = result.folders[0].path;
+                            }
+                            
+                        } else {
+                            message.innerHTML = '<p class="error">❌ ' + result.message + '</p>';
+                            document.getElementById('advancedSettings').style.display = 'none';
+                        }
+                    } catch (e) {
+                        message.innerHTML = '<p class="error">❌ Connection failed: ' + e + '</p>';
+                        document.getElementById('advancedSettings').style.display = 'none';
+                    }
+                }
+                
                 document.getElementById('setupForm').onsubmit = async (e) => {
                     e.preventDefault();
                     const message = document.getElementById('message');
-                    message.innerHTML = 'Testing connection...';
+                    message.innerHTML = 'Saving configuration...';
                     
                     const data = {
                         radarr_url: document.getElementById('radarr_url').value,
                         radarr_api_key: document.getElementById('radarr_api_key').value,
                         radarr_quality_profile_default: document.getElementById('quality_profile').value,
-                        radarr_root_folder: document.getElementById('root_folder').value
+                        radarr_quality_profile_upgrade: document.getElementById('upgrade_profile').value,
+                        radarr_root_folder: document.getElementById('root_folder').value,
+                        boxarr_features_auto_add: document.getElementById('auto_add').checked,
+                        boxarr_scheduler_enabled: document.getElementById('enable_scheduler').checked
                     };
                     
                     try {
@@ -616,7 +716,7 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
                             message.innerHTML = '<p class="error">❌ ' + result.message + '</p>';
                         }
                     } catch (e) {
-                        message.innerHTML = '<p class="error">❌ Connection failed</p>';
+                        message.innerHTML = '<p class="error">❌ Save failed</p>';
                     }
                 };
                 </script>
@@ -663,6 +763,51 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
         with open(page_file) as f:
             return HTMLResponse(content=f.read())
     
+    @app.post("/api/config/test")
+    async def test_configuration(config_data: Dict[str, Any]):
+        """Test Radarr connection and return profiles/folders."""
+        try:
+            # Test Radarr connection
+            test_service = RadarrService(
+                url=config_data.get("url"),
+                api_key=config_data.get("api_key")
+            )
+            
+            if not test_service.test_connection():
+                return {"success": False, "message": "Could not connect to Radarr. Check URL and API key."}
+            
+            # Get profiles
+            profiles = test_service.get_quality_profiles()
+            profile_list = [{"id": p.id, "name": p.name} for p in profiles]
+            
+            # Get root folders
+            try:
+                response = test_service._make_request("GET", "/api/v3/rootFolder")
+                folders = response.json()
+                folder_list = []
+                for folder in folders:
+                    free_gb = folder.get("freeSpace", 0) / (1024**3)
+                    folder_list.append({
+                        "path": folder["path"],
+                        "freeSpace": f"{free_gb:.1f} GB free"
+                    })
+            except:
+                # Default if can't get folders
+                folder_list = [{"path": "/movies", "freeSpace": "Unknown"}]
+            
+            test_service.close()
+            
+            return {
+                "success": True,
+                "message": "Connection successful",
+                "profiles": profile_list,
+                "folders": folder_list
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to test configuration: {e}")
+            return {"success": False, "message": str(e)}
+    
     @app.post("/api/config/save")
     async def save_configuration(config_data: Dict[str, Any]):
         """Save configuration and test Radarr connection."""
@@ -688,11 +833,15 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
                     "api_key": config_data.get("radarr_api_key"),
                     "root_folder": config_data.get("radarr_root_folder", "/movies"),
                     "quality_profile_default": config_data.get("radarr_quality_profile_default", "HD-1080p"),
+                    "quality_profile_upgrade": config_data.get("radarr_quality_profile_upgrade", ""),
                 },
                 "boxarr": {
-                    "scheduler_enabled": config_data.get("boxarr_scheduler_enabled", True),
+                    "scheduler": {
+                        "enabled": config_data.get("boxarr_scheduler_enabled", True),
+                        "cron": "0 23 * * 2",  # Tuesday 11 PM
+                    },
                     "features": {
-                        "auto_add": True,
+                        "auto_add": config_data.get("boxarr_features_auto_add", True),
                         "quality_upgrade": True,
                     }
                 }

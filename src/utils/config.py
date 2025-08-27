@@ -193,9 +193,12 @@ class Settings(BaseSettings):
     
     @validator("radarr_api_key")
     def validate_api_key(cls, v: str) -> str:
-        """Ensure API key is provided."""
-        if not v and os.getenv("RADARR_API_KEY"):
-            return os.getenv("RADARR_API_KEY", "")
+        """Check for API key from environment if not set."""
+        # Environment variable can override empty config
+        if not v:
+            env_key = os.getenv("RADARR_API_KEY", "")
+            if env_key:
+                return env_key
         return v
     
     @validator("boxarr_api_port")
