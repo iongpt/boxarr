@@ -1,0 +1,48 @@
+# Boxarr Default Configuration
+# Copy this file to config.yaml and modify as needed
+
+version: 1
+
+# Radarr connection (REQUIRED)
+radarr:
+  connection:
+    url: "http://localhost:7878"  # Change to your Radarr URL
+    api_key: ""                    # Add your Radarr API key here
+
+  movies:
+    root_folder: "/movies"
+    default_profile: "HD-1080p"
+    upgrade_profile: "Ultra-HD"
+
+# Boxarr settings
+boxarr:
+  server:
+    port: 8888
+    api_port: 8889
+
+  scheduler:
+    enabled: true
+    cron: "0 23 * * 2"  # Tuesday at 11 PM
+
+  ui:
+    theme: "purple"
+    cards:
+      size: "compact"
+      per_row:
+        4k: 5
+        desktop: 4
+        tablet: 3
+        mobile: 1
+
+# Database
+database:
+  type: "sqlite"
+  sqlite:
+    path: "/config/boxarr.db"
+
+# Logging
+logging:
+  level: "INFO"
+  file:
+    enabled: true
+    path: "/config/logs/boxarr.log"
