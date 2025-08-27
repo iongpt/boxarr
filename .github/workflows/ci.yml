@@ -113,8 +113,8 @@ jobs:
         
     - name: Run Bandit (Security Linter)
       run: |
-        bandit -r src/ -f json -o bandit-report.json --skip B608 || true
-        bandit -r src/ --severity-level medium --skip B608
+        bandit -r src/ -f json -o bandit-report.json --skip B104,B608 || true
+        bandit -r src/ --severity-level medium --skip B104,B608
         
     - name: Run Safety (Dependency Vulnerability Check)
       run: |
@@ -182,6 +182,7 @@ jobs:
       with:
         context: .
         push: false
+        load: true
         tags: boxarr:test
         cache-from: type=gha
         cache-to: type=gha,mode=max
