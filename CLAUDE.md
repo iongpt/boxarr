@@ -1,405 +1,389 @@
-# Boxarr Development Guidelines
+# Boxarr - Developer Documentation
 
-## Project Overview
+## What Boxarr Actually Does
 
-Boxarr is a professional box office tracking application that integrates with Radarr to automatically monitor and manage the latest theatrical releases. This is an open-source project that will be under public scrutiny, so code quality, testing, and documentation are paramount.
+Boxarr is a web application that:
+1. **Fetches weekly box office data** from Box Office Mojo (top 10 movies)
+2. **Auto-adds missing movies** to Radarr with default quality profile
+3. **Generates static HTML pages** for each week with beautiful movie cards
+4. **Updates status dynamically** via JavaScript polling (only Radarr status/quality changes)
+5. **Provides UI-first configuration** - no environment variables required
 
-## Core Purpose
+This transforms a working local script into a shareable, dockerized application.
 
-Transform a working local implementation (cron job + HTML page) into a professional, dockerized application that:
-- Fetches weekly box office top 10 from Box Office Mojo
-- Integrates seamlessly with Radarr for movie management
-- Provides a beautiful, responsive dashboard
-- Offers RESTful API for third-party integrations
-- Can be easily deployed via Docker
-
-## Project Standards
-
-### Code Quality Requirements
-- **Clean Code**: Follow PEP 8 for Python, ESLint rules for JavaScript
-- **Type Hints**: All Python functions must have type hints
-- **Documentation**: Every module, class, and function needs docstrings
-- **Testing**: Minimum 80% code coverage
-- **Error Handling**: Comprehensive error handling with proper logging
-- **Security**: Never expose API keys, sanitize all inputs, use secure defaults
-
-### Architecture Principles
-- **Separation of Concerns**: Core logic, API, and UI are separate modules
-- **Configuration over Code**: All settings must be configurable
-- **Docker First**: Design for containerization from the start
-- **API First**: Build the API before the UI
-- **Extensibility**: Design for future features (notifications, multiple instances, etc.)
-
-## Technical Stack
-
-### Backend
-- **Language**: Python 3.11+
-- **Framework**: FastAPI for REST API
-- **Database**: SQLite (embedded) with SQLAlchemy ORM
-- **Scheduler**: APScheduler for cron jobs
-- **HTTP Client**: httpx with retry logic
-- **Configuration**: pydantic for settings management
-
-### Frontend (Future)
-- **Framework**: Vue.js 3 with Composition API
-- **Styling**: Tailwind CSS
-- **Build Tool**: Vite
-- **State Management**: Pinia
-- **API Client**: Axios with interceptors
-
-### Infrastructure
-- **Container**: Docker with multi-stage builds
-- **Base Image**: Alpine Linux for minimal size
-- **Process Manager**: Supervisor for multiple services
-- **Reverse Proxy**: Nginx for static files
-
-## Directory Structure
+## Architecture Overview
 
 ```
-boxarr/
-├── src/
-│   ├── core/                  # Business logic
-│   │   ├── __init__.py
-│   │   ├── boxoffice.py       # Box Office Mojo scraper
-│   │   ├── radarr.py          # Radarr API client
-│   │   ├── matcher.py         # Movie matching algorithms
-│   │   └── scheduler.py       # Task scheduling
-│   ├── api/                   # REST API
-│   │   ├── __init__.py
-│   │   ├── main.py           # FastAPI app
-│   │   ├── routes/           # API endpoints
-│   │   └── models/           # Pydantic models
-│   ├── web/                   # Web interface
-│   │   ├── static/           # Static files
-│   │   └── templates/        # HTML templates
-│   ├── utils/                 # Utilities
-│   │   ├── __init__.py
-│   │   ├── config.py         # Configuration management
-│   │   └── logger.py         # Logging setup
-│   └── main.py               # Application entry point
-├── tests/                     # Test suite
-│   ├── unit/                 # Unit tests
-│   ├── integration/          # Integration tests
-│   └── fixtures/             # Test data
-├── config/                    # Configuration files
-│   └── default.yaml          # Default settings
-├── docker/                    # Docker files
-│   ├── Dockerfile
-│   └── docker-compose.yml
-├── docs/                      # Documentation
-│   ├── API.md
-│   ├── CONFIGURATION.md
-│   └── DEPLOYMENT.md
-└── internal/                  # Internal planning (not committed)
-    ├── current_widget_generator.py  # Current implementation
-    ├── PROJECT_SUMMARY.md
-    ├── ARCHITECTURE.md
-    └── ROADMAP.md
+Weekly Scheduler (Tuesday 11 PM)
+    ↓
+Fetch Box Office Top 10
+    ↓
+Match with Radarr Library
+    ↓
+Auto-add Missing Movies
+    ↓
+Generate Static HTML Page (YYYY/WW.html)
+    ↓
+JavaScript polls /api/movies/status for dynamic updates
 ```
 
-## Current Implementation Reference
+**Key Design Decision**: Static HTML generation with minimal dynamic updates (efficient, like the original working system at http://eems:8888/box-office-summary.html)
 
-The working implementation is in `internal/current_widget_generator.py`:
-- Fetches from Box Office Mojo using regex parsing
-- Matches movies with Radarr using normalized titles
-- Generates HTML dashboard with status indicators
-- Provides quality upgrade functionality
-- Stores historical data in JSON
+## Current Implementation
 
-### Key Functions to Port
-1. `fetch_box_office_movies()` - Web scraping logic
-2. `find_movie_in_radarr()` - Smart matching algorithm
-3. `get_movie_status_details()` - Status determination
-4. `get_radarr_profiles()` - Quality profile management
-5. `generate_html()` - Dashboard generation
+### Core Modules (`src/core/`)
+- `boxoffice.py` - Box Office Mojo scraper with BeautifulSoup
+- `radarr.py` - Complete Radarr API client
+- `matcher.py` - Smart movie matching algorithm (handles sequels, colons, etc.)
+- `scheduler.py` - APScheduler that triggers weekly updates
+- `html_generator.py` - Generates static HTML pages with compact header and dynamic navigation
+- `exceptions.py` - Custom exception hierarchy
 
-### Hardcoded Values to Replace
-- `RADARR_URL = "http://localhost:7878"`
-- `RADARR_API_KEY` (currently hardcoded)
-- `PORT = 8888` (web interface)
-- `UPGRADE_PORT = 8889` (API server)
-- `SCHEDULE = "0 23 * * 2"` (Tuesday 11 PM)
-- `WIDGET_DIR` (output directory)
+### API (`src/api/`)
+- `app.py` - FastAPI application with web UI routes
 
-## Development Workflow
+### Utilities (`src/utils/`)
+- `config.py` - Pydantic settings management (env vars + YAML)
+- `logger.py` - Logging with rotation
 
-### Phase 1: Core Implementation (Current)
-1. ✅ Set up project structure
-2. ✅ Create GitHub repository
-3. ⬜ Port core functionality to clean modules
-4. ⬜ Implement configuration system
-5. ⬜ Add comprehensive error handling
-6. ⬜ Write unit tests
+### Main Entry Point
+- `src/main.py` - Application startup with CLI/API modes
 
-### Phase 2: API Development
-1. ⬜ Design RESTful API endpoints
-2. ⬜ Implement FastAPI application
-3. ⬜ Add authentication (optional)
-4. ⬜ Create API documentation
-5. ⬜ Write API tests
+## How It Works
 
-### Phase 3: Docker Packaging
-1. ⬜ Create multi-stage Dockerfile
-2. ⬜ Set up docker-compose
-3. ⬜ Configure volumes and networking
-4. ⬜ Add health checks
-5. ⬜ Test container deployment
-
-### Phase 4: UI Enhancement
-1. ⬜ Create Vue.js application
-2. ⬜ Implement responsive design
-3. ⬜ Add configuration UI
-4. ⬜ Integrate with API
-5. ⬜ Add real-time updates
-
-## Testing Requirements
-
-### Unit Tests
-- Test each core function independently
-- Mock external API calls
-- Test error conditions
-- Validate configuration handling
-
-### Integration Tests
-- Test Radarr API integration
-- Test Box Office Mojo scraping
-- Test database operations
-- Test scheduler functionality
-
-### End-to-End Tests
-- Test complete workflow
-- Test Docker deployment
-- Test API endpoints
-- Test UI functionality
-
-## API Design
-
-### Core Endpoints
+### 1. First Run (Setup Wizard)
+```bash
+docker run -p 8888:8888 -v ./config:/config boxarr
 ```
-GET  /api/boxoffice/current
-GET  /api/boxoffice/history/{year}/W{week}
-GET  /api/movies/{id}
-POST /api/movies/{id}/upgrade
-GET  /api/config
-PUT  /api/config
-GET  /api/health
-GET  /api/widget
-GET  /api/widget/json
-```
+- Visit http://localhost:8888 → redirects to `/setup`
+- Enter Radarr URL and API key
+- Click "Test Connection" - fetches quality profiles dynamically
+- Select options and save → stored in `/config/local.yaml`
 
-### WebSocket Events
-```
-movie:added
-movie:upgraded
-movie:status_changed
-boxoffice:updated
-config:changed
+### 2. Weekly Update Process
+- Scheduler runs (or manual trigger)
+- Fetches current box office from Box Office Mojo
+- Matches movies with Radarr library
+- Auto-adds unmatched movies with default profile
+- Generates static HTML at `/config/weekly_pages/YYYYWWW.html`
+- Updates `/config/weekly_pages/current.html` symlink
+
+### 3. Dynamic Updates
+- Static HTML includes JavaScript
+- JS polls `/api/movies/status` every 30 seconds
+- Updates only: status (Downloaded/Missing/In Cinemas) and quality profiles
+- Everything else stays static (posters, titles, descriptions)
+
+### 4. Quality Upgrades
+- "Upgrade to Ultra-HD" button on each movie card
+- Calls `/api/movies/{id}/upgrade`
+- Updates quality profile in Radarr
+
+## API Endpoints
+
+### Configuration
+- `POST /api/config/test` - Test Radarr connection and fetch profiles
+- `POST /api/config/save` - Save configuration
+
+### Box Office
+- `GET /api/boxoffice/current` - Current week with Radarr matching
+- `GET /api/boxoffice/history/{year}/W{week}` - Historical data
+
+### Movies
+- `GET /api/movies/{id}` - Movie details
+- `POST /api/movies/{id}/upgrade` - Upgrade quality profile
+- `POST /api/movies/status` - Batch status check (for JS polling, filters null IDs)
+- `POST /api/movies/add` - Manually add a movie to Radarr (with automatic regeneration)
+
+### Weekly Pages Management
+- `GET /api/weeks` - Get list of all available weeks with metadata
+- `DELETE /api/weeks/{year}/W{week}/delete` - Delete specific week's data files
+- `POST /api/update-week` - Update box office for specific historical week
+
+### Web UI
+- `GET /` - Current week or redirect to setup
+- `GET /setup` - Configuration wizard (with Back to Dashboard button)
+- `GET /dashboard` - Browse all weeks (paginated display with delete functionality)
+- `GET /{year}W{week}.html` - Specific week's static page
+
+### Utility
+- `GET /api/health` - Health check
+- `POST /api/trigger-update` - Manual update trigger
+
+## Configuration
+
+### No Environment Variables Required!
+Start container without any configuration:
+```bash
+docker run -p 8888:8888 -v ./config:/config boxarr
 ```
 
-## Configuration Schema
-
+### Configuration File (`/config/local.yaml`)
+Generated by setup wizard:
 ```yaml
 radarr:
   url: http://localhost:7878
-  api_key: ""
+  api_key: your-key
   root_folder: /movies
-  quality_profiles:
-    default: HD-1080p
-    upgrade: Ultra-HD
-  monitor_options:
-    monitor: movieOnly
-    minimum_availability: announced
-    search_for_movie: true
+  quality_profile_default: HD-1080p
+  quality_profile_upgrade: Ultra-HD
 
 boxarr:
-  server:
-    host: 0.0.0.0
-    port: 8888
-    api_port: 8889
   scheduler:
     enabled: true
-    cron: "0 23 * * 2"
-    timezone: America/New_York
-  ui:
-    theme: purple
-    cards_per_row:
-      mobile: 1
-      tablet: 3
-      desktop: 5
-      "4k": 5
-    show_descriptions: true
+    cron: "0 23 * * 2"  # Tuesday 11 PM
   features:
-    auto_add: false
+    auto_add: true
     quality_upgrade: true
-    notifications: false
-  data:
-    history_retention_days: 90
-    cache_ttl_seconds: 3600
 ```
 
-## Security Considerations
+### Optional Environment Variables
+Can override config file:
+- `RADARR_URL`
+- `RADARR_API_KEY`
+- `BOXARR_DATA_DIRECTORY` (default: `/config`)
 
-1. **API Keys**: Never commit API keys, use environment variables
-2. **Input Validation**: Sanitize all user inputs
-3. **Rate Limiting**: Implement rate limiting for API endpoints
-4. **CORS**: Configure CORS properly for production
-5. **Container Security**: Run as non-root user in Docker
-6. **Network Security**: Use internal Docker networks
-7. **Data Privacy**: Don't log sensitive information
+## File Structure
 
-## Performance Goals
-
-- Dashboard load time: < 2 seconds
-- API response time: < 500ms
-- Memory usage: < 100MB
-- CPU usage: < 1% idle
-- Docker image size: < 100MB
-- Startup time: < 10 seconds
-
-## Deployment Requirements
-
-### Docker
-- Multi-stage build for minimal image size
-- Health checks for container monitoring
-- Proper signal handling for graceful shutdown
-- Volume mounts for configuration and data
-- Environment variable support
-
-### System Requirements
-- Python 3.11+
-- 256MB RAM minimum
-- 100MB disk space
-- Network access to Radarr and Box Office Mojo
-
-## Git Workflow
-
-### Branch Strategy
-- `main`: Production-ready code
-- `develop`: Development branch
-- `feature/*`: Feature branches
-- `bugfix/*`: Bug fix branches
-- `release/*`: Release preparation
-
-### Commit Messages
-Follow conventional commits:
-- `feat:` New feature
-- `fix:` Bug fix
-- `docs:` Documentation
-- `style:` Formatting
-- `refactor:` Code restructuring
-- `test:` Testing
-- `chore:` Maintenance
-
-### Pull Request Process
-1. Create feature branch
-2. Write code with tests
-3. Update documentation
-4. Pass all CI checks
-5. Request review
-6. Merge after approval
-
-## Quality Checklist
-
-Before committing code:
-- [ ] Code follows style guidelines
-- [ ] All functions have docstrings
-- [ ] Type hints are present
-- [ ] Unit tests written and passing
-- [ ] No hardcoded values
-- [ ] Error handling implemented
-- [ ] Logging added where appropriate
-- [ ] Documentation updated
-- [ ] No security vulnerabilities
-- [ ] Performance considered
-
-## External Dependencies
-
-### Python Packages
+### Generated Files
 ```
-fastapi>=0.100.0
-uvicorn>=0.23.0
-httpx>=0.24.0
-beautifulsoup4>=4.12.0
-sqlalchemy>=2.0.0
-alembic>=1.11.0
-apscheduler>=3.10.0
-pydantic>=2.0.0
-pydantic-settings>=2.0.0
-python-multipart>=0.0.6
-pytest>=7.4.0
-pytest-cov>=4.1.0
-pytest-asyncio>=0.21.0
-black>=23.7.0
-flake8>=6.1.0
-mypy>=1.5.0
+/config/
+├── local.yaml              # Configuration (created by setup wizard)
+├── weekly_pages/
+│   ├── 2024W48.html       # Static page for week 48
+│   ├── 2024W48.json       # Metadata with full movie data
+│   └── current.html       # Current week page
+├── history/                # Historical update results
+│   └── YYYYWWW_*.json     # Update history with timestamps
+└── logs/                   # Application logs
 ```
 
-### System Dependencies
-- Python 3.11+
-- Docker 20.10+
-- Git 2.30+
+### Metadata JSON Structure
+Each week's JSON file contains:
+- Basic metadata (year, week, dates)
+- Quality profiles from Radarr
+- **Full movie data array** including:
+  - Box office info (rank, title, gross)
+  - Radarr info (if matched)
+  - TMDB data (poster, overview, genres)
+  - Status and display properties
+- This enables regeneration without re-fetching external data
 
-## Resources
+### Source Code
+```
+src/
+├── core/                   # Business logic
+├── api/                    # FastAPI application
+├── utils/                  # Configuration and logging
+├── web/                    # Templates and static files
+└── main.py                # Entry point
+```
 
-### Internal Documentation
-- `/internal/PROJECT_SUMMARY.md` - Original project summary
-- `/internal/ARCHITECTURE.md` - Technical architecture
-- `/internal/ROADMAP.md` - Development roadmap
-- `/internal/current_widget_generator.py` - Current implementation
+## Testing
 
-### External Resources
-- [Radarr API Documentation](https://radarr.video/docs/api/)
-- [FastAPI Documentation](https://fastapi.tiangolo.com/)
-- [Docker Best Practices](https://docs.docker.com/develop/dev-best-practices/)
-- [Box Office Mojo](https://www.boxofficemojo.com/)
-
-## Important Notes
-
-1. **This is an open-source project** - Code will be publicly visible and scrutinized
-2. **Professional quality required** - Clean, tested, documented code only
-3. **Security is critical** - Never expose sensitive data
-4. **User experience matters** - Make it easy to deploy and use
-5. **Community-driven** - Design for contributions and extensions
-
-## Contact
-
-- GitHub Repository: https://github.com/iongpt/boxarr
-- Issues: https://github.com/iongpt/boxarr/issues
-
-## GitHub Setup
-
-The repository is configured to use a specific SSH key for the `iongpt` GitHub account:
-
+### Unit Tests
 ```bash
-# SSH config entry (~/.ssh/config)
-Host github.com-iongpt
-    HostName github.com
-    User git
-    IdentityFile ~/.ssh/ion
-    IdentitiesOnly yes
-
-# Git remote configuration
-git remote add origin git@github.com-iongpt:iongpt/boxarr.git
+pytest tests/unit/test_matcher.py -v
 ```
+
+### Manual Testing
+```bash
+# Without Docker
+python src/main.py
+
+# With Docker
+docker build -t boxarr .
+docker run -p 8888:8888 -v ./config:/config boxarr
+```
+
+### Test Radarr Connection
+```bash
+curl -X POST http://localhost:8888/api/config/test \
+  -H "Content-Type: application/json" \
+  -d '{"url":"http://localhost:7878","api_key":"your-key"}'
+```
+
+## Key Implementation Details
+
+### Movie Matching Algorithm
+- Normalizes titles (removes punctuation, handles "The")
+- Handles sequels (Roman numerals, numbers)
+- Special case for "Movie: Subtitle" vs "Movie Subtitle"
+- Year matching for disambiguation
+- Confidence scoring with configurable threshold
+
+### Static HTML Generation
+- **Compact header design** with integrated navigation and connection status
+- **Dynamic navigation** that loads available weeks via API
+  - Shows 4 most recent weeks as quick links
+  - Comprehensive dropdown menu grouped by year
+  - Scales efficiently for 100+ weeks
+- Beautiful responsive cards (5 per row on 4K)
+- Purple gradient theme
+- Movie posters with rank badges
+- Status indicators with colors
+- Quality profile display
+- IMDb and Wikipedia links
+- JavaScript for dynamic updates
+
+### Dashboard Features
+- **Paginated display** - Shows first 24 weeks (6 months)
+- **Delete functionality** - Remove individual weeks with confirmation
+- **Dropdown navigation** for older weeks beyond the first 24
+- **Empty state handling** - Graceful message when no weeks exist
+
+### Auto-Add Logic (When Enabled)
+1. Check `settings.boxarr_features_auto_add` setting
+2. If enabled:
+   - Find unmatched box office movies
+   - Search TMDB via Radarr API
+   - Add with default quality profile
+   - Set as monitored
+   - Trigger search
+3. If disabled:
+   - Log count of unmatched movies
+   - Display "Add to Radarr" button in UI
+   - Wait for manual user action
+
+### Manual Movie Addition
+1. User clicks "Add to Radarr" button
+2. Frontend calls `/api/movies/add` endpoint
+3. Backend searches TMDB for movie
+4. Adds movie with default quality profile
+5. Triggers `regenerate_weeks_with_movie()`:
+   - Searches all metadata JSON files
+   - Finds weeks containing the movie
+   - Re-matches with updated Radarr library
+   - Regenerates HTML for affected weeks
+6. Frontend reloads to show updated status
+
+### TMDB Data Enrichment
+For movies NOT in Radarr:
+1. Search TMDB via Radarr's search endpoint
+2. Extract from first result:
+   - Poster URL (`remotePoster`)
+   - Year
+   - Overview (truncated to 150 chars)
+   - Genres (first 2)
+   - IMDB ID
+3. Store full data in metadata JSON
+4. Display in movie cards with same layout as Radarr movies
+
+## Docker Deployment
+
+### Simple Dockerfile
+```dockerfile
+FROM python:3.11-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY src/ /app/src/
+VOLUME ["/config"]
+EXPOSE 8888
+CMD ["python", "-m", "src.main"]
+```
+
+### Docker Commands for Development
+```bash
+# Stop existing container
+docker stop boxarr
+
+# Remove container
+docker rm boxarr
+
+# Build new image
+docker build -t boxarr:test .
+
+# Run container
+docker run -d \
+    --name boxarr \
+    -p 8888:8888 \
+    -v $(pwd)/config:/config \
+    boxarr:test
+
+# View logs
+docker logs -f boxarr
+```
+
+### Docker Compose
+```yaml
+version: '3.8'
+services:
+  boxarr:
+    build: .
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./config:/config
+    restart: unless-stopped
+```
+
+## Performance Considerations
+
+- **Static HTML**: Most content is static, reducing server load
+- **Batch API calls**: Status updates fetch all movies at once
+- **Caching**: 1-hour cache TTL for box office data
+- **Minimal polling**: JS updates every 30 seconds (configurable)
+- **Efficient matching**: Indexed movie cache for O(1) lookups
+
+## Security
+
+- **No hardcoded credentials**: Everything via UI or config file
+- **API key validation**: Test connection before saving
+- **Input sanitization**: All user inputs validated
+- **File paths**: Restricted to /config volume
+- **No database**: No SQL injection risks
+
+## Future Improvements (Not Implemented)
+
+- Multiple Radarr instance support
+- Notifications (Discord, Telegram)
+- Advanced scheduling options
+- WebSocket for real-time updates
+- Vue.js frontend (currently static HTML)
+- PostgreSQL support (currently SQLite only)
+
+## GitHub Repository
+
+- **Repository**: https://github.com/iongpt/boxarr
+- **Branch**: feature/core-implementation
+- **SSH Config**: Uses `github.com-iongpt` host alias with specific key
 
 ## License
 
-This project is licensed under the GNU General Public License v3.0 (GPLv3). This means:
-- Source code must be made available when distributed
-- Modifications must be released under the same license
-- Changes must be documented
-- Patent rights are explicitly granted
-- The software is provided without warranty
+GNU General Public License v3.0 (GPLv3)
 
-The GPLv3 license ensures that Boxarr remains free and open-source software.
+## Important Notes
 
-## Final Notes
+1. **This is production-ready code** - Clean, tested, documented
+2. **UI-first approach** - No pre-configuration needed
+3. **Efficient architecture** - Static HTML with minimal dynamic updates
+4. **Professional quality** - Ready for public scrutiny
+5. **Docker-ready** - Single command deployment
 
-Remember: This project represents the quality of work expected in professional open-source software. Every line of code, every commit, and every interaction reflects on the project's reputation.
+## Known Behaviors & Design Decisions
 
-**Key Principles:**
-1. **Quality First**: Clean, tested, documented code only
-2. **Security Always**: Never expose sensitive data or API keys
-3. **User Focused**: Easy to deploy, configure, and use
-4. **Community Driven**: Design for contributions and extensions
-5. **Professional Standards**: This is public, open-source software under scrutiny
+### Auto-Add Setting
+- When **enabled**: Movies are automatically added during scheduled updates
+- When **disabled**: Movies show "Add to Radarr" button for manual control
+- Setting can be changed at any time via Settings page
+- Changes take effect on next update cycle
+
+### Movie Data Persistence
+- All movie metadata stored in JSON files
+- Enables regeneration without external API calls
+- Preserves historical data even if movie removed from Radarr
+- TMDB data cached at generation time
+
+### Page Regeneration
+- Automatic when movie added to Radarr
+- Affects all weeks containing that movie
+- Preserves week's original box office rankings
+- Updates only the Radarr status and quality info
+
+### Navigation Scalability
+- Recent 4 weeks shown as quick links
+- Dropdown menu groups weeks by year
+- Dashboard shows 24 most recent weeks
+- Older weeks accessible via dropdown
+- Handles 100+ weeks efficiently

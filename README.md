@@ -11,10 +11,17 @@ Automatically track and add box office hits to your Radarr collection. Boxarr mo
 
 - **Automatic Box Office Tracking**: Fetches weekly top 10 movies from Box Office Mojo
 - **Smart Movie Matching**: Advanced algorithms to match box office titles with your Radarr library
-- **Real-time Status Updates**: See movie availability status (Downloaded, In Cinemas, Missing, etc.)
-- **Quality Profile Management**: One-click quality profile upgrades
+- **TMDB Enrichment**: All movies display posters, descriptions, and metadata even when not in Radarr
+- **Flexible Auto-Add**: Choose between automatic or manual addition of movies to Radarr
+- **Manual Movie Addition**: One-click "Add to Radarr" button for unmatched movies
+- **Automatic Page Regeneration**: All weeks update automatically when a movie is added to Radarr
+- **Real-time Status Updates**: See movie availability status (Downloaded, In Cinemas, Missing, Not in Radarr)
+- **Quality Profile Management**: One-click quality profile upgrades to Ultra-HD
 - **Historical Data**: Browse and analyze past weeks' box office rankings
-- **Beautiful Dashboard**: Responsive web interface optimized for all screen sizes
+- **Beautiful Dashboard**: Responsive web interface with compact header and dynamic navigation
+- **Week Management**: Delete individual weeks or regenerate data as needed
+- **Scalable Navigation**: Efficiently handles 100+ weeks with grouped year navigation
+- **Settings Persistence**: Configuration is saved and pre-populated in settings page
 - **API Integration**: RESTful API for third-party integrations
 - **Docker Support**: Easy deployment with Docker and Docker Compose
 
@@ -22,14 +29,17 @@ Automatically track and add box office hits to your Radarr collection. Boxarr mo
 
 ### Docker (Recommended)
 
+**No configuration needed!** Start Boxarr and configure everything through the web UI:
+
 ```bash
 docker run -d \
   --name boxarr \
-  -e RADARR_URL=http://your-radarr:7878 \
-  -e RADARR_API_KEY=your-api-key \
   -p 8888:8888 \
+  -v ./config:/config \
   boxarr/boxarr:latest
 ```
+
+Then visit http://localhost:8888 to complete setup.
 
 ### Docker Compose
 
@@ -39,10 +49,6 @@ services:
   boxarr:
     image: boxarr/boxarr:latest
     container_name: boxarr
-    environment:
-      - RADARR_URL=http://radarr:7878
-      - RADARR_API_KEY=${RADARR_API_KEY}
-      - TZ=America/New_York
     ports:
       - "8888:8888"
     volumes:
@@ -52,32 +58,46 @@ services:
 
 ## 📋 Configuration
 
-Boxarr can be configured through environment variables or a configuration file.
+### Web UI Setup (Recommended)
 
-### Environment Variables
+1. **Start Boxarr** without any configuration
+2. **Visit** http://localhost:8888 
+3. **Enter** your Radarr URL and API key
+4. **Test Connection** to validate and fetch quality profiles
+5. **Choose** your quality profiles, root folder, and schedule
+6. **Configure** auto-add and other preferences
+7. **Save** to complete setup and start tracking
+
+The setup wizard will:
+- Validate your Radarr connection
+- Fetch available quality profiles dynamically
+- Show root folders with free space
+- Let you configure auto-add behavior:
+  - **Auto-Add Enabled**: Automatically adds missing movies to Radarr
+  - **Auto-Add Disabled**: Shows "Add to Radarr" button for manual addition
+- Pre-populate settings when you return to the settings page
+- Remember your configuration across container restarts
+
+### Manual Configuration (Optional)
+
+You can also configure via environment variables:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `RADARR_URL` | URL to your Radarr instance | `http://localhost:7878` |
-| `RADARR_API_KEY` | Radarr API key | Required |
-| `BOXARR_PORT` | Web interface port | `8888` |
-| `BOXARR_API_PORT` | API server port | `8889` |
-| `BOXARR_SCHEDULE` | Cron expression for updates | `0 23 * * 2` (Tue 11 PM) |
-| `BOXARR_THEME` | UI theme (purple, blue, dark) | `purple` |
-| `TZ` | Timezone | `UTC` |
+| `RADARR_URL` | URL to your Radarr instance | - |
+| `RADARR_API_KEY` | Radarr API key | - |
+| `BOXARR_SCHEDULER_ENABLED` | Enable automatic updates | `true` |
+| `BOXARR_FEATURES_AUTO_ADD` | Auto-add missing movies | `false` |
 
-### Configuration File
-
-Create a `config.yaml` file in your config directory:
+Or via `config/local.yaml`:
 
 ```yaml
 radarr:
   url: http://localhost:7878
   api_key: your-api-key
+  quality_profile_default: HD-1080p
   quality_profile_upgrade: Ultra-HD
-  
-boxarr:
-  port: 8888
+  root_folder: /movies
   api_port: 8889
   schedule: "0 23 * * 2"
   theme: purple
@@ -86,6 +106,36 @@ boxarr:
     tablet: 4
     desktop: 5
 ```
+
+## 🎬 How It Works
+
+### Weekly Updates
+Every week (configurable schedule), Boxarr:
+1. Fetches the top 10 box office movies from Box Office Mojo
+2. Matches them against your Radarr library
+3. Enriches all movies with TMDB data (posters, descriptions, genres)
+4. Depending on your auto-add setting:
+   - **Auto-Add ON**: Automatically adds missing movies to Radarr
+   - **Auto-Add OFF**: Displays movies with "Add to Radarr" button
+5. Generates a static HTML page with beautiful movie cards
+
+### Movie Cards Display
+Each movie card shows:
+- Movie poster from TMDB (even if not in Radarr)
+- Title, year, genres, and description
+- Current status (Downloaded, Missing, In Cinemas, Not in Radarr)
+- Quality profile (if in Radarr)
+- Action buttons:
+  - "Add to Radarr" for unmatched movies (when auto-add is off)
+  - "Upgrade to Ultra-HD" for movies with lower quality profiles
+- IMDb and Wikipedia links
+
+### Automatic Updates
+When you manually add a movie to Radarr:
+- The movie is added with your default quality profile
+- All weeks containing that movie are automatically regenerated
+- The movie status updates from "Not in Radarr" to appropriate status
+- The "Add to Radarr" button is replaced with quality profile info
 
 ## 🛠️ Development
 
@@ -139,33 +189,35 @@ Boxarr provides a RESTful API for integrations:
 
 ### Endpoints
 
-- `GET /api/boxoffice/current` - Get current week's box office
-- `GET /api/boxoffice/history/{year}/W{week}` - Get historical data
-- `GET /api/movies/{id}` - Get movie details
-- `POST /api/movies/{id}/upgrade` - Upgrade movie quality profile
-- `GET /api/widget` - Get embeddable HTML widget
-- `GET /api/widget/json` - Get widget data as JSON
+- `GET /api/health` - Health check with Radarr connection status
+- `POST /api/trigger-update` - Update last week's box office data
+- `POST /api/update-week` - Update specific week (year and week in body)
+- `POST /api/config/test` - Test Radarr connection
+- `POST /api/config/save` - Save configuration
+- `GET /dashboard` - View dashboard with all weekly pages
+- `GET /{year}W{week}.html` - View specific week's box office
 
-### WebSocket
+### Weekly Updates
 
-Connect to `ws://boxarr:8889/ws` for real-time updates:
-- `movie:added` - Movie added to Radarr
-- `movie:upgraded` - Quality profile upgraded
-- `boxoffice:updated` - Box office data refreshed
+Boxarr automatically updates box office data:
+- **Default Schedule**: Every Monday at 11 PM (configurable)
+- **Last Week Update**: Always fetches the completed week's data
+- **Historical Updates**: Can update any past week via the dashboard
+- **Immutable History**: Past weeks won't be re-updated automatically
 
-## 📊 Homepage Integration
+## 📊 Dashboard Features
 
-Add Boxarr widget to your Homepage dashboard:
+### Navigation
+- **Recent Weeks**: Quick access to last 8 weeks
+- **Older Weeks Dropdown**: Access all historical data
+- **Back to Dashboard**: Easy navigation from any week view
+- **View Last Week**: One-click access to the most recent box office data
 
-```yaml
-- Boxarr:
-    icon: boxarr.png
-    href: http://boxarr:8888
-    widget:
-      type: customapi
-      url: http://boxarr:8889/api/widget/json
-      refreshInterval: 10000
-```
+### Week View
+- **Movie Cards**: Visual display with posters and status
+- **Quality Management**: Upgrade profiles with one click
+- **Status Indicators**: See download/cinema/missing status
+- **Radarr Integration**: Direct links to movies in Radarr
 
 ## 🤝 Contributing
 
@@ -195,6 +247,11 @@ This project is licensed under the GNU General Public License v3.0 - see the [LI
 
 ## 🗺️ Roadmap
 
+- [✅] Web UI configuration wizard
+- [✅] Settings persistence and pre-population  
+- [✅] Custom scheduling with day/time selection
+- [✅] Historical week updates
+- [✅] Improved navigation with dropdown for older weeks
 - [ ] Multi-region box office support
 - [ ] Machine learning predictions
 - [ ] Mobile applications
