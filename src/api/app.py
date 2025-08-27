@@ -1006,12 +1006,8 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
 
         cron = current_settings.boxarr_scheduler_cron
         cron_match = re.match(r"0 (\d+) \* \* (\d+)", cron)
-        if cron_match:
-            hour = int(cron_match.group(1))
-            day = int(cron_match.group(2))
-        else:
-            hour = 23  # Default 11 PM
-            day = 1  # Default Tuesday
+        hour = int(cron_match.group(1)) if cron_match else 23  # Default 11 PM
+        day = int(cron_match.group(2)) if cron_match else 1  # Default Tuesday
 
         # Always use inline HTML for setup (no templates needed)
         return HTMLResponse(

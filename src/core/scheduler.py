@@ -420,8 +420,9 @@ class BoxarrScheduler:
             Next run datetime or None
         """
         job = self.scheduler.get_job("box_office_update")
-        if job and job.next_run_time:
-            return job.next_run_time
+        if job is not None:
+            next_time = job.next_run_time
+            return next_time if isinstance(next_time, datetime) else None
         return None
 
     def run_now(self) -> None:
