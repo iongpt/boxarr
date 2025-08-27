@@ -480,6 +480,62 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
             top_movie=movies[0].title if movies else None
         )
     
+    @app.get("/api/weeks")
+    async def get_available_weeks():
+        """Get list of available weekly pages for dynamic navigation."""
+        try:
+            weeks_dir = settings.boxarr_data_directory / "weekly_pages"
+            weeks = []
+            
+            # Find all week HTML files
+            for file in sorted(weeks_dir.glob("????W??.html"), reverse=True):
+                if file.name != "current.html":
+                    week_str = file.stem
+                    year = int(week_str[:4])
+                    week_num = int(week_str[5:7])
+                    
+                    # Check if metadata exists for date info
+                    metadata_file = weeks_dir / f"{week_str}.json"
+                    friday = ""
+                    sunday = ""
+                    if metadata_file.exists():
+                        try:
+                            with open(metadata_file) as f:
+                                metadata = json.load(f)
+                            # Parse dates from metadata
+                            if "friday" in metadata:
+                                friday_date = datetime.fromisoformat(metadata["friday"])
+                                friday = friday_date.strftime("%b %d")
+                            if "sunday" in metadata:
+                                sunday_date = datetime.fromisoformat(metadata["sunday"])
+                                sunday = sunday_date.strftime("%b %d, %Y")
+                        except:
+                            pass
+                    
+                    weeks.append({
+                        "year": year,
+                        "week": week_num,
+                        "week_str": week_str,
+                        "date_range": f"{friday} - {sunday}" if friday and sunday else f"Week {week_num}, {year}"
+                    })
+            
+            # Get current week info
+            now = datetime.now()
+            current_year = now.year
+            current_week_num = now.isocalendar()[1]
+            current_week = f"{current_year}W{current_week_num:02d}"
+            
+            return {
+                "weeks": weeks,
+                "current_week": current_week
+            }
+        except Exception as e:
+            logger.error(f"Failed to get available weeks: {e}")
+            return {
+                "weeks": [],
+                "current_week": None
+            }
+    
     # Web UI routes
     templates_dir = Path(__file__).parent.parent / "web" / "templates"
     static_dir = Path(__file__).parent.parent / "web" / "static"
@@ -536,16 +592,49 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
                         "matched_movies": metadata.get("matched_movies", 0),
                     })
         
-        # Generate weeks HTML
+        # Generate weeks HTML - limit display but keep all for navigation
         weeks_html = ""
         if weeks:
-            for week in weeks:
+            # Show first 24 weeks (about 6 months) by default
+            displayed_weeks = weeks[:24]
+            remaining_count = len(weeks) - 24
+            
+            for week in displayed_weeks:
+                # Parse timestamp for better display
+                timestamp = week.get('generated_at', '')
+                if timestamp:
+                    try:
+                        dt = datetime.fromisoformat(timestamp)
+                        timestamp_str = dt.strftime("%b %d, %Y at %I:%M %p")
+                    except:
+                        timestamp_str = timestamp
+                else:
+                    timestamp_str = 'No timestamp'
+                    
                 weeks_html += f"""
                 <div class="week-card">
                     <h3>📅 {week['year']} Week {week['week']:02d}</h3>
                     <p>Movies: {week['total_movies']} | Matched: {week['matched_movies']}</p>
-                    <p class="timestamp">{week.get('generated_at', 'No timestamp')}</p>
+                    <p class="timestamp">Generated: {timestamp_str}</p>
                     <a href="/{week['filename']}" class="btn-view">View Week</a>
+                    <button class="btn-delete" onclick="deleteWeek('{week['year']}', '{week['week']:02d}')">Delete</button>
+                </div>
+                """
+            
+            if remaining_count > 0:
+                weeks_html += f"""
+                <div style="grid-column: 1/-1; text-align: center; margin: 30px 0;">
+                    <p style="color: white; font-size: 1.1em; margin-bottom: 15px;">
+                        Showing 24 most recent weeks. {remaining_count} older weeks available.
+                    </p>
+                    <select id="olderWeeksSelect" style="padding: 10px; font-size: 16px; border-radius: 5px; cursor: pointer;" 
+                            onchange="if(this.value) window.location.href=this.value">
+                        <option value="">View older weeks...</option>
+                """
+                for week in weeks[24:]:
+                    weeks_html += f'<option value="/{week["filename"]}">Year {week["year"]} Week {week["week"]:02d}</option>'
+                weeks_html += """
+                    </select>
                 </div>
                 """
         else:
@@ -582,13 +671,17 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
                 .weeks-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); 
                               gap: 20px; margin-top: 20px; }}
                 .week-card {{ background: white; padding: 20px; border-radius: 10px; 
-                             box-shadow: 0 4px 6px rgba(0,0,0,0.1); }}
+                             box-shadow: 0 4px 6px rgba(0,0,0,0.1); position: relative; }}
                 .week-card h3 {{ color: #667eea; margin: 0 0 10px 0; }}
                 .timestamp {{ color: #718096; font-size: 0.9em; }}
                 .btn-view {{ background: #48bb78; color: white; padding: 8px 16px; 
                             border-radius: 5px; text-decoration: none; display: inline-block; 
                             margin-top: 10px; }}
                 .btn-view:hover {{ background: #38a169; }}
+                .btn-delete {{ background: #f56565; color: white; padding: 6px 12px;
+                              border: none; border-radius: 5px; cursor: pointer;
+                              margin-top: 10px; margin-left: 10px; font-size: 0.9em; }}
+                .btn-delete:hover {{ background: #e53e3e; }}
                 .no-data {{ background: white; padding: 40px; border-radius: 10px; 
                            text-align: center; color: #718096; }}
                 #updateMessage {{ margin-top: 10px; padding: 10px; border-radius: 5px; display: none; }}
@@ -722,6 +815,36 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
                     message.textContent = '❌ Failed to update week';
                 }}
             }}
+            
+            async function deleteWeek(year, week) {{
+                if (!confirm(`Are you sure you want to delete Week ${{week}}, ${{year}}?`)) {{
+                    return;
+                }}
+                
+                const message = document.getElementById('updateMessage');
+                message.style.display = 'block';
+                message.className = '';
+                message.textContent = `Deleting Week ${{week}}, ${{year}}...`;
+                
+                try {{
+                    const response = await fetch(`/api/weeks/${{year}}/W${{week}}/delete`, {{
+                        method: 'DELETE'
+                    }});
+                    
+                    const result = await response.json();
+                    if (result.success) {{
+                        message.className = 'success';
+                        message.textContent = '✅ Week deleted successfully';
+                        setTimeout(() => location.reload(), 1000);
+                    }} else {{
+                        message.className = 'error';
+                        message.textContent = '❌ ' + (result.message || 'Delete failed');
+                    }}
+                }} catch (e) {{
+                    message.className = 'error';
+                    message.textContent = '❌ Failed to delete week';
+                }}
+            }}
             </script>
         </body>
         </html>
@@ -757,18 +880,18 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
             <head>
                 <title>Boxarr Setup</title>
                 <style>
-                    body { font-family: sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }
-                    h1 { color: #667eea; }
-                    input[type="text"], input[type="url"], select { width: 100%; padding: 8px; margin: 10px 0; box-sizing: border-box; }
-                    button { background: #667eea; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; }
-                    button:hover { background: #5a67d8; }
-                    .form-group { margin: 20px 0; }
-                    .checkbox-group { display: flex; align-items: center; margin: 15px 0; }
-                    .checkbox-group input[type="checkbox"] { width: auto; margin: 0 10px 0 0; }
-                    .schedule-options { margin-left: 30px; margin-top: 10px; display: none; }
-                    .schedule-options select { width: auto; margin: 0 5px; }
-                    .error { color: #f56565; }
-                    .success { color: #48bb78; }
+                    body {{ font-family: sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; }}
+                    h1 {{ color: #667eea; }}
+                    input[type="text"], input[type="url"], select {{ width: 100%; padding: 8px; margin: 10px 0; box-sizing: border-box; }}
+                    button {{ background: #667eea; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; }}
+                    button:hover {{ background: #5a67d8; }}
+                    .form-group {{ margin: 20px 0; }}
+                    .checkbox-group {{ display: flex; align-items: center; margin: 15px 0; }}
+                    .checkbox-group input[type="checkbox"] {{ width: auto; margin: 0 10px 0 0; }}
+                    .schedule-options {{ margin-left: 30px; margin-top: 10px; display: none; }}
+                    .schedule-options select {{ width: auto; margin: 0 5px; }}
+                    .error {{ color: #f56565; }}
+                    .success {{ color: #48bb78; }}
                 </style>
             </head>
             <body>
@@ -831,7 +954,10 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
                                 {''.join([f'<option value="{h}" {"selected" if h == hour else ""}>{h % 12 or 12}:00 {"AM" if h < 12 else "PM"}</option>' for h in range(24)])}
                             </select>
                         </div>
-                        <button type="submit">Save Configuration</button>
+                        <div style="margin-top: 30px; display: flex; gap: 10px; justify-content: space-between;">
+                            <a href="/dashboard" style="background: #718096; color: white; padding: 10px 20px; border-radius: 5px; text-decoration: none; display: inline-block;">← Back to Dashboard</a>
+                            <button type="submit">Save Configuration</button>
+                        </div>
                     </div>
                     <div id="message"></div>
                 </form>
@@ -1121,10 +1247,15 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
             
             # Initialize new scheduler if enabled
             if settings.boxarr_scheduler_enabled:
-                app.state.scheduler = scheduler
-                if settings.is_configured:
-                    app.state.scheduler.start()
-                    logger.info("Scheduler started with new configuration")
+                try:
+                    app.state.scheduler = BoxarrScheduler()
+                    if settings.is_configured:
+                        app.state.scheduler.start()
+                        logger.info("Scheduler started with new configuration")
+                except Exception as e:
+                    logger.error(f"Failed to restart scheduler: {e}")
+                    # Continue without scheduler
+                    app.state.scheduler = None
             
             return {"success": True, "message": "Configuration saved successfully"}
             
@@ -1161,6 +1292,32 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
         
         background_tasks.add_task(update_task)
         return {"success": True, "message": f"Update triggered for {year} Week {week}"}
+    
+    @app.delete("/api/weeks/{year}/W{week}/delete")
+    async def delete_week(year: int, week: int):
+        """Delete a specific week's data files."""
+        try:
+            # Delete week HTML and JSON files
+            week_str = f"{year}W{week:02d}"
+            html_file = weekly_pages_dir / f"{week_str}.html"
+            json_file = weekly_pages_dir / f"{week_str}.json"
+            
+            deleted_files = []
+            if html_file.exists():
+                html_file.unlink()
+                deleted_files.append("HTML")
+            if json_file.exists():
+                json_file.unlink()
+                deleted_files.append("JSON")
+            
+            if deleted_files:
+                return {"success": True, "message": f"Deleted {', '.join(deleted_files)} files for Week {week}, {year}"}
+            else:
+                return {"success": False, "message": f"No files found for Week {week}, {year}"}
+                
+        except Exception as e:
+            logger.error(f"Failed to delete week {year}W{week:02d}: {e}")
+            return {"success": False, "message": str(e)}
     
     @app.post("/api/update-week")
     async def update_specific_week(data: Dict[str, Any], background_tasks: BackgroundTasks):

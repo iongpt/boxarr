@@ -197,13 +197,7 @@ class WeeklyPageGenerator:
     ) -> str:
         """Generate the HTML content."""
         
-        # Get list of available weeks including the current week being generated
-        available_weeks = self.get_available_weeks()
-        current_week_str = f"{year}W{week:02d}"
-        if current_week_str not in available_weeks:
-            available_weeks.insert(0, current_week_str)
-        
-        # Generate HTML (based on the working template)
+        # Generate HTML with compact header and dynamic navigation
         html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -216,34 +210,75 @@ class WeeklyPageGenerator:
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
             background: linear-gradient(135deg, #667eea, #764ba2); 
             min-height: 100vh; 
-            padding: 20px; 
+            padding: 15px; 
         }}
         .container {{ max-width: 2400px; margin: 0 auto; }}
-        .header {{ 
+        
+        /* Compact header with integrated navigation */
+        .header-nav {{ 
             background: rgba(255,255,255,0.98); 
-            border-radius: 0 0 20px 20px; 
-            padding: 30px 40px; 
-            margin: 0 20px 25px; 
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2); 
+            border-radius: 12px; 
+            padding: 15px 20px; 
+            margin: 0 15px 20px; 
+            box-shadow: 0 8px 24px rgba(0,0,0,0.15); 
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 15px;
         }}
-        h1 {{ 
-            font-size: 2.5em; 
+        
+        .header-left {{
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            flex: 1;
+            min-width: 300px;
+        }}
+        
+        .title-group {{
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }}
+        
+        .page-title {{ 
+            font-size: 1.5em; 
+            font-weight: bold;
             background: linear-gradient(135deg, #667eea, #764ba2); 
             -webkit-background-clip: text; 
             -webkit-text-fill-color: transparent; 
-            background-clip: text; 
-            margin-bottom: 10px; 
+            background-clip: text;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }}
-        .date-range {{ font-size: 1.2em; color: #4a5568; margin-bottom: 8px; }}
-        .week-info {{ font-size: 1em; color: #718096; margin-bottom: 15px; }}
+        
+        .date-info {{ 
+            font-size: 0.85em; 
+            color: #718096;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }}
+        
+        .week-badge {{
+            background: #f7fafc;
+            color: #667eea;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: 600;
+            font-size: 0.9em;
+        }}
+        
         .connection-status {{
             display: inline-flex;
             align-items: center;
-            gap: 8px;
-            padding: 6px 12px;
+            gap: 6px;
+            padding: 4px 10px;
             background: #f7fafc;
             border-radius: 20px;
-            margin-left: 20px;
+            font-size: 0.85em;
         }}
         .status-dot {{
             width: 8px;
@@ -253,103 +288,122 @@ class WeeklyPageGenerator:
         }}
         .status-dot.connected {{ background: #48bb78; }}
         .status-dot.disconnected {{ background: #f56565; }}
-        .nav-wrapper {{
-            background: rgba(0, 0, 0, 0.05);
-            padding: 15px 20px;
-            margin: 0 20px 20px;
-            border-radius: 15px;
-        }}
-        .nav-buttons {{
+        
+        .nav-section {{
             display: flex;
-            justify-content: space-between;
             align-items: center;
-            gap: 20px;
+            gap: 10px;
         }}
-        .dashboard-button {{
-            padding: 10px 20px;
+        
+        .dashboard-btn {{
+            padding: 8px 16px;
             background: #667eea;
             color: white;
             text-decoration: none;
-            border-radius: 8px;
+            border-radius: 6px;
             font-weight: 600;
-            font-size: 14px;
+            font-size: 0.85em;
             transition: all 0.3s ease;
             display: inline-flex;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
+            white-space: nowrap;
         }}
-        .dashboard-button:hover {{
+        .dashboard-btn:hover {{
             background: #5a67d8;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 6px rgba(102, 126, 234, 0.2);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 8px rgba(102, 126, 234, 0.2);
         }}
-        .history-nav {{ 
-            display: flex; 
-            gap: 8px; 
-            align-items: center; 
-            flex: 1;
-            justify-content: flex-end;
+        
+        .week-nav {{
+            display: flex;
+            align-items: center;
+            gap: 6px;
         }}
-        .history-label {{ color: #4a5568; font-weight: bold; margin-right: 10px; }}
-        .week-selector {{
-            margin-left: 12px;
-            padding: 6px 12px;
+        
+        .week-nav-label {{
+            color: #4a5568;
+            font-weight: 600;
+            font-size: 0.85em;
+            margin-right: 4px;
+        }}
+        
+        .week-link {{
+            padding: 6px 10px;
             background: white;
             color: #667eea;
-            border: 2px solid #667eea;
+            text-decoration: none;
             border-radius: 6px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
+            border: 1.5px solid #e2e8f0;
+            transition: all 0.2s;
+            font-weight: 500;
+            font-size: 0.8em;
+            white-space: nowrap;
         }}
-        .week-selector:hover {{
+        .week-link:hover {{
             background: #667eea;
             color: white;
+            border-color: #667eea;
+            transform: translateY(-1px);
         }}
-        .history-link {{ 
-            padding: 8px 14px; 
-            background: white; 
-            color: #667eea; 
-            text-decoration: none; 
-            border-radius: 8px; 
-            transition: all 0.3s; 
-            border: 2px solid transparent; 
+        .week-link.current {{
+            background: #667eea;
+            color: white;
+            border-color: #764ba2;
+        }}
+        
+        .week-dropdown {{
+            padding: 6px 10px;
+            background: white;
+            color: #667eea;
+            border: 1.5px solid #e2e8f0;
+            border-radius: 6px;
+            font-size: 0.8em;
             font-weight: 500;
-            font-size: 0.9em;
+            cursor: pointer;
+            transition: all 0.2s;
         }}
-        .history-link:hover {{ 
-            background: #667eea; 
-            color: white; 
-            transform: translateY(-2px); 
-            box-shadow: 0 5px 15px rgba(102,126,234,0.3); 
+        .week-dropdown:hover {{
+            background: #f7fafc;
+            border-color: #667eea;
         }}
-        .history-link.current {{ background: #667eea; color: white; border-color: #764ba2; }}
+        
+        /* Mobile responsive header */
+        @media (max-width: 1024px) {{
+            .header-nav {{
+                flex-direction: column;
+                align-items: stretch;
+            }}
+            .header-left {{
+                width: 100%;
+                justify-content: space-between;
+            }}
+            .nav-section {{
+                width: 100%;
+                flex-direction: column;
+                gap: 10px;
+            }}
+            .dashboard-btn {{
+                width: 100%;
+                justify-content: center;
+            }}
+            .week-nav {{
+                width: 100%;
+                overflow-x: auto;
+                padding-bottom: 5px;
+            }}
+        }}
         
         /* Grid for 5 movies per row on 4K */
         .movies-grid {{ 
             display: grid; 
             grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
             gap: 20px; 
-            margin-top: 25px; 
+            margin-top: 20px; 
         }}
         
         @media (min-width: 2560px) {{
             .movies-grid {{ grid-template-columns: repeat(5, 1fr); }}
-        }}
-        
-        /* Mobile responsive for navigation */
-        @media (max-width: 768px) {{
-            .nav-buttons {{
-                flex-direction: column;
-                align-items: stretch;
-            }}
-            .dashboard-button {{
-                text-align: center;
-                width: 100%;
-            }}
-            .history-nav {{
-                margin-top: 10px;
-            }}
         }}
         
         .movie-card {{ 
@@ -556,51 +610,33 @@ class WeeklyPageGenerator:
 </head>
 <body>
     <div class="container">
-        <div class="header">
-            <h1>🎬 Box Office Top 10
-                <span class="connection-status" id="connectionStatus">
-                    <span class="status-dot"></span>
-                    <span class="status-text">Checking...</span>
-                </span>
-            </h1>
-            <div class="date-range">{friday.strftime('%B %d')} - {sunday.strftime('%B %d, %Y')}</div>
-            <div class="week-info">Week {week} of {year}</div>
-        </div>
-        
-        <div class="nav-wrapper">
-            <div class="nav-buttons">
-                <a href="/dashboard" class="dashboard-button">← Back to Dashboard</a>
-                <div class="history-nav">
-                    <span class="history-label">Recent Weeks:</span>
-"""
-        
-        # Add navigation links - always show in fixed order (newest to oldest)
-        # Show only recent 8 weeks inline, rest in dropdown
-        for i, week_str in enumerate(available_weeks[:8]):
-            week_year = int(week_str[:4])
-            week_num = int(week_str[5:7])
-            is_current = week_year == year and week_num == week
+        <!-- Compact header with integrated navigation -->
+        <div class="header-nav">
+            <div class="header-left">
+                <div class="title-group">
+                    <div class="page-title">
+                        🎬 Box Office Top 10
+                        <span class="connection-status" id="connectionStatus">
+                            <span class="status-dot"></span>
+                            <span class="status-text">Checking...</span>
+                        </span>
+                    </div>
+                    <div class="date-info">
+                        {friday.strftime('%B %d')} - {sunday.strftime('%B %d, %Y')}
+                        <span class="week-badge">W{week}/{year % 100}</span>
+                    </div>
+                </div>
+            </div>
             
-            html += f'                    <a href="/{week_str}.html" class="history-link {"current" if is_current else ""}">W{week_num}/{week_year % 100}</a>\n'
-        
-        
-        # Add dropdown for older weeks if there are more than 8
-        if len(available_weeks) > 8:
-            html += """
-                    <select class="week-selector" onchange="if(this.value) window.location.href=this.value">
-                        <option value="">Older weeks...</option>
-"""
-            for week_str in available_weeks[8:]:
-                week_year = int(week_str[:4])
-                week_num = int(week_str[5:7])
-                html += f'                        <option value="/{week_str}.html">Week {week_num}, {week_year}</option>\n'
-            html += "                    </select>\n"
-        
-        html += """                </div>
+            <div class="nav-section">
+                <a href="/dashboard" class="dashboard-btn">← Dashboard</a>
+                <div class="week-nav" id="weekNav">
+                    <span class="week-nav-label">Loading...</span>
+                </div>
             </div>
         </div>
         
-        <div class="content-wrapper" style="padding: 0 20px;">
+        <div class="content-wrapper" style="padding: 0 15px;">
             <div class="movies-grid" id="moviesGrid">
 """
         
@@ -679,8 +715,64 @@ class WeeklyPageGenerator:
     const pageData = {{
         year: {year},
         week: {week},
+        week_str: "{year}W{week:02d}",
         movies: {json.dumps([m['radarr_id'] for m in movies if m['radarr_id']])}
     }};
+    
+    // Load dynamic navigation
+    async function loadNavigation() {{
+        const navContainer = document.getElementById('weekNav');
+        
+        try {{
+            const response = await fetch('/api/weeks');
+            const data = await response.json();
+            
+            if (data.weeks && data.weeks.length > 0) {{
+                let navHTML = '<span class="week-nav-label">Weeks:</span>';
+                
+                // Show only the most recent 4 weeks as buttons
+                const recentWeeks = data.weeks.slice(0, 4);
+                recentWeeks.forEach(week => {{
+                    const isCurrent = week.week_str === pageData.week_str;
+                    navHTML += `<a href="/${{week.week_str}}.html" class="week-link ${{isCurrent ? 'current' : ''}}">W${{week.week}}/${{week.year % 100}}</a>`;
+                }});
+                
+                // Add comprehensive dropdown for all weeks (including recent ones)
+                if (data.weeks.length > 1) {{
+                    navHTML += `
+                        <select class="week-dropdown" onchange="if(this.value) window.location.href=this.value">
+                            <option value="">All weeks (${{data.weeks.length}})</option>`;
+                    
+                    // Group weeks by year for better organization
+                    let currentYear = null;
+                    data.weeks.forEach((week, index) => {{
+                        if (week.year !== currentYear) {{
+                            if (currentYear !== null) {{
+                                navHTML += '</optgroup>';
+                            }}
+                            navHTML += `<optgroup label="${{week.year}}">`;
+                            currentYear = week.year;
+                        }}
+                        const selected = week.week_str === pageData.week_str ? ' selected' : '';
+                        navHTML += `<option value="/${{week.week_str}}.html"${{selected}}>Week ${{week.week}} - ${{week.date_range || 'No date'}}</option>`;
+                    }});
+                    
+                    if (currentYear !== null) {{
+                        navHTML += '</optgroup>';
+                    }}
+                    
+                    navHTML += '</select>';
+                }}
+                
+                navContainer.innerHTML = navHTML;
+            }} else {{
+                navContainer.innerHTML = '<span class="week-nav-label">No weeks available</span>';
+            }}
+        }} catch (e) {{
+            console.error('Failed to load navigation:', e);
+            navContainer.innerHTML = '<span class="week-nav-label">Navigation unavailable</span>';
+        }}
+    }}
     
     // Check connection and update status
     async function checkConnection() {{
@@ -815,6 +907,10 @@ class WeeklyPageGenerator:
     
     // Initialize on load
     document.addEventListener('DOMContentLoaded', async () => {{
+        // Load navigation immediately
+        await loadNavigation();
+        
+        // Check connection and update movie statuses
         const connected = await checkConnection();
         if (connected) {{
             await updateMovieStatuses();
@@ -825,6 +921,9 @@ class WeeklyPageGenerator:
     
     // Check connection every 10 seconds
     setInterval(checkConnection, 10000);
+    
+    // Reload navigation every 5 minutes (in case new weeks are added)
+    setInterval(loadNavigation, 300000);
     </script>
 </body>
 </html>
