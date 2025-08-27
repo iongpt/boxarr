@@ -224,6 +224,28 @@ EXPOSE 8888
 CMD ["python", "-m", "src.main"]
 ```
 
+### Docker Commands for Development
+```bash
+# Stop existing container
+docker stop boxarr
+
+# Remove container
+docker rm boxarr
+
+# Build new image
+docker build -t boxarr:test .
+
+# Run container
+docker run -d \
+    --name boxarr \
+    -p 8888:8888 \
+    -v $(pwd)/config:/config \
+    boxarr:test
+
+# View logs
+docker logs -f boxarr
+```
+
 ### Docker Compose
 ```yaml
 version: '3.8'

@@ -1,0 +1,119 @@
+{
+  "timestamp": "2025-08-27T16:43:04.518722",
+  "total_count": 10,
+  "matched_count": 10,
+  "unmatched_count": 0,
+  "status_breakdown": {
+    "In Cinemas": 5,
+    "Downloaded": 4,
+    "Missing": 1
+  },
+  "matched_movies": [
+    {
+      "rank": 1,
+      "title": "Weapons",
+      "radarr_title": "Weapons",
+      "radarr_id": 147,
+      "status": "In Cinemas",
+      "has_file": false,
+      "confidence": 1.0,
+      "match_method": "exact"
+    },
+    {
+      "rank": 2,
+      "title": "Freakier Friday",
+      "radarr_title": "Freakier Friday",
+      "radarr_id": 196,
+      "status": "In Cinemas",
+      "has_file": false,
+      "confidence": 1.0,
+      "match_method": "exact"
+    },
+    {
+      "rank": 3,
+      "title": "The Fantastic Four: First Steps",
+      "radarr_title": "The Fantastic 4: First Steps",
+      "radarr_id": 115,
+      "status": "In Cinemas",
+      "has_file": false,
+      "confidence": 0.9152542372881356,
+      "match_method": "fuzzy"
+    },
+    {
+      "rank": 4,
+      "title": "The Bad Guys 2",
+      "radarr_title": "The Bad Guys 2",
+      "radarr_id": 198,
+      "status": "Downloaded",
+      "has_file": true,
+      "confidence": 1.0,
+      "match_method": "exact"
+    },
+    {
+      "rank": 5,
+      "title": "The Naked Gun",
+      "radarr_title": "The Naked Gun",
+      "radarr_id": 141,
+      "status": "In Cinemas",
+      "has_file": false,
+      "confidence": 1.0,
+      "match_method": "exact"
+    },
+    {
+      "rank": 6,
+      "title": "Superman",
+      "radarr_title": "Superman",
+      "radarr_id": 93,
+      "status": "Downloaded",
+      "has_file": true,
+      "confidence": 1.0,
+      "match_method": "exact"
+    },
+    {
+      "rank": 7,
+      "title": "Jurassic World: Rebirth",
+      "radarr_title": "Jurassic World Rebirth",
+      "radarr_id": 116,
+      "status": "Downloaded",
+      "has_file": true,
+      "confidence": 0.95,
+      "match_method": "normalized"
+    },
+    {
+      "rank": 8,
+      "title": "F1: The Movie",
+      "radarr_title": "F1",
+      "radarr_id": 142,
+      "status": "Downloaded",
+      "has_file": true,
+      "confidence": 0.95,
+      "match_method": "normalized"
+    },
+    {
+      "rank": 9,
+      "title": "Together",
+      "radarr_title": "Together",
+      "radarr_id": 220,
+      "status": "Missing",
+      "has_file": false,
+      "confidence": 1.0,
+      "match_method": "exact"
+    },
+    {
+      "rank": 10,
+      "title": "Sketch",
+      "radarr_title": "Sketch",
+      "radarr_id": 221,
+      "status": "In Cinemas",
+      "has_file": false,
+      "confidence": 1.0,
+      "match_method": "exact"
+    }
+  ],
+  "unmatched_movies": [],
+  "html_path": "/config/weekly_pages/2025W32.html",
+  "added_movies": [
+    "Together",
+    "Sketch"
+  ]
+}
