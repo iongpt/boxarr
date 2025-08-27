@@ -1,14 +1,24 @@
 {
-  "timestamp": "2025-08-27T18:13:11.707004",
+  "timestamp": "2025-08-27T18:11:03.612003",
   "total_count": 10,
-  "matched_count": 2,
-  "unmatched_count": 8,
+  "matched_count": 3,
+  "unmatched_count": 7,
   "status_breakdown": {
-    "Missing": 2
+    "Missing": 3
   },
   "matched_movies": [
     {
       "rank": 1,
+      "title": "The Tax Collector",
+      "radarr_title": "The Tax Collector",
+      "radarr_id": 232,
+      "status": "Missing",
+      "has_file": false,
+      "confidence": 1.0,
+      "match_method": "exact"
+    },
+    {
+      "rank": 3,
       "title": "The Rental",
       "radarr_title": "The Rental",
       "radarr_id": 234,
@@ -18,10 +28,10 @@
       "match_method": "exact"
     },
     {
-      "rank": 2,
-      "title": "The Goonies",
-      "radarr_title": "The Goonies",
-      "radarr_id": 233,
+      "rank": 5,
+      "title": "Peninsula",
+      "radarr_title": "Peninsula",
+      "radarr_id": 231,
       "status": "Missing",
       "has_file": false,
       "confidence": 1.0,
@@ -30,16 +40,12 @@
   ],
   "unmatched_movies": [
     {
-      "rank": 3,
-      "title": "Jurassic Park"
+      "rank": 2,
+      "title": "Star Wars: Episode V - The Empire Strikes Back"
     },
     {
       "rank": 4,
-      "title": "Back to the Future"
-    },
-    {
-      "rank": 5,
-      "title": "Grease"
+      "title": "Jurassic Park"
     },
     {
       "rank": 6,
@@ -51,17 +57,17 @@
     },
     {
       "rank": 8,
-      "title": "Summerland"
-    },
-    {
-      "rank": 9,
       "title": "Becky"
     },
     {
+      "rank": 9,
+      "title": "Made in Italy"
+    },
+    {
       "rank": 10,
-      "title": "The Wretched"
+      "title": "The Burnt Orange Heresy"
     }
   ],
-  "html_path": "/config/weekly_pages/2020W31.html",
+  "html_path": "/config/weekly_pages/2020W32.html",
   "added_movies": []
 }

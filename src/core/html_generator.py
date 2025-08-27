@@ -95,7 +95,8 @@ class WeeklyPageGenerator:
                 'year': None,
                 'genres': None,
                 'overview': None,
-                'imdb_id': None
+                'imdb_id': None,
+                'tmdb_id': None
             }
             
             if result.is_matched and result.radarr_movie:
@@ -136,6 +137,25 @@ class WeeklyPageGenerator:
                     movie_data['status'] = 'Pending'
                     movie_data['status_color'] = '#ed8936'
                     movie_data['status_icon'] = '⏳'
+            else:
+                # For unmatched movies, try to get data from TMDB
+                if self.radarr_service:
+                    try:
+                        # Search for movie in TMDB via Radarr
+                        search_results = self.radarr_service.search_movie(result.box_office_movie.title)
+                        if search_results and len(search_results) > 0:
+                            # Use the first result
+                            tmdb_movie = search_results[0]
+                            movie_data.update({
+                                'tmdb_id': tmdb_movie.get('tmdbId'),
+                                'year': tmdb_movie.get('year'),
+                                'overview': tmdb_movie.get('overview', '')[:150] + '...' if tmdb_movie.get('overview') and len(tmdb_movie.get('overview', '')) > 150 else tmdb_movie.get('overview'),
+                                'poster': tmdb_movie.get('remotePoster'),
+                                'imdb_id': tmdb_movie.get('imdbId'),
+                                'genres': ', '.join(tmdb_movie.get('genres', [])[:2]) if tmdb_movie.get('genres') else None
+                            })
+                    except Exception as e:
+                        logger.warning(f"Could not fetch TMDB data for '{result.box_office_movie.title}': {e}")
             
             movies_data.append(movie_data)
         
@@ -165,7 +185,7 @@ class WeeklyPageGenerator:
             with open(current_path, 'w', encoding='utf-8') as f:
                 f.write(html)
         
-        # Save metadata
+        # Save metadata with full movie data
         metadata = {
             'generated_at': datetime.now().isoformat(),
             'year': year,
@@ -175,7 +195,8 @@ class WeeklyPageGenerator:
             'total_movies': len(movies_data),
             'matched_movies': sum(1 for m in movies_data if m['radarr_id']),
             'quality_profiles': quality_profiles,
-            'ultra_hd_id': ultra_hd_id
+            'ultra_hd_id': ultra_hd_id,
+            'movies': movies_data  # Store full movie data for regeneration
         }
         
         metadata_path = self.output_dir / f"{year}W{week:02d}.json"
@@ -524,6 +545,27 @@ class WeeklyPageGenerator:
             cursor: not-allowed;
         }}
         
+        .add-btn {{
+            background: linear-gradient(135deg, #48bb78, #38a169);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85em;
+            font-weight: 600;
+            transition: all 0.2s;
+            width: 100%;
+        }}
+        .add-btn:hover {{
+            transform: scale(1.02);
+            box-shadow: 0 4px 12px rgba(72,187,120,0.4);
+        }}
+        .add-btn:disabled {{
+            background: #cbd5e0;
+            cursor: not-allowed;
+        }}
+        
         .movie-details {{ 
             flex-grow: 1;
             margin-bottom: 12px;
@@ -664,7 +706,7 @@ class WeeklyPageGenerator:
                     </div>
 """
             
-            # Quality row (will be updated dynamically)
+            # Quality row or Add to Radarr button (will be updated dynamically)
             if movie['quality_profile_name']:
                 upgrade_btn = ""
                 if movie['can_upgrade_quality'] and movie['radarr_id'] and ultra_hd_id:
@@ -674,6 +716,13 @@ class WeeklyPageGenerator:
                     <div class="quality-row">
                         <span class="quality-text">Profile: <span class="profile-name">{movie['quality_profile_name']}</span></span>
                         {upgrade_btn}
+                    </div>
+"""
+            elif movie['status'] == 'Not in Radarr':
+                # Show Add to Radarr button for unmatched movies
+                html += f"""
+                    <div class="quality-row">
+                        <button class="add-btn" data-movie-title="{movie['title']}" onclick="addToRadarr(this)">➕ Add to Radarr</button>
                     </div>
 """
             
@@ -802,14 +851,16 @@ class WeeklyPageGenerator:
     
     // Update movie statuses dynamically
     async function updateMovieStatuses() {{
-        if (!pageData.movies.length) return;
+        // Filter out null IDs (movies not in Radarr)
+        const validMovieIds = pageData.movies.filter(id => id !== null);
+        if (!validMovieIds.length) return;
         
         try {{
             // Get current status for all movies
             const response = await fetch('/api/movies/status', {{
                 method: 'POST',
                 headers: {{ 'Content-Type': 'application/json' }},
-                body: JSON.stringify({{ movie_ids: pageData.movies }})
+                body: JSON.stringify({{ movie_ids: validMovieIds }})
             }});
             
             if (!response.ok) return;
@@ -892,6 +943,51 @@ class WeeklyPageGenerator:
         }}
     }}
     
+    // Add movie to Radarr
+    async function addToRadarr(button) {{
+        const movieTitle = button.dataset.movieTitle;
+        
+        if (!confirm(`Add "${{movieTitle}}" to Radarr?`)) {{
+            return;
+        }}
+        
+        button.disabled = true;
+        button.textContent = 'Adding...';
+        
+        try {{
+            const response = await fetch('/api/movies/add', {{
+                method: 'POST',
+                headers: {{ 'Content-Type': 'application/json' }},
+                body: JSON.stringify({{ movie_title: movieTitle }})
+            }});
+            
+            const result = await response.json();
+            
+            if (result.success) {{
+                showNotification(result.message, 'success');
+                button.textContent = '✅ Added';
+                button.disabled = true;
+                
+                // Reload page after allowing time for regeneration
+                if (result.regenerated_weeks && result.regenerated_weeks.length > 0) {{
+                    showNotification(`Updating ${{result.regenerated_weeks.length}} weeks...`, 'success');
+                }}
+                
+                setTimeout(() => {{
+                    location.reload();
+                }}, 3000);  // Give time for backend regeneration
+            }} else {{
+                showNotification('Failed to add: ' + result.message, 'error');
+                button.textContent = '➕ Add to Radarr';
+                button.disabled = false;
+            }}
+        }} catch (e) {{
+            showNotification('Connection error: ' + e, 'error');
+            button.textContent = '➕ Add to Radarr';
+            button.disabled = false;
+        }}
+    }}
+    
     // Show notification
     function showNotification(message, type) {{
         const notification = document.getElementById('notification');
@@ -941,3 +1037,81 @@ class WeeklyPageGenerator:
                 weeks.append(week_str)
         
         return weeks
+    
+    def regenerate_weeks_with_movie(self, movie_title: str) -> List[str]:
+        """
+        Find and regenerate all weeks containing a specific movie.
+        
+        Args:
+            movie_title: Title of the movie to search for
+            
+        Returns:
+            List of regenerated week identifiers
+        """
+        regenerated = []
+        
+        # Search through all metadata files
+        for metadata_file in self.output_dir.glob("????W??.json"):
+            try:
+                with open(metadata_file) as f:
+                    metadata = json.load(f)
+                
+                # Check if this week contains the movie
+                movies = metadata.get('movies', [])
+                contains_movie = any(
+                    movie.get('title', '').lower() == movie_title.lower()
+                    for movie in movies
+                )
+                
+                if contains_movie:
+                    logger.info(f"Regenerating week {metadata_file.stem} containing '{movie_title}'")
+                    
+                    # Rebuild match results from metadata
+                    from .matcher import MatchResult
+                    from .boxoffice import BoxOfficeMovie
+                    
+                    # Get current Radarr movies
+                    radarr_movies = []
+                    if self.radarr_service:
+                        radarr_movies = self.radarr_service.get_all_movies()
+                    
+                    # Create match results from stored data
+                    match_results = []
+                    for movie_data in movies:
+                        # Create box office movie
+                        bo_movie = BoxOfficeMovie(
+                            rank=movie_data['rank'],
+                            title=movie_data['title'],
+                            weekend_gross=movie_data.get('weekend_gross'),
+                            total_gross=movie_data.get('total_gross')
+                        )
+                        
+                        # Try to find matching Radarr movie
+                        radarr_movie = None
+                        for rm in radarr_movies:
+                            if rm.title.lower() == movie_data['title'].lower():
+                                radarr_movie = rm
+                                break
+                        
+                        # Create match result
+                        match_result = MatchResult(
+                            box_office_movie=bo_movie,
+                            radarr_movie=radarr_movie,
+                            is_matched=radarr_movie is not None,
+                            confidence=1.0 if radarr_movie else 0.0
+                        )
+                        match_results.append(match_result)
+                    
+                    # Regenerate the page
+                    year = metadata['year']
+                    week = metadata['week']
+                    friday = datetime.fromisoformat(metadata['friday'])
+                    sunday = datetime.fromisoformat(metadata['sunday'])
+                    
+                    self.generate_weekly_page(match_results, year, week, friday, sunday)
+                    regenerated.append(f"{year}W{week:02d}")
+                    
+            except Exception as e:
+                logger.error(f"Error processing {metadata_file}: {e}")
+        
+        return regenerated

@@ -309,6 +309,84 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
                 message=str(e)
             )
     
+    class AddMovieRequest(BaseModel):
+        """Request to add a movie to Radarr."""
+        movie_title: str
+    
+    @app.post("/api/movies/add")
+    async def add_movie_to_radarr(request: AddMovieRequest):
+        """Manually add a movie to Radarr."""
+        if not app.state.radarr_service:
+            raise HTTPException(status_code=503, detail="Radarr service not available")
+        
+        try:
+            # Search for movie in Radarr database (TMDB)
+            search_results = app.state.radarr_service.search_movie(request.movie_title)
+            
+            if not search_results:
+                return {"success": False, "message": f"Movie '{request.movie_title}' not found in TMDB"}
+            
+            # Get default quality profile
+            profiles = app.state.radarr_service.get_quality_profiles()
+            default_profile = next(
+                (p for p in profiles if p.name == settings.radarr_quality_profile_default),
+                profiles[0] if profiles else None
+            )
+            
+            if not default_profile:
+                return {"success": False, "message": "No quality profiles found in Radarr"}
+            
+            # Add the first search result with default profile
+            movie_info = search_results[0]
+            added_movie = app.state.radarr_service.add_movie(
+                movie_info["tmdbId"],
+                default_profile.id,
+                str(settings.radarr_root_folder),
+                True,  # monitored
+                True   # search for movie
+            )
+            
+            logger.info(f"Manually added movie to Radarr: {added_movie.title} with profile '{default_profile.name}'")
+            
+            # Regenerate all weeks containing this movie
+            try:
+                from ..core.html_generator import WeeklyPageGenerator
+                generator = WeeklyPageGenerator(app.state.radarr_service)
+                regenerated_weeks = generator.regenerate_weeks_with_movie(request.movie_title)
+                logger.info(f"Regenerated {len(regenerated_weeks)} weeks containing '{request.movie_title}'")
+                
+                return {
+                    "success": True,
+                    "message": f"Added '{added_movie.title}' to Radarr",
+                    "movie": {
+                        "id": added_movie.id,
+                        "title": added_movie.title,
+                        "year": added_movie.year,
+                        "quality_profile": default_profile.name
+                    },
+                    "regenerated_weeks": regenerated_weeks
+                }
+            except Exception as e:
+                logger.error(f"Failed to regenerate weeks after adding movie: {e}")
+                # Still return success for the add operation
+                return {
+                    "success": True,
+                    "message": f"Added '{added_movie.title}' to Radarr (page regeneration failed)",
+                    "movie": {
+                        "id": added_movie.id,
+                        "title": added_movie.title,
+                        "year": added_movie.year,
+                        "quality_profile": default_profile.name
+                    }
+                }
+            
+        except RadarrError as e:
+            logger.error(f"Failed to add movie '{request.movie_title}': {e}")
+            return {"success": False, "message": str(e)}
+        except Exception as e:
+            logger.error(f"Unexpected error adding movie '{request.movie_title}': {e}")
+            return {"success": False, "message": f"An unexpected error occurred: {str(e)}"}
+    
     # Configuration endpoints
     @app.get("/api/config", response_model=ConfigResponse)
     async def get_configuration():
@@ -356,9 +434,13 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
         history = await app.state.scheduler.get_history(limit)
         return history
     
+    class MovieStatusRequest(BaseModel):
+        """Request for movie status check."""
+        movie_ids: List[int]
+    
     # Batch status endpoint for dynamic updates
     @app.post("/api/movies/status")
-    async def get_movies_status(movie_ids: List[int]):
+    async def get_movies_status(request: MovieStatusRequest):
         """Get status for multiple movies (for dynamic HTML updates)."""
         if not app.state.radarr_service:
             raise HTTPException(status_code=503, detail="Radarr service not available")
@@ -377,7 +459,7 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
                     break
             
             results = []
-            for movie_id in movie_ids:
+            for movie_id in request.movie_ids:
                 if movie_id in movie_map:
                     movie = movie_map[movie_id]
                     
