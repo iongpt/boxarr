@@ -11,14 +11,17 @@ Automatically track and add box office hits to your Radarr collection. Boxarr mo
 
 - **Automatic Box Office Tracking**: Fetches weekly top 10 movies from Box Office Mojo
 - **Smart Movie Matching**: Advanced algorithms to match box office titles with your Radarr library
-- **Real-time Status Updates**: See movie availability status (Downloaded, In Cinemas, Missing, etc.)
-- **Quality Profile Management**: One-click quality profile upgrades
+- **TMDB Enrichment**: All movies display posters, descriptions, and metadata even when not in Radarr
+- **Flexible Auto-Add**: Choose between automatic or manual addition of movies to Radarr
+- **Manual Movie Addition**: One-click "Add to Radarr" button for unmatched movies
+- **Automatic Page Regeneration**: All weeks update automatically when a movie is added to Radarr
+- **Real-time Status Updates**: See movie availability status (Downloaded, In Cinemas, Missing, Not in Radarr)
+- **Quality Profile Management**: One-click quality profile upgrades to Ultra-HD
 - **Historical Data**: Browse and analyze past weeks' box office rankings
 - **Beautiful Dashboard**: Responsive web interface with compact header and dynamic navigation
 - **Week Management**: Delete individual weeks or regenerate data as needed
 - **Scalable Navigation**: Efficiently handles 100+ weeks with grouped year navigation
 - **Settings Persistence**: Configuration is saved and pre-populated in settings page
-- **Week Navigation**: Easy navigation between recent weeks with dropdown for older data
 - **API Integration**: RESTful API for third-party integrations
 - **Docker Support**: Easy deployment with Docker and Docker Compose
 
@@ -69,7 +72,9 @@ The setup wizard will:
 - Validate your Radarr connection
 - Fetch available quality profiles dynamically
 - Show root folders with free space
-- Let you configure auto-add and custom scheduling options
+- Let you configure auto-add behavior:
+  - **Auto-Add Enabled**: Automatically adds missing movies to Radarr
+  - **Auto-Add Disabled**: Shows "Add to Radarr" button for manual addition
 - Pre-populate settings when you return to the settings page
 - Remember your configuration across container restarts
 
@@ -101,6 +106,36 @@ radarr:
     tablet: 4
     desktop: 5
 ```
+
+## 🎬 How It Works
+
+### Weekly Updates
+Every week (configurable schedule), Boxarr:
+1. Fetches the top 10 box office movies from Box Office Mojo
+2. Matches them against your Radarr library
+3. Enriches all movies with TMDB data (posters, descriptions, genres)
+4. Depending on your auto-add setting:
+   - **Auto-Add ON**: Automatically adds missing movies to Radarr
+   - **Auto-Add OFF**: Displays movies with "Add to Radarr" button
+5. Generates a static HTML page with beautiful movie cards
+
+### Movie Cards Display
+Each movie card shows:
+- Movie poster from TMDB (even if not in Radarr)
+- Title, year, genres, and description
+- Current status (Downloaded, Missing, In Cinemas, Not in Radarr)
+- Quality profile (if in Radarr)
+- Action buttons:
+  - "Add to Radarr" for unmatched movies (when auto-add is off)
+  - "Upgrade to Ultra-HD" for movies with lower quality profiles
+- IMDb and Wikipedia links
+
+### Automatic Updates
+When you manually add a movie to Radarr:
+- The movie is added with your default quality profile
+- All weeks containing that movie are automatically regenerated
+- The movie status updates from "Not in Radarr" to appropriate status
+- The "Add to Radarr" button is replaced with quality profile info
 
 ## 🛠️ Development
 
