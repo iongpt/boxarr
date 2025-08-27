@@ -227,9 +227,13 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
     @app.get("/api/boxoffice/history/{year}/W{week}")
     async def get_historical_box_office(
         year: int,
-        week: int = Query(..., ge=1, le=53)
+        week: int
     ):
         """Get historical box office data."""
+        # Validate week parameter
+        if week < 1 or week > 53:
+            raise HTTPException(status_code=400, detail="Week must be between 1 and 53")
+        
         try:
             movies = app.state.boxoffice_service.fetch_weekend_box_office(year, week)
             return [
@@ -546,9 +550,8 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
     @app.get("/setup", response_class=HTMLResponse)
     async def setup(request: Request):
         """Setup wizard for first-time configuration."""
-        if not templates:
-            # Return a simple inline setup form
-            return HTMLResponse(content="""
+        # Always use inline HTML for setup (no templates needed)
+        return HTMLResponse(content="""
             <!DOCTYPE html>
             <html>
             <head>
@@ -722,9 +725,7 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
                 </script>
             </body>
             </html>
-            """)
-        
-        return templates.TemplateResponse("setup.html", {"request": request})
+        """)
     
     @app.get("/settings", response_class=HTMLResponse)
     async def settings_page(request: Request):

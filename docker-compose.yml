@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  boxarr:
+    build: .
+    # Or use image when published to Docker Hub:
+    # image: iongpt/boxarr:latest
+    container_name: boxarr
+    
+    # No environment variables needed!
+    # Everything configured via web UI
+    
+    volumes:
+      # Configuration and data persistence
+      - ./config:/config
+    
+    ports:
+      - "8888:8888"  # Web interface
+    
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8888/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+# Example with existing Radarr on same network:
+# services:
+#   boxarr:
+#     build: .
+#     container_name: boxarr
+#     volumes:
+#       - ./config:/config
+#     ports:
+#       - "8888:8888"
+#     networks:
+#       - media
+#     restart: unless-stopped
+#
+#   radarr:
+#     image: linuxserver/radarr:latest
+#     container_name: radarr
+#     environment:
+#       - PUID=1000
+#       - PGID=1000
+#       - TZ=America/New_York
+#     volumes:
+#       - ./radarr/config:/config
+#       - /path/to/movies:/movies
+#     ports:
+#       - "7878:7878"
+#     networks:
+#       - media
+#     restart: unless-stopped
+#
+# networks:
+#   media:
+#     name: media
+#     driver: bridge

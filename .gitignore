@@ -219,6 +219,10 @@ config/*.local.yaml
 .env.local
 .env.*.local
 
+# Generated content
+config/weekly_pages/
+config/boxarr.db
+
 # Docker volumes
 docker/volumes/
 

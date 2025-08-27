@@ -8,10 +8,10 @@ from pathlib import Path
 
 import uvicorn
 
-from utils.logger import get_logger, setup_logging
-from utils.config import settings
-from core import BoxarrScheduler, BoxOfficeService, RadarrService
-from api.app import create_app
+from src.utils.logger import get_logger, setup_logging
+from src.utils.config import settings
+from src.core import BoxarrScheduler, BoxOfficeService, RadarrService
+from src.api.app import create_app
 
 logger = get_logger(__name__)
 
@@ -29,31 +29,32 @@ class BoxarrApplication:
         """Application startup."""
         logger.info("Starting Boxarr application")
         
-        # Validate configuration
+        # Check if configured
         if not settings.is_configured:
-            logger.error("Radarr API key not configured!")
-            logger.info("Please set RADARR_API_KEY environment variable or update config file")
-            sys.exit(1)
+            logger.info("No configuration found - starting in setup mode")
+            logger.info("Please visit http://localhost:8888 to configure Boxarr")
+            # Don't exit - allow API to start so user can configure via web UI
+        else:
+            # Test Radarr connection only if configured
+            try:
+                with RadarrService() as radarr:
+                    if not radarr.test_connection():
+                        logger.warning("Failed to connect to Radarr - check configuration")
+                    else:
+                        logger.info(f"Successfully connected to Radarr at {settings.radarr_url}")
+            except Exception as e:
+                logger.warning(f"Radarr connection failed: {e}")
+                logger.info("Please check configuration via web UI")
         
-        # Test Radarr connection
-        try:
-            with RadarrService() as radarr:
-                if not radarr.test_connection():
-                    logger.error("Failed to connect to Radarr")
-                    sys.exit(1)
-                logger.info(f"Successfully connected to Radarr at {settings.radarr_url}")
-        except Exception as e:
-            logger.error(f"Radarr connection failed: {e}")
-            sys.exit(1)
-        
-        # Initialize scheduler
+        # Initialize scheduler (even if not configured, it won't run without valid config)
         self.scheduler = BoxarrScheduler()
-        self.scheduler.start()
-        
-        if settings.boxarr_scheduler_enabled:
-            next_run = self.scheduler.get_next_run_time()
-            if next_run:
-                logger.info(f"Next scheduled update: {next_run}")
+        if settings.is_configured:
+            self.scheduler.start()
+            
+            if settings.boxarr_scheduler_enabled:
+                next_run = self.scheduler.get_next_run_time()
+                if next_run:
+                    logger.info(f"Next scheduled update: {next_run}")
         
         logger.info("Boxarr startup complete")
     
@@ -141,6 +142,11 @@ class BoxarrApplication:
         Args:
             mode: Run mode ("api" or "cli")
         """
+        # CLI mode requires configuration
+        if mode == "cli" and not settings.is_configured:
+            logger.error("CLI mode requires configuration. Please run in API mode first to configure.")
+            sys.exit(1)
+        
         # Setup signal handlers
         loop = asyncio.get_event_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):

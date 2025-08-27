@@ -1,0 +1,46 @@
+# Git
+.git
+.gitignore
+
+# Documentation
+*.md
+LICENSE
+docs/
+
+# Internal planning
+internal/
+
+# Development
+.env
+.venv
+venv/
+env/
+*.pyc
+__pycache__/
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local config (should be in volume)
+config/local.yaml
+config/boxarr.db
+config/weekly_pages/
+
+# Docker
+docker-compose.yml
+.dockerignore
+Dockerfile.*
