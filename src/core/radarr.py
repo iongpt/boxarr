@@ -26,14 +26,20 @@ class MovieStatus(str, Enum):
     DELETED = "deleted"
 
 
-@dataclass
+@dataclass  
 class QualityProfile:
-    """Represents a Radarr quality profile."""
+    """Represents a Radarr quality profile - supports all versions."""
     id: int
     name: str
     upgradeAllowed: bool = False
     cutoff: int = 0
     items: List[Dict] = field(default_factory=list)
+    # Additional fields for newer Radarr versions (v3+)
+    minFormatScore: int = 0
+    cutoffFormatScore: int = 0
+    minUpgradeFormatScore: int = 0  # Added for v4+
+    formatItems: List[Dict] = field(default_factory=list)
+    language: Optional[Dict] = None
 
 
 @dataclass
@@ -355,10 +361,22 @@ class RadarrService:
         """
         if self._quality_profiles is None:
             response = self._make_request("GET", "/api/v3/qualityProfile")
-            self._quality_profiles = [
-                QualityProfile(**profile)
-                for profile in response.json()
-            ]
+            self._quality_profiles = []
+            for profile in response.json():
+                # Only extract the fields we need, ignore extra fields from newer Radarr versions
+                filtered_profile = {
+                    'id': profile.get('id'),
+                    'name': profile.get('name'),
+                    'upgradeAllowed': profile.get('upgradeAllowed', False),
+                    'cutoff': profile.get('cutoff', 0),
+                    'items': profile.get('items', []),
+                    'minFormatScore': profile.get('minFormatScore', 0),
+                    'cutoffFormatScore': profile.get('cutoffFormatScore', 0),
+                    'minUpgradeFormatScore': profile.get('minUpgradeFormatScore', 0),
+                    'formatItems': profile.get('formatItems', []),
+                    'language': profile.get('language')
+                }
+                self._quality_profiles.append(QualityProfile(**filtered_profile))
         
         return self._quality_profiles
     
