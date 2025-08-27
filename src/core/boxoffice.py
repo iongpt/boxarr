@@ -185,7 +185,7 @@ class BoxOfficeService:
                 return self._parse_alternative_format(html)
 
             # Parse table rows
-            rows = table.find_all("tr")[1:]  # Skip header row
+            rows = table.find_all("tr")[1:] if hasattr(table, 'find_all') else []  # Skip header row
 
             for idx, row in enumerate(rows[:10], start=1):  # Top 10 only
                 cells = row.find_all("td")

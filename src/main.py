@@ -160,7 +160,9 @@ class BoxarrApplication:
         # Setup signal handlers
         loop = asyncio.get_event_loop()
         for sig in (signal.SIGTERM, signal.SIGINT):
-            loop.add_signal_handler(sig, lambda s=sig: self.handle_signal(s))
+            loop.add_signal_handler(
+                sig, lambda s=sig: self.handle_signal(s)  # type: ignore
+            )
 
         try:
             await self.startup()

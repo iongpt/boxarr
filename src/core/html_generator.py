@@ -1132,7 +1132,6 @@ class WeeklyPageGenerator:
                         match_result = MatchResult(
                             box_office_movie=bo_movie,
                             radarr_movie=radarr_movie,
-                            is_matched=radarr_movie is not None,
                             confidence=1.0 if radarr_movie else 0.0,
                         )
                         match_results.append(match_result)
