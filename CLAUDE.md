@@ -92,7 +92,8 @@ docker run -p 8888:8888 -v ./config:/config boxarr
 ### Movies
 - `GET /api/movies/{id}` - Movie details
 - `POST /api/movies/{id}/upgrade` - Upgrade quality profile
-- `POST /api/movies/status` - Batch status check (for JS polling)
+- `POST /api/movies/status` - Batch status check (for JS polling, filters null IDs)
+- `POST /api/movies/add` - Manually add a movie to Radarr (with automatic regeneration)
 
 ### Weekly Pages Management
 - `GET /api/weeks` - Get list of all available weeks with metadata
@@ -150,11 +151,23 @@ Can override config file:
 ├── local.yaml              # Configuration (created by setup wizard)
 ├── weekly_pages/
 │   ├── 2024W48.html       # Static page for week 48
-│   ├── 2024W48.json       # Metadata
+│   ├── 2024W48.json       # Metadata with full movie data
 │   └── current.html       # Current week page
 ├── history/                # Historical update results
+│   └── YYYYWWW_*.json     # Update history with timestamps
 └── logs/                   # Application logs
 ```
+
+### Metadata JSON Structure
+Each week's JSON file contains:
+- Basic metadata (year, week, dates)
+- Quality profiles from Radarr
+- **Full movie data array** including:
+  - Box office info (rank, title, gross)
+  - Radarr info (if matched)
+  - TMDB data (poster, overview, genres)
+  - Status and display properties
+- This enables regeneration without re-fetching external data
 
 ### Source Code
 ```
@@ -219,12 +232,42 @@ curl -X POST http://localhost:8888/api/config/test \
 - **Dropdown navigation** for older weeks beyond the first 24
 - **Empty state handling** - Graceful message when no weeks exist
 
-### Auto-Add Logic
-1. Find unmatched box office movies
-2. Search TMDB via Radarr API
-3. Add with default quality profile
-4. Set as monitored
-5. Trigger search
+### Auto-Add Logic (When Enabled)
+1. Check `settings.boxarr_features_auto_add` setting
+2. If enabled:
+   - Find unmatched box office movies
+   - Search TMDB via Radarr API
+   - Add with default quality profile
+   - Set as monitored
+   - Trigger search
+3. If disabled:
+   - Log count of unmatched movies
+   - Display "Add to Radarr" button in UI
+   - Wait for manual user action
+
+### Manual Movie Addition
+1. User clicks "Add to Radarr" button
+2. Frontend calls `/api/movies/add` endpoint
+3. Backend searches TMDB for movie
+4. Adds movie with default quality profile
+5. Triggers `regenerate_weeks_with_movie()`:
+   - Searches all metadata JSON files
+   - Finds weeks containing the movie
+   - Re-matches with updated Radarr library
+   - Regenerates HTML for affected weeks
+6. Frontend reloads to show updated status
+
+### TMDB Data Enrichment
+For movies NOT in Radarr:
+1. Search TMDB via Radarr's search endpoint
+2. Extract from first result:
+   - Poster URL (`remotePoster`)
+   - Year
+   - Overview (truncated to 150 chars)
+   - Genres (first 2)
+   - IMDB ID
+3. Store full data in metadata JSON
+4. Display in movie cards with same layout as Radarr movies
 
 ## Docker Deployment
 
@@ -317,3 +360,30 @@ GNU General Public License v3.0 (GPLv3)
 3. **Efficient architecture** - Static HTML with minimal dynamic updates
 4. **Professional quality** - Ready for public scrutiny
 5. **Docker-ready** - Single command deployment
+
+## Known Behaviors & Design Decisions
+
+### Auto-Add Setting
+- When **enabled**: Movies are automatically added during scheduled updates
+- When **disabled**: Movies show "Add to Radarr" button for manual control
+- Setting can be changed at any time via Settings page
+- Changes take effect on next update cycle
+
+### Movie Data Persistence
+- All movie metadata stored in JSON files
+- Enables regeneration without external API calls
+- Preserves historical data even if movie removed from Radarr
+- TMDB data cached at generation time
+
+### Page Regeneration
+- Automatic when movie added to Radarr
+- Affects all weeks containing that movie
+- Preserves week's original box office rankings
+- Updates only the Radarr status and quality info
+
+### Navigation Scalability
+- Recent 4 weeks shown as quick links
+- Dropdown menu groups weeks by year
+- Dashboard shows 24 most recent weeks
+- Older weeks accessible via dropdown
+- Handles 100+ weeks efficiently
