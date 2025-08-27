@@ -82,8 +82,9 @@ boxarr:
 
   # Features
   features:
-    auto_add: true                   # Auto-add movies to Radarr
+    auto_add: false                  # Auto-add movies to Radarr (false = shows "Add to Radarr" button)
     auto_upgrade: false              # Auto-upgrade quality
+    quality_upgrade: true            # Enable quality upgrade buttons
     require_confirmation: true       # Require confirmation for actions
     historical_data: true            # Store historical data
     historical_retention: 90         # Days to keep history
