@@ -17,6 +17,7 @@ from .boxoffice import BoxOfficeService
 from .radarr import RadarrService
 from .matcher import MovieMatcher, MatchResult
 from .exceptions import SchedulerError
+from .html_generator import WeeklyPageGenerator
 
 logger = get_logger(__name__)
 
@@ -127,15 +128,42 @@ class BoxarrScheduler:
                 radarr_movies
             )
             
-            # Process results
+            # Auto-add missing movies to Radarr with default profile
+            added_movies = await self._auto_add_missing_movies(match_results)
+            
+            # If movies were added, re-fetch and re-match
+            if added_movies:
+                logger.info(f"Added {len(added_movies)} movies to Radarr, re-matching...")
+                radarr_movies = await self._run_in_executor(
+                    self.radarr_service.get_all_movies
+                )
+                match_results = await self._run_in_executor(
+                    self.matcher.match_batch,
+                    box_office_movies,
+                    radarr_movies
+                )
+            
+            # Get weekend dates
+            friday, sunday, year, week = self.boxoffice_service.get_weekend_dates()
+            
+            # Generate static HTML page
+            page_generator = WeeklyPageGenerator(self.radarr_service)
+            html_path = await self._run_in_executor(
+                page_generator.generate_weekly_page,
+                match_results,
+                year,
+                week,
+                friday,
+                sunday
+            )
+            
+            # Process results for history
             results = self._process_match_results(match_results)
+            results['html_path'] = str(html_path)
+            results['added_movies'] = added_movies
             
             # Save to history
             await self._save_to_history(results)
-            
-            # Auto-add movies if enabled
-            if settings.boxarr_features_auto_add:
-                await self._auto_add_movies(match_results)
             
             duration = (datetime.now() - start_time).total_seconds()
             logger.info(
@@ -282,44 +310,76 @@ class BoxarrScheduler:
         except Exception as e:
             logger.error(f"Failed to cleanup history: {e}")
     
-    async def _auto_add_movies(
+    async def _auto_add_missing_movies(
         self,
         match_results: List[MatchResult]
-    ) -> None:
+    ) -> List[str]:
         """
-        Automatically add unmatched movies to Radarr.
+        Automatically add unmatched movies to Radarr with default profile.
         
         Args:
             match_results: Match results
+            
+        Returns:
+            List of added movie titles
         """
         if not self.radarr_service:
-            return
+            return []
         
+        added_movies = []
         unmatched = [r for r in match_results if not r.is_matched]
+        
+        if not unmatched:
+            return []
+        
+        logger.info(f"Auto-adding {len(unmatched)} unmatched movies to Radarr")
+        
+        # Get default quality profile
+        profiles = self.radarr_service.get_quality_profiles()
+        default_profile = next(
+            (p for p in profiles if p.name == settings.radarr_quality_profile_default),
+            profiles[0] if profiles else None
+        )
+        
+        if not default_profile:
+            logger.error("No quality profiles found in Radarr")
+            return []
         
         for result in unmatched:
             try:
-                # Search for movie in Radarr database
+                # Search for movie in Radarr database (TMDB)
                 search_results = await self._run_in_executor(
                     self.radarr_service.search_movie,
                     result.box_office_movie.title
                 )
                 
                 if search_results:
-                    # Add the first result
+                    # Add the first result with default profile
                     movie_info = search_results[0]
-                    await self._run_in_executor(
+                    added_movie = await self._run_in_executor(
                         self.radarr_service.add_movie,
-                        movie_info["tmdbId"]
+                        movie_info["tmdbId"],
+                        default_profile.id,
+                        str(settings.radarr_root_folder),
+                        True,  # monitored
+                        True   # search for movie
                     )
                     logger.info(
-                        f"Auto-added movie to Radarr: {movie_info['title']}"
+                        f"Auto-added movie to Radarr: {added_movie.title} "
+                        f"with profile '{default_profile.name}'"
+                    )
+                    added_movies.append(added_movie.title)
+                else:
+                    logger.warning(
+                        f"Movie '{result.box_office_movie.title}' not found in TMDB"
                     )
                     
             except Exception as e:
                 logger.warning(
                     f"Failed to auto-add {result.box_office_movie.title}: {e}"
                 )
+        
+        return added_movies
     
     def _on_job_executed(self, event) -> None:
         """Handle job execution event."""
