@@ -1,0 +1,52 @@
+[flake8]
+max-line-length = 88
+max-complexity = 10
+select = E,W,F,C
+ignore = 
+    # E203: whitespace before ':' (conflicts with Black)
+    E203,
+    # W503: line break before binary operator (conflicts with Black)
+    W503,
+    # E501: line too long (handled by Black)
+    E501,
+    # F401: module imported but unused (handled by isort)
+    F401
+
+exclude = 
+    .git,
+    __pycache__,
+    .pytest_cache,
+    .mypy_cache,
+    .venv,
+    venv,
+    build,
+    dist,
+    *.egg-info,
+    .tox,
+    docs/_build
+
+per-file-ignores =
+    # __init__.py files can have unused imports
+    __init__.py:F401
+    # Test files can have unused imports and long lines
+    tests/*:F401,E501
+    # Settings files might have long lines
+    */config.py:E501
+    # Main entry points might have unused imports
+    */main.py:F401
+
+statistics = True
+count = True
+show-source = True
+doctests = True
+
+# Specific error codes we want to catch
+enable-extensions = 
+    # pycodestyle errors
+    E,
+    # pycodestyle warnings  
+    W,
+    # pyflakes
+    F,
+    # McCabe complexity
+    C

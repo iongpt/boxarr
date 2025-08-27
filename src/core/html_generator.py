@@ -3,209 +3,234 @@
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 
-from ..utils.logger import get_logger
 from ..utils.config import settings
+from ..utils.logger import get_logger
 from .matcher import MatchResult
-from .radarr import RadarrService, QualityProfile
+from .radarr import QualityProfile, RadarrService
 
 logger = get_logger(__name__)
 
 
 class WeeklyPageGenerator:
     """Generates static HTML pages for weekly box office data."""
-    
+
     def __init__(self, radarr_service: Optional[RadarrService] = None):
         """
         Initialize page generator.
-        
+
         Args:
             radarr_service: Optional Radarr service instance
         """
         self.radarr_service = radarr_service
         self.output_dir = settings.boxarr_data_directory / "weekly_pages"
         self.output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     def generate_weekly_page(
         self,
         match_results: List[MatchResult],
         year: int,
         week: int,
         friday: datetime,
-        sunday: datetime
+        sunday: datetime,
     ) -> Path:
         """
         Generate static HTML page for a week's box office data.
-        
+
         Args:
             match_results: Movie matching results
             year: Year
             week: Week number
             friday: Friday date
             sunday: Sunday date
-            
+
         Returns:
             Path to generated HTML file
         """
         # Get quality profiles if available
         quality_profiles = {}
         ultra_hd_id = None
-        
+
         if self.radarr_service:
             try:
                 profiles = self.radarr_service.get_quality_profiles()
                 quality_profiles = {p.id: p.name for p in profiles}
-                
+
                 # Find Ultra-HD profile
                 for p in profiles:
-                    if 'ultra' in p.name.lower() or 'uhd' in p.name.lower() or '2160' in p.name:
+                    if (
+                        "ultra" in p.name.lower()
+                        or "uhd" in p.name.lower()
+                        or "2160" in p.name
+                    ):
                         ultra_hd_id = p.id
                         break
-                    
+
                 if not ultra_hd_id and settings.radarr_quality_profile_upgrade:
                     upgrade_profile = next(
-                        (p for p in profiles if p.name == settings.radarr_quality_profile_upgrade),
-                        None
+                        (
+                            p
+                            for p in profiles
+                            if p.name == settings.radarr_quality_profile_upgrade
+                        ),
+                        None,
                     )
                     if upgrade_profile:
                         ultra_hd_id = upgrade_profile.id
-                        
+
             except Exception as e:
                 logger.warning(f"Could not fetch quality profiles: {e}")
-        
+
         # Prepare movie data
         movies_data = []
         for result in match_results:
             movie_data = {
-                'rank': result.box_office_movie.rank,
-                'title': result.box_office_movie.title,
-                'weekend_gross': result.box_office_movie.weekend_gross,
-                'total_gross': result.box_office_movie.total_gross,
-                'radarr_id': None,
-                'radarr_title': None,
-                'status': 'Not in Radarr',
-                'status_color': '#718096',
-                'status_icon': '➕',
-                'quality_profile_id': None,
-                'quality_profile_name': None,
-                'has_file': False,
-                'can_upgrade_quality': False,
-                'poster': None,
-                'year': None,
-                'genres': None,
-                'overview': None,
-                'imdb_id': None,
-                'tmdb_id': None
+                "rank": result.box_office_movie.rank,
+                "title": result.box_office_movie.title,
+                "weekend_gross": result.box_office_movie.weekend_gross,
+                "total_gross": result.box_office_movie.total_gross,
+                "radarr_id": None,
+                "radarr_title": None,
+                "status": "Not in Radarr",
+                "status_color": "#718096",
+                "status_icon": "➕",
+                "quality_profile_id": None,
+                "quality_profile_name": None,
+                "has_file": False,
+                "can_upgrade_quality": False,
+                "poster": None,
+                "year": None,
+                "genres": None,
+                "overview": None,
+                "imdb_id": None,
+                "tmdb_id": None,
             }
-            
+
             if result.is_matched and result.radarr_movie:
                 movie = result.radarr_movie
-                movie_data.update({
-                    'radarr_id': movie.id,
-                    'radarr_title': movie.title,
-                    'quality_profile_id': movie.qualityProfileId,
-                    'quality_profile_name': quality_profiles.get(movie.qualityProfileId, ''),
-                    'has_file': movie.hasFile,
-                    'year': movie.year,
-                    'genres': ', '.join(movie.genres[:2]) if movie.genres else None,
-                    'overview': movie.overview[:150] + '...' if movie.overview and len(movie.overview) > 150 else movie.overview,
-                    'imdb_id': movie.imdbId,
-                    'poster': movie.poster_url,
-                    'can_upgrade_quality': bool(
-                        movie.qualityProfileId and 
-                        ultra_hd_id and 
-                        movie.qualityProfileId != ultra_hd_id and
-                        settings.boxarr_features_quality_upgrade
-                    )
-                })
-                
+                movie_data.update(
+                    {
+                        "radarr_id": movie.id,
+                        "radarr_title": movie.title,
+                        "quality_profile_id": movie.qualityProfileId,
+                        "quality_profile_name": quality_profiles.get(
+                            movie.qualityProfileId, ""
+                        ),
+                        "has_file": movie.hasFile,
+                        "year": movie.year,
+                        "genres": ", ".join(movie.genres[:2]) if movie.genres else None,
+                        "overview": (
+                            movie.overview[:150] + "..."
+                            if movie.overview and len(movie.overview) > 150
+                            else movie.overview
+                        ),
+                        "imdb_id": movie.imdbId,
+                        "poster": movie.poster_url,
+                        "can_upgrade_quality": bool(
+                            movie.qualityProfileId
+                            and ultra_hd_id
+                            and movie.qualityProfileId != ultra_hd_id
+                            and settings.boxarr_features_quality_upgrade
+                        ),
+                    }
+                )
+
                 # Initial status (will be updated dynamically)
                 if movie.hasFile:
-                    movie_data['status'] = 'Downloaded'
-                    movie_data['status_color'] = '#48bb78'
-                    movie_data['status_icon'] = '✅'
+                    movie_data["status"] = "Downloaded"
+                    movie_data["status_color"] = "#48bb78"
+                    movie_data["status_icon"] = "✅"
                 elif movie.status == "released" and movie.isAvailable:
-                    movie_data['status'] = 'Missing'
-                    movie_data['status_color'] = '#f56565'
-                    movie_data['status_icon'] = '❌'
+                    movie_data["status"] = "Missing"
+                    movie_data["status_color"] = "#f56565"
+                    movie_data["status_icon"] = "❌"
                 elif movie.status == "inCinemas":
-                    movie_data['status'] = 'In Cinemas'
-                    movie_data['status_color'] = '#f6ad55'
-                    movie_data['status_icon'] = '🎬'
+                    movie_data["status"] = "In Cinemas"
+                    movie_data["status_color"] = "#f6ad55"
+                    movie_data["status_icon"] = "🎬"
                 else:
-                    movie_data['status'] = 'Pending'
-                    movie_data['status_color'] = '#ed8936'
-                    movie_data['status_icon'] = '⏳'
+                    movie_data["status"] = "Pending"
+                    movie_data["status_color"] = "#ed8936"
+                    movie_data["status_icon"] = "⏳"
             else:
                 # For unmatched movies, try to get data from TMDB
                 if self.radarr_service:
                     try:
                         # Search for movie in TMDB via Radarr
-                        search_results = self.radarr_service.search_movie(result.box_office_movie.title)
+                        search_results = self.radarr_service.search_movie(
+                            result.box_office_movie.title
+                        )
                         if search_results and len(search_results) > 0:
                             # Use the first result
                             tmdb_movie = search_results[0]
-                            movie_data.update({
-                                'tmdb_id': tmdb_movie.get('tmdbId'),
-                                'year': tmdb_movie.get('year'),
-                                'overview': tmdb_movie.get('overview', '')[:150] + '...' if tmdb_movie.get('overview') and len(tmdb_movie.get('overview', '')) > 150 else tmdb_movie.get('overview'),
-                                'poster': tmdb_movie.get('remotePoster'),
-                                'imdb_id': tmdb_movie.get('imdbId'),
-                                'genres': ', '.join(tmdb_movie.get('genres', [])[:2]) if tmdb_movie.get('genres') else None
-                            })
+                            movie_data.update(
+                                {
+                                    "tmdb_id": tmdb_movie.get("tmdbId"),
+                                    "year": tmdb_movie.get("year"),
+                                    "overview": (
+                                        tmdb_movie.get("overview", "")[:150] + "..."
+                                        if tmdb_movie.get("overview")
+                                        and len(tmdb_movie.get("overview", "")) > 150
+                                        else tmdb_movie.get("overview")
+                                    ),
+                                    "poster": tmdb_movie.get("remotePoster"),
+                                    "imdb_id": tmdb_movie.get("imdbId"),
+                                    "genres": (
+                                        ", ".join(tmdb_movie.get("genres", [])[:2])
+                                        if tmdb_movie.get("genres")
+                                        else None
+                                    ),
+                                }
+                            )
                     except Exception as e:
-                        logger.warning(f"Could not fetch TMDB data for '{result.box_office_movie.title}': {e}")
-            
+                        logger.warning(
+                            f"Could not fetch TMDB data for '{result.box_office_movie.title}': {e}"
+                        )
+
             movies_data.append(movie_data)
-        
+
         # Generate HTML
         html = self._generate_html(
-            movies_data,
-            year,
-            week,
-            friday,
-            sunday,
-            quality_profiles,
-            ultra_hd_id
+            movies_data, year, week, friday, sunday, quality_profiles, ultra_hd_id
         )
-        
+
         # Save HTML file
         filename = f"{year}W{week:02d}.html"
         output_path = self.output_dir / filename
-        
-        with open(output_path, 'w', encoding='utf-8') as f:
+
+        with open(output_path, "w", encoding="utf-8") as f:
             f.write(html)
-        
+
         # Also save as current if it's the latest week
         current_week = datetime.now().isocalendar()[1]
         current_year = datetime.now().year
         if year == current_year and week == current_week:
             current_path = self.output_dir / "current.html"
-            with open(current_path, 'w', encoding='utf-8') as f:
+            with open(current_path, "w", encoding="utf-8") as f:
                 f.write(html)
-        
+
         # Save metadata with full movie data
         metadata = {
-            'generated_at': datetime.now().isoformat(),
-            'year': year,
-            'week': week,
-            'friday': friday.isoformat(),
-            'sunday': sunday.isoformat(),
-            'total_movies': len(movies_data),
-            'matched_movies': sum(1 for m in movies_data if m['radarr_id']),
-            'quality_profiles': quality_profiles,
-            'ultra_hd_id': ultra_hd_id,
-            'movies': movies_data  # Store full movie data for regeneration
+            "generated_at": datetime.now().isoformat(),
+            "year": year,
+            "week": week,
+            "friday": friday.isoformat(),
+            "sunday": sunday.isoformat(),
+            "total_movies": len(movies_data),
+            "matched_movies": sum(1 for m in movies_data if m["radarr_id"]),
+            "quality_profiles": quality_profiles,
+            "ultra_hd_id": ultra_hd_id,
+            "movies": movies_data,  # Store full movie data for regeneration
         }
-        
+
         metadata_path = self.output_dir / f"{year}W{week:02d}.json"
-        with open(metadata_path, 'w') as f:
+        with open(metadata_path, "w") as f:
             json.dump(metadata, f, indent=2)
-        
+
         logger.info(f"Generated weekly page: {output_path}")
         return output_path
-    
+
     def _generate_html(
         self,
         movies: List[Dict],
@@ -214,10 +239,10 @@ class WeeklyPageGenerator:
         friday: datetime,
         sunday: datetime,
         quality_profiles: Dict[int, str],
-        ultra_hd_id: Optional[int]
+        ultra_hd_id: Optional[int],
     ) -> str:
         """Generate the HTML content."""
-        
+
         # Generate HTML with compact header and dynamic navigation
         html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -681,17 +706,25 @@ class WeeklyPageGenerator:
         <div class="content-wrapper" style="padding: 0 15px;">
             <div class="movies-grid" id="moviesGrid">
 """
-        
+
         # Add movie cards
         for movie in movies:
-            poster_html = f'<img src="{movie["poster"]}" alt="{movie["title"]}" class="movie-poster">' if movie.get('poster') else '<div class="no-poster">🎬</div>'
-            
+            poster_html = (
+                f'<img src="{movie["poster"]}" alt="{movie["title"]}" class="movie-poster">'
+                if movie.get("poster")
+                else '<div class="no-poster">🎬</div>'
+            )
+
             # Status styling (will be updated dynamically)
             status_style = f"background-color: {movie['status_color']}20; color: {movie['status_color']}; border: 2px solid {movie['status_color']};"
-            
+
             # IMDb link
-            imdb_url = f"https://www.imdb.com/title/{movie['imdb_id']}/" if movie.get('imdb_id') else f"https://www.imdb.com/find?q={movie['title']}"
-            
+            imdb_url = (
+                f"https://www.imdb.com/title/{movie['imdb_id']}/"
+                if movie.get("imdb_id")
+                else f"https://www.imdb.com/find?q={movie['title']}"
+            )
+
             html += f"""
             <div class="movie-card" data-radarr-id="{movie['radarr_id'] or ''}" data-rank="{movie['rank']}">
                 <div class="movie-poster-container">
@@ -705,48 +738,48 @@ class WeeklyPageGenerator:
                         <span class="status-text">{movie['status']}</span>
                     </div>
 """
-            
+
             # Quality row or Add to Radarr button (will be updated dynamically)
-            if movie['quality_profile_name']:
+            if movie["quality_profile_name"]:
                 upgrade_btn = ""
-                if movie['can_upgrade_quality'] and movie['radarr_id'] and ultra_hd_id:
+                if movie["can_upgrade_quality"] and movie["radarr_id"] and ultra_hd_id:
                     upgrade_btn = f"""<button class="upgrade-btn" data-movie-id="{movie['radarr_id']}" data-profile-id="{ultra_hd_id}" onclick="upgradeQuality(this)">⬆️ Ultra-HD</button>"""
-                
+
                 html += f"""
                     <div class="quality-row">
                         <span class="quality-text">Profile: <span class="profile-name">{movie['quality_profile_name']}</span></span>
                         {upgrade_btn}
                     </div>
 """
-            elif movie['status'] == 'Not in Radarr':
+            elif movie["status"] == "Not in Radarr":
                 # Show Add to Radarr button for unmatched movies
                 html += f"""
                     <div class="quality-row">
                         <button class="add-btn" data-movie-title="{movie['title']}" onclick="addToRadarr(this)">➕ Add to Radarr</button>
                     </div>
 """
-            
+
             # Movie details
             html += '                    <div class="movie-details">\n'
-            if movie.get('year'):
+            if movie.get("year"):
                 html += f'                        <div class="movie-year">Year: {movie["year"]}</div>\n'
-            if movie.get('genres'):
+            if movie.get("genres"):
                 html += f'                        <div class="movie-genre">{movie["genres"]}</div>\n'
-            if movie.get('overview'):
+            if movie.get("overview"):
                 html += f'                        <div class="movie-plot">{movie["overview"]}</div>\n'
-            html += '                    </div>\n'
-            
+            html += "                    </div>\n"
+
             # Links
             html += f"""                    <div class="movie-links">
                         <a href="{imdb_url}" target="_blank" class="movie-link imdb-link">IMDb</a>
                         <a href="https://en.wikipedia.org/w/index.php?search={movie['title']} film" target="_blank" class="movie-link wiki-link">Wiki</a>
                     </div>
 """
-            
+
             html += """                </div>
             </div>
 """
-        
+
         html += f"""        </div>
         
         <div class="footer">
@@ -1024,94 +1057,95 @@ class WeeklyPageGenerator:
 </body>
 </html>
 """
-        
+
         return html
-    
+
     def get_available_weeks(self) -> List[str]:
         """Get list of available week pages."""
         weeks = []
-        
+
         for file in sorted(self.output_dir.glob("????W??.html"), reverse=True):
             if file.name != "current.html":
                 week_str = file.stem
                 weeks.append(week_str)
-        
+
         return weeks
-    
+
     def regenerate_weeks_with_movie(self, movie_title: str) -> List[str]:
         """
         Find and regenerate all weeks containing a specific movie.
-        
+
         Args:
             movie_title: Title of the movie to search for
-            
+
         Returns:
             List of regenerated week identifiers
         """
         regenerated = []
-        
+
         # Search through all metadata files
         for metadata_file in self.output_dir.glob("????W??.json"):
             try:
                 with open(metadata_file) as f:
                     metadata = json.load(f)
-                
+
                 # Check if this week contains the movie
-                movies = metadata.get('movies', [])
+                movies = metadata.get("movies", [])
                 contains_movie = any(
-                    movie.get('title', '').lower() == movie_title.lower()
+                    movie.get("title", "").lower() == movie_title.lower()
                     for movie in movies
                 )
-                
+
                 if contains_movie:
-                    logger.info(f"Regenerating week {metadata_file.stem} containing '{movie_title}'")
-                    
+                    logger.info(
+                        f"Regenerating week {metadata_file.stem} containing '{movie_title}'"
+                    )
+
                     # Rebuild match results from metadata
-                    from .matcher import MatchResult
                     from .boxoffice import BoxOfficeMovie
-                    
+                    from .matcher import MatchResult
+
                     # Get current Radarr movies
                     radarr_movies = []
                     if self.radarr_service:
                         radarr_movies = self.radarr_service.get_all_movies()
-                    
+
                     # Create match results from stored data
                     match_results = []
                     for movie_data in movies:
                         # Create box office movie
                         bo_movie = BoxOfficeMovie(
-                            rank=movie_data['rank'],
-                            title=movie_data['title'],
-                            weekend_gross=movie_data.get('weekend_gross'),
-                            total_gross=movie_data.get('total_gross')
+                            rank=movie_data["rank"],
+                            title=movie_data["title"],
+                            weekend_gross=movie_data.get("weekend_gross"),
+                            total_gross=movie_data.get("total_gross"),
                         )
-                        
+
                         # Try to find matching Radarr movie
                         radarr_movie = None
                         for rm in radarr_movies:
-                            if rm.title.lower() == movie_data['title'].lower():
+                            if rm.title.lower() == movie_data["title"].lower():
                                 radarr_movie = rm
                                 break
-                        
+
                         # Create match result
                         match_result = MatchResult(
                             box_office_movie=bo_movie,
                             radarr_movie=radarr_movie,
-                            is_matched=radarr_movie is not None,
-                            confidence=1.0 if radarr_movie else 0.0
+                            confidence=1.0 if radarr_movie else 0.0,
                         )
                         match_results.append(match_result)
-                    
+
                     # Regenerate the page
-                    year = metadata['year']
-                    week = metadata['week']
-                    friday = datetime.fromisoformat(metadata['friday'])
-                    sunday = datetime.fromisoformat(metadata['sunday'])
-                    
+                    year = metadata["year"]
+                    week = metadata["week"]
+                    friday = datetime.fromisoformat(metadata["friday"])
+                    sunday = datetime.fromisoformat(metadata["sunday"])
+
                     self.generate_weekly_page(match_results, year, week, friday, sunday)
                     regenerated.append(f"{year}W{week:02d}")
-                    
+
             except Exception as e:
                 logger.error(f"Error processing {metadata_file}: {e}")
-        
+
         return regenerated
