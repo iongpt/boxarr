@@ -71,7 +71,8 @@ class RadarrMovie:
         """Get poster URL if available."""
         for image in self.images:
             if image.get("coverType") == "poster":
-                return image.get("remoteUrl")
+                url = image.get("remoteUrl")
+                return url if isinstance(url, str) else None
         return None
 
     @property
@@ -79,7 +80,10 @@ class RadarrMovie:
         """Get file quality if movie has file."""
         if self.movieFile:
             quality = self.movieFile.get("quality", {})
-            return quality.get("quality", {}).get("name")
+            quality_obj = quality.get("quality", {})
+            if isinstance(quality_obj, dict):
+                name = quality_obj.get("name")
+                return name if isinstance(name, str) else None
         return None
 
     @property
@@ -87,7 +91,8 @@ class RadarrMovie:
         """Get file size in GB if movie has file."""
         if self.movieFile:
             size_bytes = self.movieFile.get("size", 0)
-            return round(size_bytes / (1024**3), 2)
+            if isinstance(size_bytes, (int, float)) and size_bytes > 0:
+                return round(size_bytes / (1024**3), 2)
         return None
 
 
@@ -214,7 +219,7 @@ class RadarrService:
         response = self._make_request("GET", f"/api/v3/movie/{movie_id}")
         return self._parse_movie(response.json())
 
-    def search_movie(self, term: str) -> List[Dict]:
+    def search_movie(self, term: str) -> List[Dict[str, Any]]:
         """
         Search for movies using Radarr's search.
 
@@ -227,7 +232,8 @@ class RadarrService:
         response = self._make_request(
             "GET", "/api/v3/movie/lookup", params={"term": term}
         )
-        return response.json()
+        result = response.json()
+        return result if isinstance(result, list) else []
 
     def add_movie(
         self,
@@ -457,4 +463,5 @@ class RadarrService:
             System status information
         """
         response = self._make_request("GET", "/api/v3/system/status")
-        return response.json()
+        result = response.json()
+        return result if isinstance(result, dict) else {}

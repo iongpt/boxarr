@@ -48,7 +48,7 @@ class Settings(BaseSettings):
 
     # Radarr Configuration
     radarr_url: HttpUrl = Field(
-        default="http://localhost:7878", description="URL to Radarr instance"
+        default=HttpUrl("http://localhost:7878"), description="URL to Radarr instance"
     )
     radarr_api_key: str = Field(default="", description="Radarr API key")
     radarr_root_folder: Path = Field(

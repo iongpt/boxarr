@@ -228,7 +228,7 @@ class BoxarrScheduler:
         unmatched = [r for r in match_results if not r.is_matched]
 
         # Group by status
-        status_groups = {}
+        status_groups: Dict[str, List[MatchResult]] = {}
         for result in matched:
             movie = result.radarr_movie
             status = self._get_movie_status(movie)
@@ -420,7 +420,7 @@ class BoxarrScheduler:
             Next run datetime or None
         """
         job = self.scheduler.get_job("box_office_update")
-        if job:
+        if job and job.next_run_time:
             return job.next_run_time
         return None
 
