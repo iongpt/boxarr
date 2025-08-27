@@ -14,7 +14,9 @@ Automatically track and add box office hits to your Radarr collection. Boxarr mo
 - **Real-time Status Updates**: See movie availability status (Downloaded, In Cinemas, Missing, etc.)
 - **Quality Profile Management**: One-click quality profile upgrades
 - **Historical Data**: Browse and analyze past weeks' box office rankings
-- **Beautiful Dashboard**: Responsive web interface optimized for all screen sizes
+- **Beautiful Dashboard**: Responsive web interface with compact header and dynamic navigation
+- **Week Management**: Delete individual weeks or regenerate data as needed
+- **Scalable Navigation**: Efficiently handles 100+ weeks with grouped year navigation
 - **Settings Persistence**: Configuration is saved and pre-populated in settings page
 - **Week Navigation**: Easy navigation between recent weeks with dropdown for older data
 - **API Integration**: RESTful API for third-party integrations

@@ -36,7 +36,7 @@ JavaScript polls /api/movies/status for dynamic updates
 - `radarr.py` - Complete Radarr API client
 - `matcher.py` - Smart movie matching algorithm (handles sequels, colons, etc.)
 - `scheduler.py` - APScheduler that triggers weekly updates
-- `html_generator.py` - Generates static HTML pages with movie cards
+- `html_generator.py` - Generates static HTML pages with compact header and dynamic navigation
 - `exceptions.py` - Custom exception hierarchy
 
 ### API (`src/api/`)
@@ -94,10 +94,15 @@ docker run -p 8888:8888 -v ./config:/config boxarr
 - `POST /api/movies/{id}/upgrade` - Upgrade quality profile
 - `POST /api/movies/status` - Batch status check (for JS polling)
 
+### Weekly Pages Management
+- `GET /api/weeks` - Get list of all available weeks with metadata
+- `DELETE /api/weeks/{year}/W{week}/delete` - Delete specific week's data files
+- `POST /api/update-week` - Update box office for specific historical week
+
 ### Web UI
 - `GET /` - Current week or redirect to setup
-- `GET /setup` - Configuration wizard
-- `GET /dashboard` - Browse all weeks
+- `GET /setup` - Configuration wizard (with Back to Dashboard button)
+- `GET /dashboard` - Browse all weeks (paginated display with delete functionality)
 - `GET /{year}W{week}.html` - Specific week's static page
 
 ### Utility
@@ -195,6 +200,11 @@ curl -X POST http://localhost:8888/api/config/test \
 - Confidence scoring with configurable threshold
 
 ### Static HTML Generation
+- **Compact header design** with integrated navigation and connection status
+- **Dynamic navigation** that loads available weeks via API
+  - Shows 4 most recent weeks as quick links
+  - Comprehensive dropdown menu grouped by year
+  - Scales efficiently for 100+ weeks
 - Beautiful responsive cards (5 per row on 4K)
 - Purple gradient theme
 - Movie posters with rank badges
@@ -202,6 +212,12 @@ curl -X POST http://localhost:8888/api/config/test \
 - Quality profile display
 - IMDb and Wikipedia links
 - JavaScript for dynamic updates
+
+### Dashboard Features
+- **Paginated display** - Shows first 24 weeks (6 months)
+- **Delete functionality** - Remove individual weeks with confirmation
+- **Dropdown navigation** for older weeks beyond the first 24
+- **Empty state handling** - Graceful message when no weeks exist
 
 ### Auto-Add Logic
 1. Find unmatched box office movies
