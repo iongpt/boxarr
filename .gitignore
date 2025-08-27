@@ -251,3 +251,20 @@ temp/
 *.db
 *.sqlite
 *.sqlite3
+
+# CI/CD artifacts
+bandit-report.json
+safety-report.json
+trivy-results.sarif
+CHANGELOG.tmp
+*.coverage.*
+test-results.xml
+junit.xml
+
+# Security scan results
+.sarif
+vulnerability-report.json
+security-report.html
+
+# Docker build context
+.dockerignore.tmp
