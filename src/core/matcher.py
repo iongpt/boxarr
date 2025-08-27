@@ -160,9 +160,7 @@ class MovieMatcher:
             Year or None
         """
         match = re.search(r"\((\d{4})\)", title)
-        if match:
-            return int(match.group(1))
-        return None
+        return int(match.group(1)) if match else None
 
     def calculate_similarity(self, str1: str, str2: str) -> float:
         """
