@@ -22,14 +22,17 @@ Automatically track and add box office hits to your Radarr collection. Boxarr mo
 
 ### Docker (Recommended)
 
+**No configuration needed!** Start Boxarr and configure everything through the web UI:
+
 ```bash
 docker run -d \
   --name boxarr \
-  -e RADARR_URL=http://your-radarr:7878 \
-  -e RADARR_API_KEY=your-api-key \
   -p 8888:8888 \
+  -v ./config:/config \
   boxarr/boxarr:latest
 ```
+
+Then visit http://localhost:8888 to complete setup.
 
 ### Docker Compose
 
@@ -39,10 +42,6 @@ services:
   boxarr:
     image: boxarr/boxarr:latest
     container_name: boxarr
-    environment:
-      - RADARR_URL=http://radarr:7878
-      - RADARR_API_KEY=${RADARR_API_KEY}
-      - TZ=America/New_York
     ports:
       - "8888:8888"
     volumes:
@@ -52,32 +51,40 @@ services:
 
 ## 📋 Configuration
 
-Boxarr can be configured through environment variables or a configuration file.
+### Web UI Setup (Recommended)
 
-### Environment Variables
+1. **Start Boxarr** without any configuration
+2. **Visit** http://localhost:8888 
+3. **Enter** your Radarr URL and API key
+4. **Test Connection** to validate and fetch quality profiles
+5. **Configure** your preferences and save
+
+The setup wizard will:
+- Validate your Radarr connection
+- Fetch available quality profiles dynamically
+- Show root folders with free space
+- Let you configure auto-add and scheduling options
+
+### Manual Configuration (Optional)
+
+You can also configure via environment variables:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `RADARR_URL` | URL to your Radarr instance | `http://localhost:7878` |
-| `RADARR_API_KEY` | Radarr API key | Required |
-| `BOXARR_PORT` | Web interface port | `8888` |
-| `BOXARR_API_PORT` | API server port | `8889` |
-| `BOXARR_SCHEDULE` | Cron expression for updates | `0 23 * * 2` (Tue 11 PM) |
-| `BOXARR_THEME` | UI theme (purple, blue, dark) | `purple` |
-| `TZ` | Timezone | `UTC` |
+| `RADARR_URL` | URL to your Radarr instance | - |
+| `RADARR_API_KEY` | Radarr API key | - |
+| `BOXARR_SCHEDULER_ENABLED` | Enable automatic updates | `true` |
+| `BOXARR_FEATURES_AUTO_ADD` | Auto-add missing movies | `false` |
 
-### Configuration File
-
-Create a `config.yaml` file in your config directory:
+Or via `config/local.yaml`:
 
 ```yaml
 radarr:
   url: http://localhost:7878
   api_key: your-api-key
+  quality_profile_default: HD-1080p
   quality_profile_upgrade: Ultra-HD
-  
-boxarr:
-  port: 8888
+  root_folder: /movies
   api_port: 8889
   schedule: "0 23 * * 2"
   theme: purple
