@@ -141,8 +141,15 @@ class BoxarrScheduler:
                 radarr_movies
             )
             
-            # Auto-add missing movies to Radarr with default profile
-            added_movies = await self._auto_add_missing_movies(match_results)
+            # Auto-add missing movies to Radarr with default profile (if enabled)
+            added_movies = []
+            if settings.boxarr_features_auto_add:
+                logger.info("Auto-add is enabled, adding missing movies to Radarr")
+                added_movies = await self._auto_add_missing_movies(match_results)
+            else:
+                unmatched_count = len([r for r in match_results if not r.is_matched])
+                if unmatched_count > 0:
+                    logger.info(f"Auto-add is disabled. {unmatched_count} movies not in Radarr, manual addition required")
             
             # If movies were added, re-fetch and re-match
             if added_movies:
