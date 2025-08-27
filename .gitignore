@@ -205,3 +205,45 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# ========================================
+# Boxarr specific ignores
+# ========================================
+
+# Internal planning and documentation
+/internal/
+
+# Configuration with sensitive data
+config/local.yaml
+config/*.local.yaml
+.env.local
+.env.*.local
+
+# Docker volumes
+docker/volumes/
+
+# OS Files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Temporary files
+*.tmp
+*.bak
+*.backup
+tmp/
+temp/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
