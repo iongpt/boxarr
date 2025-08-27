@@ -197,8 +197,11 @@ class WeeklyPageGenerator:
     ) -> str:
         """Generate the HTML content."""
         
-        # Get list of available weeks
+        # Get list of available weeks including the current week being generated
         available_weeks = self.get_available_weeks()
+        current_week_str = f"{year}W{week:02d}"
+        if current_week_str not in available_weeks:
+            available_weeks.insert(0, current_week_str)
         
         # Generate HTML (based on the working template)
         html = f"""<!DOCTYPE html>
@@ -218,10 +221,10 @@ class WeeklyPageGenerator:
         .container {{ max-width: 2400px; margin: 0 auto; }}
         .header {{ 
             background: rgba(255,255,255,0.98); 
-            border-radius: 20px; 
+            border-radius: 0 0 20px 20px; 
             padding: 30px 40px; 
-            margin-bottom: 25px; 
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3); 
+            margin: 0 20px 25px; 
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2); 
         }}
         h1 {{ 
             font-size: 2.5em; 
@@ -250,17 +253,59 @@ class WeeklyPageGenerator:
         }}
         .status-dot.connected {{ background: #48bb78; }}
         .status-dot.disconnected {{ background: #f56565; }}
+        .nav-wrapper {{
+            background: rgba(0, 0, 0, 0.05);
+            padding: 15px 20px;
+            margin: 0 20px 20px;
+            border-radius: 15px;
+        }}
+        .nav-buttons {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 20px;
+        }}
+        .dashboard-button {{
+            padding: 10px 20px;
+            background: #667eea;
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 14px;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }}
+        .dashboard-button:hover {{
+            background: #5a67d8;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px rgba(102, 126, 234, 0.2);
+        }}
         .history-nav {{ 
             display: flex; 
             gap: 8px; 
-            flex-wrap: wrap; 
-            padding: 15px; 
-            background: rgba(102,126,234,0.1); 
-            border-radius: 10px; 
-            margin-top: 15px; 
             align-items: center; 
+            flex: 1;
+            justify-content: flex-end;
         }}
         .history-label {{ color: #4a5568; font-weight: bold; margin-right: 10px; }}
+        .week-selector {{
+            margin-left: 12px;
+            padding: 6px 12px;
+            background: white;
+            color: #667eea;
+            border: 2px solid #667eea;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+        }}
+        .week-selector:hover {{
+            background: #667eea;
+            color: white;
+        }}
         .history-link {{ 
             padding: 8px 14px; 
             background: white; 
@@ -290,6 +335,21 @@ class WeeklyPageGenerator:
         
         @media (min-width: 2560px) {{
             .movies-grid {{ grid-template-columns: repeat(5, 1fr); }}
+        }}
+        
+        /* Mobile responsive for navigation */
+        @media (max-width: 768px) {{
+            .nav-buttons {{
+                flex-direction: column;
+                align-items: stretch;
+            }}
+            .dashboard-button {{
+                text-align: center;
+                width: 100%;
+            }}
+            .history-nav {{
+                margin-top: 10px;
+            }}
         }}
         
         .movie-card {{ 
@@ -505,23 +565,43 @@ class WeeklyPageGenerator:
             </h1>
             <div class="date-range">{friday.strftime('%B %d')} - {sunday.strftime('%B %d, %Y')}</div>
             <div class="week-info">Week {week} of {year}</div>
-            
-            <div class="history-nav">
-                <span class="history-label">Navigate Weeks:</span>
+        </div>
+        
+        <div class="nav-wrapper">
+            <div class="nav-buttons">
+                <a href="/dashboard" class="dashboard-button">← Back to Dashboard</a>
+                <div class="history-nav">
+                    <span class="history-label">Recent Weeks:</span>
 """
         
-        # Add navigation links
-        for week_str in available_weeks[:10]:  # Show last 10 weeks
+        # Add navigation links - always show in fixed order (newest to oldest)
+        # Show only recent 8 weeks inline, rest in dropdown
+        for i, week_str in enumerate(available_weeks[:8]):
             week_year = int(week_str[:4])
             week_num = int(week_str[5:7])
             is_current = week_year == year and week_num == week
             
-            html += f'                <a href="/{week_str}.html" class="history-link {"current" if is_current else ""}">Week {week_num}/{week_year % 100}</a>\n'
+            html += f'                    <a href="/{week_str}.html" class="history-link {"current" if is_current else ""}">W{week_num}/{week_year % 100}</a>\n'
         
-        html += """            </div>
+        
+        # Add dropdown for older weeks if there are more than 8
+        if len(available_weeks) > 8:
+            html += """
+                    <select class="week-selector" onchange="if(this.value) window.location.href=this.value">
+                        <option value="">Older weeks...</option>
+"""
+            for week_str in available_weeks[8:]:
+                week_year = int(week_str[:4])
+                week_num = int(week_str[5:7])
+                html += f'                        <option value="/{week_str}.html">Week {week_num}, {week_year}</option>\n'
+            html += "                    </select>\n"
+        
+        html += """                </div>
+            </div>
         </div>
         
-        <div class="movies-grid" id="moviesGrid">
+        <div class="content-wrapper" style="padding: 0 20px;">
+            <div class="movies-grid" id="moviesGrid">
 """
         
         # Add movie cards

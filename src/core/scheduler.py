@@ -94,14 +94,21 @@ class BoxarrScheduler:
         self._running = False
         logger.info("Scheduler stopped")
     
-    async def update_box_office(self) -> Dict[str, Any]:
+    async def update_box_office(self, year: Optional[int] = None, week: Optional[int] = None) -> Dict[str, Any]:
         """
         Main job to update box office data.
+        
+        Args:
+            year: Optional year to fetch (defaults to current)
+            week: Optional week number to fetch (defaults to current)
         
         Returns:
             Update results dictionary
         """
-        logger.info("Starting scheduled box office update")
+        if year and week:
+            logger.info(f"Starting box office update for {year} Week {week:02d}")
+        else:
+            logger.info("Starting scheduled box office update for current week")
         start_time = datetime.now()
         
         try:
@@ -111,10 +118,16 @@ class BoxarrScheduler:
             if not self.radarr_service:
                 self.radarr_service = RadarrService()
             
-            # Fetch box office movies
-            box_office_movies = await self._run_in_executor(
-                self.boxoffice_service.get_current_week_movies
-            )
+            # Fetch box office movies for specified or current week
+            if year and week:
+                box_office_movies = await self._run_in_executor(
+                    self.boxoffice_service.fetch_weekend_box_office,
+                    year, week
+                )
+            else:
+                box_office_movies = await self._run_in_executor(
+                    self.boxoffice_service.get_current_week_movies
+                )
             
             # Fetch Radarr movies
             radarr_movies = await self._run_in_executor(
@@ -144,15 +157,29 @@ class BoxarrScheduler:
                 )
             
             # Get weekend dates
-            friday, sunday, year, week = self.boxoffice_service.get_weekend_dates()
+            if year and week:
+                # Calculate dates for the specified week
+                from datetime import timedelta
+                jan1 = datetime(year, 1, 1)
+                days_to_week = (week - 1) * 7
+                week_start = jan1 + timedelta(days=days_to_week)
+                # Find the Friday of that week
+                days_to_friday = (4 - week_start.weekday()) % 7
+                friday = week_start + timedelta(days=days_to_friday)
+                sunday = friday + timedelta(days=2)
+                actual_year = year
+                actual_week = week
+            else:
+                # Use current week dates
+                friday, sunday, actual_year, actual_week = self.boxoffice_service.get_weekend_dates()
             
             # Generate static HTML page
             page_generator = WeeklyPageGenerator(self.radarr_service)
             html_path = await self._run_in_executor(
                 page_generator.generate_weekly_page,
                 match_results,
-                year,
-                week,
+                actual_year,
+                actual_week,
                 friday,
                 sunday
             )
