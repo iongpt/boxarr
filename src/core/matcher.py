@@ -52,7 +52,7 @@ class MovieMatcher:
         "X": 10,
     }
 
-    def __init__(self, min_confidence: float = 0.8):
+    def __init__(self, min_confidence: float = 0.95):
         """
         Initialize movie matcher.
 
@@ -71,6 +71,13 @@ class MovieMatcher:
         """
         self._movie_cache.clear()
 
+        def _is_sequel(title: str) -> bool:
+            # Has trailing number or roman numeral
+            if re.search(r"\s+\d+$", title):
+                return True
+            words = title.strip().split()
+            return bool(words and words[-1].upper() in self.ROMAN_NUMERALS)
+
         for movie in movies:
             # Index by exact title
             self._movie_cache[movie.title.lower()] = movie
@@ -86,7 +93,14 @@ class MovieMatcher:
             # Index by title without subtitle
             base_title = self.get_base_title(movie.title)
             if base_title != movie.title:
-                self._movie_cache[base_title.lower()] = movie
+                key = base_title.lower()
+                existing = self._movie_cache.get(key)
+                if existing is None:
+                    self._movie_cache[key] = movie
+                else:
+                    # Prefer non-sequel for the base title mapping
+                    if _is_sequel(existing.title) and not _is_sequel(movie.title):
+                        self._movie_cache[key] = movie
 
         logger.info(f"Built movie index with {len(movies)} movies")
 
@@ -205,6 +219,16 @@ class MovieMatcher:
                 match_method="exact",
             )
 
+        # Try special cases (sequels, remakes, etc.)
+        result = self._try_special_cases(box_office_title, radarr_movies)
+        if result:
+            return MatchResult(
+                box_office_movie=box_office_movie,
+                radarr_movie=result,
+                confidence=0.85,
+                match_method="special",
+            )
+
         # Try normalized match
         result = self._try_normalized_match(box_office_title)
         if result:
@@ -223,16 +247,6 @@ class MovieMatcher:
                 radarr_movie=result,
                 confidence=confidence,
                 match_method="fuzzy",
-            )
-
-        # Try special cases (sequels, remakes, etc.)
-        result = self._try_special_cases(box_office_title, radarr_movies)
-        if result:
-            return MatchResult(
-                box_office_movie=box_office_movie,
-                radarr_movie=result,
-                confidence=0.85,
-                match_method="special",
             )
 
         # No match found
@@ -259,6 +273,15 @@ class MovieMatcher:
         no_articles = self.remove_articles(title)
         if no_articles in self._movie_cache:
             return self._movie_cache[no_articles]
+
+        # Try replacing trailing Roman numerals with numbers and re-check
+        title_upper = title.upper()
+        for numeral in sorted(self.ROMAN_NUMERALS.keys(), key=len, reverse=True):
+            if title_upper.endswith(f" {numeral}"):
+                replaced = re.sub(rf"\b{numeral}\b", str(self.ROMAN_NUMERALS[numeral]), title_upper, flags=re.IGNORECASE)
+                alt_norm = self.normalize_title(replaced)
+                if alt_norm in self._movie_cache:
+                    return self._movie_cache[alt_norm]
 
         # Try base title
         base_title = self.get_base_title(title)
@@ -345,6 +368,11 @@ class MovieMatcher:
                 title_with_number = re.sub(
                     rf"\b{numeral}\b", str(value), title, flags=re.IGNORECASE
                 )
+                # Prefer exact/normalized equality to sequel title
+                norm_target = self.normalize_title(title_with_number)
+                for m in radarr_movies:
+                    if self.normalize_title(m.title) == norm_target:
+                        return m
                 result = self._try_normalized_match(title_with_number)
                 if result:
                     return result
@@ -388,3 +416,37 @@ class MovieMatcher:
         )
 
         return results
+
+    def match_movie(
+        self, box_office_movie: BoxOfficeMovie, radarr_movies: List[RadarrMovie]
+    ) -> MatchResult:
+        """
+        Alias for match_single to maintain compatibility with routes.
+
+        Args:
+            box_office_movie: Box office movie to match
+            radarr_movies: List of Radarr movies
+
+        Returns:
+            MatchResult object
+        """
+        # match_single expects a title string, not a BoxOfficeMovie object
+        result = self.match_single(box_office_movie.title, radarr_movies)
+        # Update the box_office_movie in the result to use the one passed in
+        result.box_office_movie = box_office_movie
+        return result
+
+    def match_movies(
+        self, box_office_movies: List[BoxOfficeMovie], radarr_movies: List[RadarrMovie]
+    ) -> List[MatchResult]:
+        """
+        Alias for match_batch to maintain compatibility with routes.
+
+        Args:
+            box_office_movies: List of box office movies
+            radarr_movies: List of Radarr movies
+
+        Returns:
+            List of MatchResult objects
+        """
+        return self.match_batch(box_office_movies, radarr_movies)

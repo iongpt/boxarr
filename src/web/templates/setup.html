@@ -1,0 +1,414 @@
+{% extends "base.html" %}
+
+{% block title %}Boxarr Setup{% endblock %}
+
+{% block content %}
+<style>
+    body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        margin: 0;
+    }
+    .setup-container {
+        background: white;
+        border-radius: 10px;
+        padding: 40px;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+        max-width: 600px;
+        width: 100%;
+    }
+    h1 {
+        color: #667eea;
+        margin: 0 0 10px 0;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    .subtitle {
+        color: #718096;
+        margin-bottom: 30px;
+    }
+    .nav-buttons {
+        margin-bottom: 20px;
+    }
+    .nav-btn {
+        background: #e2e8f0;
+        color: #4a5568;
+        padding: 10px 20px;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        text-decoration: none;
+        display: inline-block;
+        margin-right: 10px;
+    }
+    .nav-btn:hover {
+        background: #cbd5e0;
+    }
+    .form-group {
+        margin-bottom: 20px;
+    }
+    label {
+        display: block;
+        margin-bottom: 5px;
+        color: #4a5568;
+        font-weight: 500;
+    }
+    input, select {
+        width: 100%;
+        padding: 10px;
+        border: 1px solid #e2e8f0;
+        border-radius: 5px;
+        font-size: 16px;
+        box-sizing: border-box;
+    }
+    input:focus, select:focus {
+        outline: none;
+        border-color: #667eea;
+        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    }
+    .checkbox-group {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 15px 0;
+    }
+    input[type="checkbox"] {
+        width: auto;
+    }
+    .btn {
+        background: #667eea;
+        color: white;
+        padding: 12px 24px;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 16px;
+        width: 100%;
+        margin-top: 10px;
+    }
+    .btn:hover:not(:disabled) {
+        background: #5a67d8;
+    }
+    .btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+    .btn-test {
+        background: #48bb78;
+    }
+    .btn-test:hover:not(:disabled) {
+        background: #38a169;
+    }
+    .success {
+        color: #48bb78;
+        margin-top: 10px;
+    }
+    .error {
+        color: #f56565;
+        margin-top: 10px;
+    }
+    .info {
+        background: #edf2f7;
+        border-left: 4px solid #667eea;
+        padding: 15px;
+        margin: 20px 0;
+        border-radius: 5px;
+    }
+    .loading {
+        display: inline-block;
+        width: 20px;
+        height: 20px;
+        border: 3px solid #f3f3f3;
+        border-top: 3px solid #667eea;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin-left: 10px;
+    }
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+    #testResults {
+        margin-top: 15px;
+        padding: 15px;
+        background: #f7fafc;
+        border-radius: 5px;
+        display: none;
+    }
+    #qualityProfiles {
+        display: none;
+        margin-top: 20px;
+    }
+</style>
+
+<div class="setup-container">
+    <h1>⚙️ Boxarr Setup</h1>
+    <p class="subtitle">Configure your Radarr connection and preferences</p>
+    
+    <div class="nav-buttons">
+        {% if is_configured %}
+        <a href="/dashboard" class="nav-btn">← Back to Dashboard</a>
+        {% endif %}
+    </div>
+
+    <form id="setupForm">
+        <div class="info">
+            <strong>🔒 Local Application</strong><br>
+            This application runs entirely on your local network. No authentication required.
+        </div>
+
+        <h3>Radarr Connection</h3>
+        <div class="form-group">
+            <label for="radarrUrl">Radarr URL</label>
+            <input type="url" id="radarrUrl" name="radarr_url" 
+                   value="{{ radarr_url }}" 
+                   placeholder="http://localhost:7878" required>
+        </div>
+        
+        <div class="form-group">
+            <label for="radarrApiKey">Radarr API Key</label>
+            <input type="text" id="radarrApiKey" name="radarr_api_key" 
+                   value="{{ radarr_api_key }}" 
+                   placeholder="Your Radarr API key" required>
+        </div>
+        
+        <button type="button" class="btn btn-test" onclick="testConnection()">
+            Test Connection
+        </button>
+        
+        <div id="testResults"></div>
+        
+        <div id="qualityProfiles" style="display: none;">
+            <h3>Quality Settings</h3>
+            <div class="form-group">
+                <label for="rootFolder">Root Folder</label>
+                <select id="rootFolder" name="radarr_root_folder" required>
+                    <option value="">Select root folder...</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="defaultProfile">Default Quality Profile</label>
+                <select id="defaultProfile" name="radarr_quality_profile_default" required>
+                    <option value="">Select quality profile...</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="upgradeProfile">Upgrade Quality Profile (Ultra-HD)</label>
+                <select id="upgradeProfile" name="radarr_quality_profile_upgrade" required>
+                    <option value="">Select upgrade profile...</option>
+                </select>
+            </div>
+        </div>
+
+        <h3>Boxarr Settings</h3>
+        <div class="checkbox-group">
+            <input type="checkbox" id="schedulerEnabled" name="boxarr_scheduler_enabled" 
+                   {% if scheduler_enabled %}checked{% endif %}>
+            <label for="schedulerEnabled">Enable automatic weekly updates (Tuesday 11 PM)</label>
+        </div>
+        
+        <div class="checkbox-group">
+            <input type="checkbox" id="autoAdd" name="boxarr_features_auto_add" 
+                   {% if auto_add %}checked{% endif %}>
+            <label for="autoAdd">Automatically add missing movies to Radarr</label>
+        </div>
+        
+        <div class="checkbox-group">
+            <input type="checkbox" id="qualityUpgrade" name="boxarr_features_quality_upgrade" 
+                   {% if quality_upgrade %}checked{% endif %}>
+            <label for="qualityUpgrade">Enable quality upgrade buttons</label>
+        </div>
+
+        <div class="form-group">
+            <label for="schedulerCron">Update Schedule (Cron Expression)</label>
+            <input type="text" id="schedulerCron" name="boxarr_scheduler_cron" 
+                   value="{{ scheduler_cron }}" 
+                   placeholder="0 23 * * 2">
+        </div>
+
+        <button type="submit" class="btn" id="saveBtn" disabled>
+            Save Configuration
+        </button>
+        
+        <div id="saveMessage"></div>
+    </form>
+</div>
+
+<script>
+let connectionTested = false;
+
+async function testConnection() {
+    const url = document.getElementById('radarrUrl').value;
+    const apiKey = document.getElementById('radarrApiKey').value;
+    
+    if (!url || !apiKey) {
+        alert('Please enter Radarr URL and API key');
+        return;
+    }
+    
+    const testBtn = event.target;
+    const resultsDiv = document.getElementById('testResults');
+    
+    testBtn.disabled = true;
+    testBtn.innerHTML = 'Testing... <span class="loading"></span>';
+    resultsDiv.style.display = 'none';
+    
+    try {
+        const response = await fetch('/api/config/test', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ url, api_key: apiKey })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            connectionTested = true;
+            document.getElementById('saveBtn').disabled = false;
+            
+            resultsDiv.innerHTML = `
+                <div class="success">
+                    ✓ Connection successful!<br>
+                    Radarr Version: ${data.version}<br>
+                    Available Profiles: ${data.profiles.length}
+                </div>
+            `;
+            resultsDiv.style.display = 'block';
+            
+            // Populate quality profiles
+            populateQualityProfiles(data.profiles, data.root_folders);
+            document.getElementById('qualityProfiles').style.display = 'block';
+        } else {
+            resultsDiv.innerHTML = `
+                <div class="error">
+                    ✗ Connection failed: ${data.message || 'Unknown error'}
+                </div>
+            `;
+            resultsDiv.style.display = 'block';
+        }
+    } catch (error) {
+        resultsDiv.innerHTML = `
+            <div class="error">
+                ✗ Connection error: ${error.message}
+            </div>
+        `;
+        resultsDiv.style.display = 'block';
+    } finally {
+        testBtn.disabled = false;
+        testBtn.textContent = 'Test Connection';
+    }
+}
+
+function populateQualityProfiles(profiles, rootFolders) {
+    const defaultSelect = document.getElementById('defaultProfile');
+    const upgradeSelect = document.getElementById('upgradeProfile');
+    const rootSelect = document.getElementById('rootFolder');
+    
+    // Clear existing options
+    defaultSelect.innerHTML = '<option value="">Select quality profile...</option>';
+    upgradeSelect.innerHTML = '<option value="">Select upgrade profile...</option>';
+    rootSelect.innerHTML = '<option value="">Select root folder...</option>';
+    
+    // Add quality profiles
+    profiles.forEach(profile => {
+        const option1 = new Option(profile.name, profile.name);
+        const option2 = new Option(profile.name, profile.name);
+        defaultSelect.add(option1);
+        upgradeSelect.add(option2);
+        
+        // Pre-select if matches current value
+        if (profile.name === '{{ quality_profile_default }}') {
+            defaultSelect.value = profile.name;
+        }
+        if (profile.name === '{{ quality_profile_upgrade }}') {
+            upgradeSelect.value = profile.name;
+        }
+    });
+    
+    // Add root folders
+    rootFolders.forEach(folder => {
+        const option = new Option(`${folder.path} (${Math.round(folder.freeSpace / 1073741824)} GB free)`, folder.path);
+        rootSelect.add(option);
+        
+        // Pre-select if matches current value
+        if (folder.path === '{{ root_folder }}') {
+            rootSelect.value = folder.path;
+        }
+    });
+}
+
+document.getElementById('setupForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    if (!connectionTested) {
+        alert('Please test the connection first');
+        return;
+    }
+    
+    const formData = new FormData(e.target);
+    const config = {};
+    
+    // Convert form data to object
+    for (let [key, value] of formData.entries()) {
+        if (key.includes('checkbox')) {
+            config[key] = document.getElementById(key.replace('_', '')).checked;
+        } else {
+            config[key] = value;
+        }
+    }
+    
+    // Add checkboxes (they don't appear in FormData if unchecked)
+    config.boxarr_scheduler_enabled = document.getElementById('schedulerEnabled').checked;
+    config.boxarr_features_auto_add = document.getElementById('autoAdd').checked;
+    config.boxarr_features_quality_upgrade = document.getElementById('qualityUpgrade').checked;
+    
+    const saveBtn = document.getElementById('saveBtn');
+    const messageDiv = document.getElementById('saveMessage');
+    
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Saving...';
+    
+    try {
+        const response = await fetch('/api/config/save', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(config)
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            messageDiv.innerHTML = '<div class="success">✓ Configuration saved successfully! Redirecting...</div>';
+            setTimeout(() => {
+                window.location.href = '/dashboard';
+            }, 1500);
+        } else {
+            messageDiv.innerHTML = `<div class="error">✗ Save failed: ${data.message}</div>`;
+            saveBtn.disabled = false;
+        }
+    } catch (error) {
+        messageDiv.innerHTML = `<div class="error">✗ Error: ${error.message}</div>`;
+        saveBtn.disabled = false;
+    } finally {
+        saveBtn.textContent = 'Save Configuration';
+    }
+});
+
+// Test connection on load if we have credentials
+window.addEventListener('load', () => {
+    const url = document.getElementById('radarrUrl').value;
+    const apiKey = document.getElementById('radarrApiKey').value;
+    
+    if (url && apiKey && url !== 'http://localhost:7878') {
+        testConnection();
+    }
+});
+</script>
+{% endblock %}

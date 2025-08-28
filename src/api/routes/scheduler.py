@@ -1,0 +1,198 @@
+"""Scheduler management routes."""
+
+from datetime import datetime
+from pathlib import Path
+from typing import Optional
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+
+from ...core.scheduler import BoxarrScheduler
+from ...utils.config import settings
+from ...utils.logger import get_logger
+
+logger = get_logger(__name__)
+router = APIRouter(prefix="/api/scheduler", tags=["scheduler"])
+
+# Module-level scheduler instance
+_scheduler: Optional[BoxarrScheduler] = None
+
+
+def get_scheduler() -> BoxarrScheduler:
+    """Get the scheduler instance."""
+    global _scheduler
+    if not _scheduler:
+        from ...core.boxoffice import BoxOfficeService
+        from ...core.radarr import RadarrService
+
+        _scheduler = BoxarrScheduler(
+            boxoffice_service=BoxOfficeService(),
+            radarr_service=RadarrService() if settings.radarr_api_key else None,
+        )
+    return _scheduler
+
+
+class TriggerResponse(BaseModel):
+    """Trigger response model."""
+
+    success: bool
+    message: str
+    movies_found: Optional[int] = None
+    movies_added: Optional[int] = None
+
+
+@router.post("/trigger", response_model=TriggerResponse)
+async def trigger_update():
+    """Manually trigger box office update."""
+    try:
+        scheduler = get_scheduler()
+        result = await scheduler.update_box_office()
+
+        return TriggerResponse(
+            success=True,
+            message="Box office update completed",
+            movies_found=result.get("total_movies"),
+            movies_added=result.get("added_movies"),
+        )
+    except Exception as e:
+        logger.error(f"Error triggering update: {e}")
+        return TriggerResponse(
+            success=False,
+            message=str(e),
+        )
+
+
+@router.get("/history")
+async def get_scheduler_history():
+    """Get scheduler run history."""
+    try:
+        history_dir = Path(settings.boxarr_data_directory) / "history"
+        if not history_dir.exists():
+            return {"runs": []}
+
+        # Get all history files
+        history_files = sorted(history_dir.glob("*.json"), reverse=True)[:20]
+
+        runs = []
+        for file_path in history_files:
+            # Parse filename for timestamp
+            # Format: YYYYWW_YYYYMMDD_HHMMSS.json
+            parts = file_path.stem.split("_")
+            if len(parts) >= 3:
+                date_str = parts[1]
+                time_str = parts[2]
+
+                try:
+                    run_time = datetime.strptime(
+                        f"{date_str}_{time_str}", "%Y%m%d_%H%M%S"
+                    )
+
+                    # Read result
+                    import json
+
+                    with open(file_path) as f:
+                        result = json.load(f)
+
+                    runs.append(
+                        {
+                            "timestamp": run_time.isoformat(),
+                            "week": parts[0],
+                            "success": result.get("success", False),
+                            "movies_found": result.get("total_movies"),
+                            "movies_added": result.get("added_movies"),
+                            "error": result.get("error"),
+                        }
+                    )
+                except Exception as e:
+                    logger.warning(f"Error parsing history file {file_path}: {e}")
+                    continue
+
+        return {"runs": runs}
+    except Exception as e:
+        logger.error(f"Error getting scheduler history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/update-week")
+async def update_specific_week(year: int, week: int):  # noqa: C901
+    """Update box office for a specific historical week."""
+    try:
+        # Validate inputs
+        if year < 2000 or year > datetime.now().year:
+            raise HTTPException(status_code=400, detail="Invalid year")
+        if week < 1 or week > 53:
+            raise HTTPException(status_code=400, detail="Invalid week number")
+
+        from ...core.boxoffice import BoxOfficeService
+        from ...core.html_generator import WeeklyPageGenerator
+        from ...core.matcher import MovieMatcher
+        from ...core.radarr import RadarrService
+
+        # Get box office data
+        boxoffice_service = BoxOfficeService()
+        box_office_movies = boxoffice_service.fetch_weekend_box_office(year, week)
+
+        if not box_office_movies:
+            return {
+                "success": False,
+                "message": f"No data found for week {year}W{week:02d}",
+            }
+
+        # Match with Radarr
+        match_results = []
+        added_count = 0
+
+        if settings.radarr_api_key:
+            radarr_service = RadarrService()
+            matcher = MovieMatcher()
+
+            radarr_movies = radarr_service.get_all_movies()
+            matcher.build_movie_index(radarr_movies)
+            match_results = matcher.match_movies(box_office_movies, radarr_movies)
+
+            # Auto-add if enabled
+            if settings.boxarr_features_auto_add:
+                for result in match_results:
+                    if not result.is_matched:
+                        # Search and add
+                        search = radarr_service.search_movie_tmdb(
+                            result.box_office_movie.title
+                        )
+                        if search:
+                            movie = radarr_service.add_movie(
+                                tmdb_id=search[0]["tmdbId"],
+                                quality_profile_id=None,  # Uses default from settings
+                                root_folder=str(settings.radarr_root_folder),
+                                monitored=True,
+                                search_for_movie=True,
+                            )
+                            if movie:
+                                added_count += 1
+        else:
+            # No Radarr, create unmatched results
+            from ...core.matcher import MatchResult
+
+            match_results = [
+                MatchResult(box_office_movie=movie) for movie in box_office_movies
+            ]
+
+        # Generate page
+        generator = WeeklyPageGenerator()
+        generator.generate_weekly_page(
+            match_results,
+            year,
+            week,
+            radarr_movies if settings.radarr_api_key else [],
+        )
+
+        return {
+            "success": True,
+            "message": f"Updated week {year}W{week:02d}",
+            "movies_found": len(box_office_movies),
+            "movies_added": added_count,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating week: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

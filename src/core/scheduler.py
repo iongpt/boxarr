@@ -86,7 +86,7 @@ class BoxarrScheduler:
         self._running = False
         logger.info("Scheduler stopped")
 
-    async def update_box_office(
+    async def update_box_office(  # noqa: C901
         self, year: Optional[int] = None, week: Optional[int] = None
     ) -> Dict[str, Any]:
         """
@@ -183,8 +183,6 @@ class BoxarrScheduler:
                 match_results,
                 actual_year,
                 actual_week,
-                friday,
-                sunday,
             )
 
             # Process results for history
@@ -292,6 +290,8 @@ class BoxarrScheduler:
         """
         try:
             history_dir = settings.get_history_path()
+            # Ensure history directory exists before writing
+            history_dir.mkdir(parents=True, exist_ok=True)
 
             # Generate filename
             now = datetime.now()
