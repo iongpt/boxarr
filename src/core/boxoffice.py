@@ -165,6 +165,9 @@ class BoxOfficeService:
         except httpx.HTTPError as e:
             logger.error(f"Failed to fetch box office data: {e}")
             raise BoxOfficeError(f"Failed to fetch box office data: {e}") from e
+        except Exception as e:
+            logger.error(f"Failed to fetch box office data: {e}")
+            raise BoxOfficeError(f"Failed to fetch box office data: {e}") from e
 
         return self.parse_box_office_html(response.text)
 

@@ -166,6 +166,12 @@ class RadarrService:
         except httpx.HTTPError as e:
             logger.error(f"Radarr API error: {e}")
             raise RadarrError(f"Radarr API error: {e}") from e
+        except RadarrError:
+            # Re-raise intentionally thrown Radarr* errors
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected Radarr API error: {e}")
+            raise RadarrError(f"Radarr API error: {e}") from e
 
     def test_connection(self) -> bool:
         """
@@ -178,6 +184,8 @@ class RadarrService:
             response = self._make_request("GET", "/api/v3/system/status")
             return response.status_code == 200
         except RadarrError:
+            return False
+        except Exception:
             return False
 
     def get_all_movies(self) -> List[RadarrMovie]:

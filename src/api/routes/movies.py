@@ -29,6 +29,9 @@ class MovieStatusResponse(BaseModel):
     status: str
     has_file: bool
     quality_profile: str
+    status_icon: Optional[str] = None
+    status_color: Optional[str] = None
+    can_upgrade: Optional[bool] = None
 
 
 class UpgradeResponse(BaseModel):
@@ -41,8 +44,9 @@ class UpgradeResponse(BaseModel):
 
 class AddMovieRequest(BaseModel):
     """Add movie request model."""
-
-    title: str
+    # Support both `title` and `movie_title` from different clients
+    title: Optional[str] = None
+    movie_title: Optional[str] = None
     tmdb_id: Optional[int] = None
 
 
@@ -88,6 +92,14 @@ async def get_movies_status(request: MovieStatusRequest):
 
         radarr_service = RadarrService()
         all_movies = radarr_service.get_all_movies()
+        profiles = radarr_service.get_quality_profiles()
+        profiles_by_id = {p.id: p.name for p in profiles}
+        # Determine upgrade profile id once
+        upgrade_profile_id = None
+        for p in profiles:
+            if p.name == settings.radarr_quality_profile_upgrade:
+                upgrade_profile_id = p.id
+                break
 
         # Create lookup dict
         movie_dict = {movie.id: movie for movie in all_movies}
@@ -97,19 +109,44 @@ async def get_movies_status(request: MovieStatusRequest):
         for movie_id in request.movie_ids:
             if movie_id and movie_id in movie_dict:
                 movie = movie_dict[movie_id]
-                # Get quality profile name
-                profiles = radarr_service.get_quality_profiles()
-                profile_name = next(
-                    (p.name for p in profiles if p.id == movie.qualityProfileId),
-                    "Unknown",
+                profile_name = profiles_by_id.get(movie.qualityProfileId, "Unknown")
+
+                # Derive display status, color, icon
+                if movie.hasFile:
+                    display_status = "Downloaded"
+                    status_color = "#48bb78"
+                    status_icon = "✅"
+                elif getattr(movie, "status", None) == "released" and getattr(
+                    movie, "isAvailable", False
+                ):
+                    display_status = "Missing"
+                    status_color = "#f56565"
+                    status_icon = "❌"
+                elif getattr(movie, "status", None) == "inCinemas":
+                    display_status = "In Cinemas"
+                    status_color = "#f6ad55"
+                    status_icon = "🎬"
+                else:
+                    display_status = "Pending"
+                    status_color = "#ed8936"
+                    status_icon = "⏳"
+
+                can_upgrade = bool(
+                    settings.boxarr_features_quality_upgrade
+                    and movie.qualityProfileId is not None
+                    and upgrade_profile_id is not None
+                    and movie.qualityProfileId != upgrade_profile_id
                 )
 
                 results.append(
                     MovieStatusResponse(
                         id=movie.id,
-                        status=movie.status.value,
+                        status=display_status,
                         has_file=movie.hasFile,
                         quality_profile=profile_name,
+                        status_icon=status_icon,
+                        status_color=status_color,
+                        can_upgrade=can_upgrade,
                     )
                 )
 
@@ -187,8 +224,13 @@ async def add_movie_to_radarr(request: AddMovieRequest):
 
         radarr_service = RadarrService()
 
+        # Determine title from request
+        req_title = request.title or request.movie_title
+        if not req_title:
+            return {"success": False, "message": "No movie title provided"}
+
         # Search for movie on TMDB
-        search_results = radarr_service.search_movie_tmdb(request.title)
+        search_results = radarr_service.search_movie_tmdb(req_title)
         if not search_results:
             return {"success": False, "message": "Movie not found on TMDB"}
 
@@ -211,7 +253,7 @@ async def add_movie_to_radarr(request: AddMovieRequest):
 
         if result:
             # Find and regenerate weeks containing this movie
-            regenerate_weeks_with_movie(request.title)
+            regenerate_weeks_with_movie(req_title)
 
             return {
                 "success": True,
