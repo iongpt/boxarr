@@ -1,0 +1,257 @@
+{% extends "base.html" %}
+
+{% block title %}Boxarr Dashboard{% endblock %}
+
+{% block content %}
+<style>
+    body { 
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+        color: #333; 
+        margin: 0; 
+        padding: 20px; 
+        min-height: 100vh; 
+    }
+    .container { 
+        max-width: 1200px; 
+        margin: 0 auto; 
+    }
+    .header { 
+        background: white; 
+        border-radius: 10px; 
+        padding: 30px; 
+        margin-bottom: 20px; 
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1); 
+    }
+    h1 { 
+        color: #667eea; 
+        margin: 0 0 10px 0; 
+    }
+    .status { 
+        display: flex; 
+        gap: 30px; 
+        margin: 20px 0; 
+        flex-wrap: wrap; 
+    }
+    .status-item { 
+        background: #f7fafc; 
+        padding: 10px 15px; 
+        border-radius: 5px; 
+    }
+    .status-item strong { 
+        color: #667eea; 
+    }
+    .actions { 
+        margin: 20px 0; 
+    }
+    .btn { 
+        background: #667eea; 
+        color: white; 
+        padding: 12px 24px; 
+        border: none; 
+        border-radius: 5px; 
+        cursor: pointer; 
+        text-decoration: none; 
+        display: inline-block; 
+        margin-right: 10px; 
+    }
+    .btn:hover { 
+        background: #5a67d8; 
+    }
+    .btn-secondary { 
+        background: #48bb78; 
+    }
+    .btn-secondary:hover { 
+        background: #38a169; 
+    }
+    .btn-danger { 
+        background: #f56565; 
+    }
+    .btn-danger:hover { 
+        background: #e53e3e; 
+    }
+    .weeks-grid { 
+        display: grid; 
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); 
+        gap: 20px; 
+        margin-top: 30px; 
+    }
+    .week-card { 
+        background: white; 
+        border-radius: 8px; 
+        padding: 20px; 
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1); 
+    }
+    .week-card h3 { 
+        color: #667eea; 
+        margin: 0 0 15px 0; 
+    }
+    .week-card p { 
+        color: #666; 
+        margin: 10px 0; 
+    }
+    .week-card .timestamp { 
+        font-size: 0.85em; 
+        color: #999; 
+    }
+    .btn-view { 
+        background: #667eea; 
+        color: white; 
+        padding: 8px 16px; 
+        text-decoration: none; 
+        border-radius: 4px; 
+        display: inline-block; 
+        margin-top: 10px; 
+    }
+    .btn-view:hover { 
+        background: #5a67d8; 
+    }
+    .btn-delete { 
+        background: #f56565; 
+        color: white; 
+        padding: 8px 16px; 
+        border: none; 
+        border-radius: 4px; 
+        cursor: pointer; 
+        margin-left: 10px; 
+    }
+    .btn-delete:hover { 
+        background: #e53e3e; 
+    }
+    .no-data { 
+        background: white; 
+        padding: 40px; 
+        border-radius: 10px; 
+        text-align: center; 
+        color: #666; 
+    }
+</style>
+
+<div class="header">
+    <h1>📊 Boxarr Dashboard</h1>
+    <p>Automated box office tracking for your Radarr library</p>
+    
+    <div class="status">
+        <div class="status-item">
+            <strong>Scheduler:</strong> 
+            {% if scheduler_enabled %}
+                <span style="color: #48bb78;">✓ Enabled</span>
+            {% else %}
+                <span style="color: #f56565;">✗ Disabled</span>
+            {% endif %}
+        </div>
+        <div class="status-item">
+            <strong>Auto-Add:</strong> 
+            {% if auto_add %}
+                <span style="color: #48bb78;">✓ Enabled</span>
+            {% else %}
+                <span style="color: #f56565;">✗ Disabled</span>
+            {% endif %}
+        </div>
+        <div class="status-item">
+            <strong>Next Update:</strong> {{ next_update }}
+        </div>
+        <div class="status-item">
+            <strong>Total Weeks:</strong> {{ weeks|length }}
+        </div>
+    </div>
+    
+    <div class="actions">
+        <button class="btn" onclick="updateLastWeek()">📥 Update Current Week</button>
+        <a href="/setup" class="btn btn-secondary">⚙️ Settings</a>
+        {% if scheduler_enabled %}
+            <button class="btn btn-danger" onclick="triggerNow()">🚀 Run Now</button>
+        {% endif %}
+    </div>
+</div>
+
+<div class="weeks-grid">
+    {% if weeks %}
+        {% for week in weeks[:24] %}
+        <div class="week-card">
+            <h3>📅 {{ week.year }} Week {{ "%02d"|format(week.week) }}</h3>
+            <p>Movies: {{ week.total_movies }} | Matched: {{ week.matched_movies }}</p>
+            <p class="timestamp">Generated: {{ week.timestamp_str }}</p>
+            <a href="/{{ week.filename }}" class="btn-view">View Week</a>
+            <button class="btn-delete" onclick="deleteWeek('{{ week.year }}', '{{ '%02d'|format(week.week) }}')">Delete</button>
+        </div>
+        {% endfor %}
+        
+        {% if weeks|length > 24 %}
+        <div style="grid-column: 1/-1; text-align: center; margin: 30px 0;">
+            <p style="color: white; font-size: 1.1em; margin-bottom: 15px;">
+                Showing 24 most recent weeks. {{ weeks|length - 24 }} older weeks available.
+            </p>
+            <select id="olderWeeksSelect" style="padding: 10px; font-size: 16px; border-radius: 5px; cursor: pointer;" 
+                    onchange="if(this.value) window.location.href=this.value">
+                <option value="">View older weeks...</option>
+                {% for week in weeks[24:] %}
+                <option value="/{{ week.filename }}">Year {{ week.year }} Week {{ "%02d"|format(week.week) }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        {% endif %}
+    {% else %}
+        <p class="no-data">No weekly pages generated yet. Click "Update Current Week" to fetch box office data.</p>
+    {% endif %}
+</div>
+
+<script>
+function updateLastWeek() {
+    if (!confirm('Fetch current week box office data?')) return;
+    
+    fetch('/api/trigger-update', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'}
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            alert('Update triggered successfully!');
+            setTimeout(() => location.reload(), 2000);
+        } else {
+            alert('Update failed: ' + (data.message || 'Unknown error'));
+        }
+    })
+    .catch(err => alert('Error: ' + err));
+}
+
+function deleteWeek(year, week) {
+    if (!confirm(`Delete data for Year ${year} Week ${week}?`)) return;
+    
+    fetch(`/api/weeks/${year}/W${week}/delete`, {
+        method: 'DELETE',
+        headers: {'Content-Type': 'application/json'}
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            alert('Week deleted successfully!');
+            location.reload();
+        } else {
+            alert('Delete failed: ' + (data.message || 'Unknown error'));
+        }
+    })
+    .catch(err => alert('Error: ' + err));
+}
+
+function triggerNow() {
+    if (!confirm('Trigger immediate box office update?')) return;
+    
+    fetch('/api/trigger-update', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'}
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            alert('Update triggered! Check back in a few moments.');
+            setTimeout(() => location.reload(), 3000);
+        } else {
+            alert('Failed: ' + (data.message || 'Scheduler not running'));
+        }
+    })
+    .catch(err => alert('Error: ' + err));
+}
+</script>
+{% endblock %}
