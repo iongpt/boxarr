@@ -27,7 +27,273 @@ Generate Static HTML Page (YYYY/WW.html)
 JavaScript polls /api/movies/status for dynamic updates
 ```
 
-**Key Design Decision**: Static HTML generation with minimal dynamic updates (efficient, like the original working system at http://eems:8888/box-office-summary.html)
+
+## Open Source Development Standards
+
+### Development Environment Setup
+
+#### Prerequisites
+- Python 3.10+ (3.11 recommended)
+- Docker and Docker Compose
+- Git with configured SSH key for GitHub
+
+#### Local Development Setup
+```bash
+# Clone the repository
+git clone git@github.com:iongpt/boxarr.git
+cd boxarr
+
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install development dependencies
+pip install -e .[dev,docs]
+
+# Install pre-commit hooks (if available)
+pre-commit install
+```
+
+### Code Quality Standards
+
+This project maintains **professional open source standards** with comprehensive tooling:
+
+#### Automated Code Formatting
+- **Black** (88 character line length)
+- **isort** for import sorting
+- All configured in `pyproject.toml`
+
+```bash
+# Format all code
+black src/ tests/
+isort src/ tests/
+
+# Check formatting without changes
+black --check --diff src/ tests/
+isort --check-only --diff src/ tests/
+```
+
+#### Static Analysis
+- **MyPy** for type checking
+- **Flake8** for style guide enforcement
+- **Bandit** for security analysis
+
+```bash
+# Type checking
+mypy src/ --ignore-missing-imports --no-strict-optional
+
+# Style guide
+flake8 src/ tests/ --max-line-length=88 --max-complexity=10
+
+# Security analysis
+bandit -r src/ --severity-level medium --skip B104,B608
+```
+
+#### Dependency Security
+- **Safety** for vulnerability scanning
+
+```bash
+# Check for known vulnerabilities
+safety scan
+```
+
+### Testing Standards
+
+#### Test Structure
+```
+tests/
+├── unit/           # Fast unit tests
+├── integration/    # Integration tests with external services
+└── fixtures/       # Test data and fixtures
+```
+
+#### Running Tests
+```bash
+# Run all tests with coverage
+pytest -v --cov=src --cov-report=term-missing --cov-report=html
+
+# Run specific test categories
+pytest tests/unit/ -v                    # Unit tests only
+pytest tests/integration/ -v             # Integration tests only
+pytest -m "not slow" -v                  # Skip slow tests
+
+# Run tests for specific Python versions (using tox, if configured)
+tox -e py310,py311,py312
+```
+
+#### Test Coverage Requirements
+- There is not minimum coverage
+- This is a tool that will run on localhost in private networks. We need tests that are checking critical functionality, not tests to have coverage
+- WRITE A TEST ONLY IF IT IS MEANINGFUL and it is covering some real functionality or edge case
+- DO NOT WRITE TESTS THAT ARE TESTING Python FUNCTIONALITY
+
+### Continuous Integration
+
+#### GitHub Actions Workflows
+The project uses comprehensive CI/CD:
+
+1. **CI Pipeline** (`.github/workflows/ci.yml`):
+   - Code quality checks (Black, Flake8, MyPy, isort)
+   - Unit tests across Python 3.10, 3.11, 3.12
+   - Integration tests with mock services
+   - Security scanning (Bandit, Safety)
+   - **All checks must pass before merge**
+
+2. **CD Pipeline** (`.github/workflows/cd.yml`):
+   - Multi-architecture Docker builds (AMD64, ARM64)
+   - GitHub Container Registry publishing
+   - Automatic GitHub releases
+   - Public package visibility
+
+#### Quality Gates
+- **All CI checks must pass** before merging
+- **No failing tests** allowed in main branch
+- **Security vulnerabilities** must be addressed
+
+### Development Workflow
+
+#### Before Committing
+**ALWAYS run the full quality check suite:**
+
+```bash
+# Complete quality check (run this before every commit)
+make quality-check || {
+    # If make targets not available, run manually:
+    black --check --diff src/ tests/ &&
+    isort --check-only --diff src/ tests/ &&
+    flake8 src/ tests/ --max-line-length=88 --max-complexity=10 &&
+    mypy src/ --ignore-missing-imports --no-strict-optional &&
+    bandit -r src/ --severity-level medium --skip B104,B608 &&
+    pytest -v --cov=src --cov-report=term-missing
+}
+```
+
+#### Git Commit Standards
+- **Conventional Commits** format preferred
+- Clear, descriptive commit messages
+- Each commit should be atomic and functional
+
+```bash
+# Good commit messages
+feat: add TMDB data enrichment for unmatched movies
+fix: handle missing poster URLs in HTML generation
+docs: update API documentation for movie endpoints
+test: add integration tests for Radarr API client
+```
+
+#### Pull Request Requirements
+1. **All CI checks passing** ✅
+2. **Code review from maintainer** ✅
+3. **Tests added for new features** ✅
+4. **Documentation updated** if needed ✅
+5. **Security considerations addressed** ✅
+
+### Docker Development
+
+#### Building and Testing
+```bash
+# Build development image
+docker build -t boxarr:dev .
+
+# Run with development config
+docker run -p 8888:8888 -v ./config:/config boxarr:dev
+
+# Multi-architecture build (for releases)
+docker buildx build --platform linux/amd64,linux/arm64 -t boxarr:latest .
+```
+
+#### Image Standards
+- **Multi-architecture support** (AMD64, ARM64)
+- **Minimal base images** (python:3.11-slim)
+- **Security scanning** with container scanners
+- **Semantic versioning** for releases
+
+### Security Standards
+
+#### Code Security
+- **Input validation** on all user inputs
+- **XSS prevention** in HTML generation
+- **API key protection** in configuration
+
+#### Security Scanning
+- **Bandit** for code security issues
+- **Safety** for dependency vulnerabilities
+
+```bash
+# Run security audit
+bandit -r src/ -f json -o security-report.json
+safety scan --json --output safety-report.json
+```
+
+### Release Process
+
+#### Versioning Strategy
+- **Semantic Versioning** (MAJOR.MINOR.PATCH)
+- **Git tags** trigger automated releases
+- **GitHub Releases** with changelog generation
+
+#### Release Checklist
+1. **All tests passing** ✅
+2. **Version bumped** in `pyproject.toml` ✅
+3. **Changelog updated** (auto-generated) ✅
+4. **Docker images built** for all architectures ✅
+5. **GitHub release created** with notes ✅
+
+```bash
+# Create release
+git tag -a v0.3.0 -m "Release version 0.3.0"
+git push origin v0.3.0
+# CI/CD automatically handles the rest
+```
+
+### Contributing Guidelines
+
+#### For Contributors
+1. **Fork the repository** and create feature branch
+2. **Follow code quality standards** (run pre-commit checks)
+3. **Add tests** for new functionality
+4. **Update documentation** as needed
+5. **Submit PR** with clear description
+
+#### Code Review Standards
+- **Functionality correctness**
+- **Code style compliance** (automated checks)
+- **Test coverage adequacy**
+- **Security considerations**
+- **Performance impact**
+- **Breaking change assessment**
+
+### Documentation Standards
+
+#### Code Documentation
+- **Docstrings** for all public functions/classes
+- **Type hints** for all function signatures
+- **Inline comments** for complex logic
+- **README** kept current with features
+
+#### API Documentation
+- **OpenAPI/Swagger** auto-generated from FastAPI
+- **Endpoint descriptions** and examples
+- **Error response documentation**
+
+### Performance Standards
+
+#### Code Performance
+- **Sub-second response times** for API endpoints
+- **Memory usage monitoring** in Docker containers
+
+### Open Source Best Practices
+
+#### Monitoring Commands
+```bash
+# Check all quality metrics
+pytest --cov=src --cov-report=term | grep TOTAL
+mypy src/ --ignore-missing-imports | grep -E "(error|note)"
+bandit -r src/ --severity-level medium | grep "Issue"
+docker images boxarr --format "table {{.Size}}"
+```
+
+**IMPORTANT**: This project maintains **production-grade open source standards**. All contributions must meet these quality requirements. The automated CI/CD pipeline enforces these standards - there are no exceptions.
 
 ## Current Implementation
 
@@ -318,30 +584,6 @@ services:
     restart: unless-stopped
 ```
 
-## Performance Considerations
-
-- **Static HTML**: Most content is static, reducing server load
-- **Batch API calls**: Status updates fetch all movies at once
-- **Caching**: 1-hour cache TTL for box office data
-- **Minimal polling**: JS updates every 30 seconds (configurable)
-- **Efficient matching**: Indexed movie cache for O(1) lookups
-
-## Security
-
-- **No hardcoded credentials**: Everything via UI or config file
-- **API key validation**: Test connection before saving
-- **Input sanitization**: All user inputs validated
-- **File paths**: Restricted to /config volume
-- **No database**: No SQL injection risks
-
-## Future Improvements (Not Implemented)
-
-- Multiple Radarr instance support
-- Notifications (Discord, Telegram)
-- Advanced scheduling options
-- WebSocket for real-time updates
-- Vue.js frontend (currently static HTML)
-- PostgreSQL support (currently SQLite only)
 
 ## GitHub Repository
 
@@ -353,13 +595,6 @@ services:
 
 GNU General Public License v3.0 (GPLv3)
 
-## Important Notes
-
-1. **This is production-ready code** - Clean, tested, documented
-2. **UI-first approach** - No pre-configuration needed
-3. **Efficient architecture** - Static HTML with minimal dynamic updates
-4. **Professional quality** - Ready for public scrutiny
-5. **Docker-ready** - Single command deployment
 
 ## Known Behaviors & Design Decisions
 
