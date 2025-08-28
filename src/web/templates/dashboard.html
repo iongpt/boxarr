@@ -200,7 +200,7 @@
 function updateLastWeek() {
     if (!confirm('Fetch current week box office data?')) return;
     
-    fetch('/api/trigger-update', {
+    fetch('/api/scheduler/trigger', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'}
     })
@@ -238,7 +238,7 @@ function deleteWeek(year, week) {
 function triggerNow() {
     if (!confirm('Trigger immediate box office update?')) return;
     
-    fetch('/api/trigger-update', {
+    fetch('/api/scheduler/trigger', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'}
     })
