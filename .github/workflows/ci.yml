@@ -192,13 +192,26 @@ jobs:
         # Test that container starts and responds
         docker run --rm -d --name boxarr-ci-test -p 8899:8888 boxarr:test
         echo "Waiting for container to start..."
-        sleep 15
         
-        # Check if container is running
+        # Wait longer and retry health check
+        for i in {1..12}; do
+          sleep 10
+          echo "Health check attempt $i/12..."
+          if curl -f http://localhost:8899/api/health; then
+            echo "✅ Container is healthy!"
+            break
+          fi
+          if [ $i -eq 12 ]; then
+            echo "❌ Health check failed after 2 minutes"
+            echo "Container logs:"
+            docker logs boxarr-ci-test
+            docker stop boxarr-ci-test || true
+            exit 1
+          fi
+        done
+        
+        # Check if container is still running
         docker ps | grep boxarr-ci-test
-        
-        # Test health endpoint
-        curl -f http://localhost:8899/api/health || (docker logs boxarr-ci-test && exit 1)
         
         # Clean up
         docker stop boxarr-ci-test || true
