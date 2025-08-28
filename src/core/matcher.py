@@ -388,3 +388,33 @@ class MovieMatcher:
         )
 
         return results
+
+    def match_movie(
+        self, box_office_movie: BoxOfficeMovie, radarr_movies: List[RadarrMovie]
+    ) -> MatchResult:
+        """
+        Alias for match_single to maintain compatibility with routes.
+
+        Args:
+            box_office_movie: Box office movie to match
+            radarr_movies: List of Radarr movies
+
+        Returns:
+            MatchResult object
+        """
+        return self.match_single(box_office_movie, radarr_movies)
+
+    def match_movies(
+        self, box_office_movies: List[BoxOfficeMovie], radarr_movies: List[RadarrMovie]
+    ) -> List[MatchResult]:
+        """
+        Alias for match_batch to maintain compatibility with routes.
+
+        Args:
+            box_office_movies: List of box office movies
+            radarr_movies: List of Radarr movies
+
+        Returns:
+            List of MatchResult objects
+        """
+        return self.match_batch(box_office_movies, radarr_movies)
