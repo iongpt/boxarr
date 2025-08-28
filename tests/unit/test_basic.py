@@ -1,7 +1,9 @@
 """Basic unit tests for Boxarr core functionality."""
 
-import pytest
 from unittest.mock import Mock, patch
+
+import pytest
+
 from src.core.exceptions import BoxOfficeError, RadarrError
 
 
@@ -11,8 +13,8 @@ class TestBasicFunctionality:
     def test_import_core_modules(self):
         """Test that core modules can be imported."""
         from src.core.boxoffice import BoxOfficeMovie
-        from src.core.radarr import RadarrMovie, MovieStatus
         from src.core.matcher import MatchResult
+        from src.core.radarr import MovieStatus, RadarrMovie
 
         assert BoxOfficeMovie is not None
         assert RadarrMovie is not None
@@ -55,8 +57,8 @@ class TestBasicFunctionality:
 
     def test_match_result_creation(self):
         """Test creating a MatchResult instance."""
-        from src.core.matcher import MatchResult
         from src.core.boxoffice import BoxOfficeMovie
+        from src.core.matcher import MatchResult
 
         bo_movie = BoxOfficeMovie(rank=1, title="Test Movie")
         result = MatchResult(
