@@ -106,12 +106,12 @@ class BoxOfficeService:
             # Remove currency symbols, commas, and spaces
             # Keep only digits and the first decimal point
             clean_text = re.sub(r"[$,\s]", "", text)
-            
+
             # Handle multiple decimal points by keeping only first
             parts = clean_text.split(".")
             if len(parts) > 2:
                 clean_text = parts[0] + "." + "".join(parts[1:])
-            
+
             return float(clean_text) if clean_text and clean_text != "." else None
         except ValueError:
             return None

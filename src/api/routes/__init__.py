@@ -8,7 +8,7 @@ from .web import router as web_router
 
 __all__ = [
     "boxoffice_router",
-    "config_router", 
+    "config_router",
     "movies_router",
     "scheduler_router",
     "web_router",

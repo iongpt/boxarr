@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api/boxoffice", tags=["boxoffice"])
 
 class BoxOfficeMovieResponse(BaseModel):
     """Box office movie response model."""
-    
+
     rank: int
     title: str
     weekend_gross: Optional[float] = None
@@ -38,17 +38,17 @@ async def get_current_box_office():
         # Get current week's box office
         boxoffice_service = BoxOfficeService()
         movies = await boxoffice_service.get_current_week()
-        
+
         # Match with Radarr if configured
         results = []
         if settings.radarr_api_key:
             radarr_service = RadarrService()
             matcher = MovieMatcher()
-            
+
             # Get all Radarr movies and build index
             radarr_movies = radarr_service.get_all_movies()
             matcher.build_movie_index(radarr_movies)
-            
+
             # Match each movie
             for movie in movies:
                 match_result = matcher.match_movie(movie, radarr_movies)
@@ -60,9 +60,21 @@ async def get_current_box_office():
                         total_gross=movie.total_gross,
                         weeks_in_release=movie.weeks_in_release,
                         is_new_release=movie.is_new_release,
-                        radarr_id=match_result.radarr_movie.id if match_result.is_matched else None,
-                        radarr_status=match_result.radarr_movie.status.value if match_result.is_matched else None,
-                        radarr_has_file=match_result.radarr_movie.hasFile if match_result.is_matched else False,
+                        radarr_id=(
+                            match_result.radarr_movie.id
+                            if match_result.is_matched
+                            else None
+                        ),
+                        radarr_status=(
+                            match_result.radarr_movie.status.value
+                            if match_result.is_matched
+                            else None
+                        ),
+                        radarr_has_file=(
+                            match_result.radarr_movie.hasFile
+                            if match_result.is_matched
+                            else False
+                        ),
                         match_confidence=match_result.confidence,
                     )
                 )
@@ -79,7 +91,7 @@ async def get_current_box_office():
                 )
                 for movie in movies
             ]
-        
+
         return results
     except Exception as e:
         logger.error(f"Error getting box office: {e}")
@@ -95,11 +107,11 @@ async def get_historical_box_office(year: int, week: int):
             raise HTTPException(status_code=400, detail="Invalid year")
         if week < 1 or week > 53:
             raise HTTPException(status_code=400, detail="Invalid week number")
-        
+
         # Get historical data
         boxoffice_service = BoxOfficeService()
         movies = await boxoffice_service.get_week(year, week)
-        
+
         # Return simplified data
         return [
             {

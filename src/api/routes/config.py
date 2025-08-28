@@ -16,7 +16,7 @@ router = APIRouter(prefix="/api/config", tags=["configuration"])
 
 class ConfigResponse(BaseModel):
     """Configuration response model."""
-    
+
     radarr_url: str
     radarr_api_key: str
     radarr_configured: bool
@@ -26,14 +26,14 @@ class ConfigResponse(BaseModel):
 
 class TestConfigRequest(BaseModel):
     """Test configuration request model."""
-    
+
     url: str
     api_key: str
 
 
 class SaveConfigRequest(BaseModel):
     """Save configuration request model."""
-    
+
     radarr_url: str
     radarr_api_key: str
     radarr_root_folder: str = "/movies"
@@ -63,17 +63,17 @@ async def test_configuration(config: TestConfigRequest):
     """Test Radarr connection and return profiles/folders."""
     try:
         test_service = RadarrService(url=config.url, api_key=config.api_key)
-        
+
         if not test_service.test_connection():
             return {
                 "success": False,
                 "message": "Could not connect to Radarr. Check URL and API key.",
             }
-        
+
         # Get profiles and folders
         profiles = test_service.get_quality_profiles()
         folders = test_service.get_root_folders()
-        
+
         return {
             "success": True,
             "message": "Connected successfully!",
@@ -93,13 +93,13 @@ async def save_configuration(config: SaveConfigRequest):
         test_service = RadarrService(
             url=config.radarr_url, api_key=config.radarr_api_key
         )
-        
+
         if not test_service.test_connection():
             return {
                 "success": False,
                 "message": "Cannot save: Radarr connection failed",
             }
-        
+
         # Build config dict
         config_data = {
             "radarr": {
@@ -120,19 +120,19 @@ async def save_configuration(config: SaveConfigRequest):
                 },
             },
         }
-        
+
         # Save to local.yaml
         config_path = Path(settings.boxarr_data_directory) / "local.yaml"
         import yaml
-        
+
         with open(config_path, "w") as f:
             yaml.dump(config_data, f, default_flow_style=False)
-        
+
         logger.info("Configuration saved successfully")
-        
+
         # Reload settings
         Settings.reload_from_file(config_path)
-        
+
         return {
             "success": True,
             "message": "Configuration saved successfully!",
