@@ -56,7 +56,6 @@ jobs:
           type=semver,pattern={{major}}.{{minor}}
           type=semver,pattern={{major}}
           type=raw,value=latest,enable={{is_default_branch}}
-          type=sha,prefix={{branch}}-
         labels: |
           org.opencontainers.image.title=Boxarr
           org.opencontainers.image.description=Box Office Tracking for Radarr
