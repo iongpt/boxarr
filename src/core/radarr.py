@@ -14,18 +14,9 @@ from .exceptions import (
     RadarrError,
     RadarrNotFoundError,
 )
+from .models import MovieStatus
 
 logger = get_logger(__name__)
-
-
-class MovieStatus(str, Enum):
-    """Movie status in Radarr."""
-
-    TBA = "tba"
-    ANNOUNCED = "announced"
-    IN_CINEMAS = "inCinemas"
-    RELEASED = "released"
-    DELETED = "deleted"
 
 
 @dataclass
@@ -465,3 +456,55 @@ class RadarrService:
         response = self._make_request("GET", "/api/v3/system/status")
         result = response.json()
         return result if isinstance(result, dict) else {}
+
+    def get_root_folders(self) -> List[Dict[str, Any]]:
+        """
+        Get root folders configured in Radarr.
+        Routes expect this method.
+
+        Returns:
+            List of root folder configurations
+
+        Raises:
+            RadarrError: If request fails
+        """
+        response = self._make_request("GET", "/api/v3/rootFolder")
+        result = response.json()
+        return result if isinstance(result, list) else []
+
+    def search_movie_tmdb(self, title: str) -> List[Dict[str, Any]]:
+        """
+        Search for a movie on TMDB via Radarr.
+        Routes expect this method.
+
+        Args:
+            title: Movie title to search
+
+        Returns:
+            List of search results from TMDB
+
+        Raises:
+            RadarrError: If search fails
+        """
+        # Use existing search_movie method
+        return self.search_movie(title)
+
+    def update_movie_quality_profile(
+        self, movie_id: int, profile_id: int
+    ) -> bool:
+        """
+        Update a movie's quality profile.
+        Routes expect this method.
+
+        Args:
+            movie_id: Movie ID in Radarr
+            profile_id: New quality profile ID
+
+        Returns:
+            True if successful
+
+        Raises:
+            RadarrError: If update fails
+        """
+        # Use existing upgrade_movie_quality method
+        return self.upgrade_movie_quality(movie_id, profile_id)

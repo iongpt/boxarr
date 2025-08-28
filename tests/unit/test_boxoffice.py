@@ -57,26 +57,30 @@ class TestBoxOfficeService:
         assert self.service.parse_integer_value("abc") is None
         assert self.service.parse_integer_value("1.5") is None
 
-    def test_get_week_dates(self):
-        """Test week date calculation."""
-        # Test a known week
-        friday, sunday, year, week = self.service.get_week_dates(2024, 1)
-
-        assert year == 2024
-        assert week == 1
-        assert friday.weekday() == 4  # Friday
-        assert sunday.weekday() == 6  # Sunday
-        assert (sunday - friday).days == 2
-
-    def test_get_current_week_dates(self):
-        """Test current week date calculation."""
-        friday, sunday, year, week = self.service.get_current_week_dates()
+    def test_get_weekend_dates(self):
+        """Test weekend date calculation."""
+        # Test with no date (current)
+        friday, sunday, year, week = self.service.get_weekend_dates()
 
         assert friday.weekday() == 4  # Friday
         assert sunday.weekday() == 6  # Sunday
         assert (sunday - friday).days == 2
         assert year >= 2024
         assert 1 <= week <= 53
+
+    def test_get_weekend_dates_with_specific_date(self):
+        """Test weekend date calculation with specific date."""
+        from datetime import datetime
+        
+        # Test with a specific date (Jan 1, 2024 was a Monday)
+        test_date = datetime(2024, 1, 8)  # Monday Jan 8, 2024
+        friday, sunday, year, week = self.service.get_weekend_dates(test_date)
+
+        assert friday.weekday() == 4  # Friday
+        assert sunday.weekday() == 6  # Sunday
+        assert (sunday - friday).days == 2
+        assert year == 2024
+        assert week == 2  # Second week of 2024
 
     @patch("httpx.Client.get")
     def test_parse_box_office_html(self, mock_get):

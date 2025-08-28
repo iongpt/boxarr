@@ -68,7 +68,3 @@ def get_logger(name: Optional[str] = None) -> logging.Logger:
         setup_logging()
 
     return logging.getLogger(name or "boxarr")
-
-
-# Initialize logging on import
-setup_logging()

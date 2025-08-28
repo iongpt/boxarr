@@ -32,8 +32,7 @@ class WeeklyPageGenerator:
         match_results: List[MatchResult],
         year: int,
         week: int,
-        friday: datetime,
-        sunday: datetime,
+        radarr_movies: Optional[List] = None,
     ) -> Path:
         """
         Generate static HTML page for a week's box office data.
@@ -42,12 +41,19 @@ class WeeklyPageGenerator:
             match_results: Movie matching results
             year: Year
             week: Week number
-            friday: Friday date
-            sunday: Sunday date
+            radarr_movies: Optional list of Radarr movies (for compatibility)
 
         Returns:
             Path to generated HTML file
         """
+        # Calculate friday and sunday from year and week
+        from datetime import date, timedelta
+        
+        # Get the first day of the week (Monday)
+        monday = date.fromisocalendar(year, week, 1)
+        # Calculate Friday (4 days after Monday) and Sunday (6 days after Monday)
+        friday = datetime.combine(monday + timedelta(days=4), datetime.min.time())
+        sunday = datetime.combine(monday + timedelta(days=6), datetime.min.time())
         # Get quality profiles if available
         quality_profiles = {}
         ultra_hd_id = None
@@ -1139,10 +1145,8 @@ class WeeklyPageGenerator:
                     # Regenerate the page
                     year = metadata["year"]
                     week = metadata["week"]
-                    friday = datetime.fromisoformat(metadata["friday"])
-                    sunday = datetime.fromisoformat(metadata["sunday"])
-
-                    self.generate_weekly_page(match_results, year, week, friday, sunday)
+                    # No longer need friday/sunday from metadata, they'll be calculated
+                    self.generate_weekly_page(match_results, year, week)
                     regenerated.append(f"{year}W{week:02d}")
 
             except Exception as e:
