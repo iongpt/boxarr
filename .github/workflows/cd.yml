@@ -2,8 +2,6 @@ name: CD Pipeline
 
 on:
   push:
-    branches:
-      - main
     tags:
       - 'v*'
   release:
@@ -50,12 +48,10 @@ jobs:
         images: |
           ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
         tags: |
-          type=ref,event=branch
-          type=ref,event=pr
           type=semver,pattern={{version}}
           type=semver,pattern={{major}}.{{minor}}
           type=semver,pattern={{major}}
-          type=raw,value=latest,enable={{is_default_branch}}
+          type=raw,value=latest
         labels: |
           org.opencontainers.image.title=Boxarr
           org.opencontainers.image.description=Box Office Tracking for Radarr
