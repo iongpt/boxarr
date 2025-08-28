@@ -356,26 +356,3 @@ class BoxOfficeService:
 
         return history
 
-    async def get_current_week(self) -> List[BoxOfficeMovie]:
-        """
-        Async wrapper for getting current week's box office movies.
-        Routes expect this async method.
-
-        Returns:
-            List of BoxOfficeMovie objects
-        """
-        return self.get_current_week_movies()
-
-    async def get_week(self, year: int, week: int) -> List[BoxOfficeMovie]:
-        """
-        Async wrapper for getting specific week's box office data.
-        Routes expect this async method.
-
-        Args:
-            year: Year
-            week: ISO week number
-
-        Returns:
-            List of BoxOfficeMovie objects
-        """
-        return self.fetch_weekend_box_office(year, week)

@@ -1,34 +1,47 @@
 """Logging configuration for Boxarr."""
 
 import logging
+import os
 import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Optional
 
-from .config import settings
 
-
-def setup_logging() -> None:
-    """Configure application-wide logging."""
+def setup_logging(log_level: Optional[str] = None, data_directory: Optional[Path] = None) -> None:
+    """Configure application-wide logging.
+    
+    Args:
+        log_level: Override log level (DEBUG, INFO, WARNING, ERROR)
+        data_directory: Override data directory for log files
+    """
+    # Use environment variables or defaults if not provided
+    if log_level is None:
+        log_level = os.getenv("LOG_LEVEL", "INFO")
+    
+    if data_directory is None:
+        data_dir = os.getenv("BOXARR_DATA_DIRECTORY", "config")
+        data_directory = Path(data_dir)
+    
     # Create logs directory
-    log_dir = settings.boxarr_data_directory / "logs"
+    log_dir = data_directory / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
 
     # Configure root logger
     root_logger = logging.getLogger()
-    root_logger.setLevel(getattr(logging, settings.log_level.upper()))
+    root_logger.setLevel(getattr(logging, log_level.upper()))
 
     # Remove existing handlers
     root_logger.handlers.clear()
 
     # Create formatters
-    formatter = logging.Formatter(settings.log_format)
+    log_format = os.getenv("LOG_FORMAT", "%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    formatter = logging.Formatter(log_format)
 
     # Console handler
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setFormatter(formatter)
-    console_handler.setLevel(getattr(logging, settings.log_level.upper()))
+    console_handler.setLevel(getattr(logging, log_level.upper()))
     root_logger.addHandler(console_handler)
 
     # File handler with rotation
@@ -64,7 +77,6 @@ def get_logger(name: Optional[str] = None) -> logging.Logger:
     Returns:
         Configured logger instance
     """
-    if not logging.getLogger().handlers:
-        setup_logging()
-
+    # Don't setup logging here - it should be done explicitly in main.py
+    # This removes the import-time side effect
     return logging.getLogger(name or "boxarr")
