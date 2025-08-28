@@ -99,14 +99,21 @@ class BoxOfficeService:
         Returns:
             Float value or None if parsing fails
         """
-        if not text:
+        if not text or not isinstance(text, str):
             return None
 
         try:
-            # Remove currency symbols and commas
-            clean_text = re.sub(r"[^\d.]", "", text)
-            return float(clean_text) if clean_text else None
-        except (ValueError, AttributeError):
+            # Remove currency symbols, commas, and spaces
+            # Keep only digits and the first decimal point
+            clean_text = re.sub(r"[$,\s]", "", text)
+            
+            # Handle multiple decimal points by keeping only first
+            parts = clean_text.split(".")
+            if len(parts) > 2:
+                clean_text = parts[0] + "." + "".join(parts[1:])
+            
+            return float(clean_text) if clean_text and clean_text != "." else None
+        except ValueError:
             return None
 
     def parse_integer_value(self, text: str) -> Optional[int]:
