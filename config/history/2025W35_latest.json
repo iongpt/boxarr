@@ -1,11 +1,11 @@
 {
-  "timestamp": "2025-08-27T17:06:41.384413",
+  "timestamp": "2025-08-28T19:10:44.516249",
   "total_count": 10,
-  "matched_count": 10,
-  "unmatched_count": 0,
+  "matched_count": 9,
+  "unmatched_count": 1,
   "status_breakdown": {
     "Downloaded": 4,
-    "In Cinemas": 6
+    "In Cinemas": 5
   },
   "matched_movies": [
     {
@@ -37,16 +37,6 @@
       "has_file": false,
       "confidence": 1.0,
       "match_method": "exact"
-    },
-    {
-      "rank": 4,
-      "title": "The Fantastic Four: First Steps",
-      "radarr_title": "The Fantastic 4: First Steps",
-      "radarr_id": 115,
-      "status": "In Cinemas",
-      "has_file": false,
-      "confidence": 0.9152542372881356,
-      "match_method": "fuzzy"
     },
     {
       "rank": 5,
@@ -105,11 +95,16 @@
       "radarr_id": 116,
       "status": "Downloaded",
       "has_file": true,
-      "confidence": 0.95,
-      "match_method": "normalized"
+      "confidence": 0.85,
+      "match_method": "special"
     }
   ],
-  "unmatched_movies": [],
-  "html_path": "/config/weekly_pages/2025W34.html",
+  "unmatched_movies": [
+    {
+      "rank": 4,
+      "title": "The Fantastic Four: First Steps"
+    }
+  ],
+  "html_path": "config/weekly_pages/2025W34.html",
   "added_movies": []
 }

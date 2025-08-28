@@ -83,12 +83,34 @@ async def dashboard_page(request: Request):
 @router.get("/setup", response_class=HTMLResponse)
 async def setup_page(request: Request):
     """Serve the setup page."""
+    # Parse current cron for display
+    cron = settings.boxarr_scheduler_cron
+    import re
+
+    cron_match = re.match(r"(\d+) (\d+) \* \* (\d+)", cron)
+    
+    # Extract current cron settings
+    current_day = int(cron_match.group(3)) if cron_match else 2
+    current_time = int(cron_match.group(2)) if cron_match else 23
+    
     return templates.TemplateResponse(
         "setup.html",
         {
             "request": request,
             "radarr_configured": bool(settings.radarr_api_key),
             "is_configured": bool(settings.radarr_api_key),
+            # Current settings for prefilling
+            "radarr_url": str(settings.radarr_url),
+            "radarr_api_key": settings.radarr_api_key,  # Show actual API key for editing
+            "root_folder": str(settings.radarr_root_folder),
+            "quality_profile_default": settings.radarr_quality_profile_default,
+            "quality_profile_upgrade": settings.radarr_quality_profile_upgrade,
+            "scheduler_enabled": settings.boxarr_scheduler_enabled,
+            "scheduler_cron": settings.boxarr_scheduler_cron,
+            "scheduler_day": current_day,
+            "scheduler_time": current_time,
+            "auto_add": settings.boxarr_features_auto_add,
+            "quality_upgrade": settings.boxarr_features_quality_upgrade,
         },
     )
 
