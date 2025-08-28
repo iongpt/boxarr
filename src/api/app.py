@@ -7,8 +7,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from ..core.scheduler import BoxarrScheduler
+from ..core.radarr import RadarrService
 from ..utils.config import settings
 from ..utils.logger import get_logger
+from .. import __version__
 from .routes import (
     boxoffice_router,
     config_router,
@@ -33,7 +35,7 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
     app = FastAPI(
         title="Boxarr",
         description="Box Office Tracking for Radarr - A local media management tool",
-        version="0.2.0",
+        version=__version__,
         docs_url="/api/docs",
         redoc_url="/api/redoc",
     )
@@ -87,10 +89,19 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
     @app.get("/api/health")
     async def health_check():
         """Simple health check endpoint."""
+        radarr_connected = False
+        if settings.radarr_api_key:
+            try:
+                with RadarrService() as r:
+                    radarr_connected = r.test_connection()
+            except Exception:
+                radarr_connected = False
+
         return {
             "status": "healthy",
-            "version": "0.2.0",
+            "version": __version__,
             "radarr_configured": bool(settings.radarr_api_key),
+            "radarr_connected": radarr_connected,
             "scheduler_enabled": settings.boxarr_scheduler_enabled,
         }
 

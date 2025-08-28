@@ -183,8 +183,6 @@ class BoxarrScheduler:
                 match_results,
                 actual_year,
                 actual_week,
-                friday,
-                sunday,
             )
 
             # Process results for history
@@ -292,6 +290,8 @@ class BoxarrScheduler:
         """
         try:
             history_dir = settings.get_history_path()
+            # Ensure history directory exists before writing
+            history_dir.mkdir(parents=True, exist_ok=True)
 
             # Generate filename
             now = datetime.now()

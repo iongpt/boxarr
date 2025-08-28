@@ -88,6 +88,7 @@ async def setup_page(request: Request):
         {
             "request": request,
             "radarr_configured": bool(settings.radarr_api_key),
+            "is_configured": bool(settings.radarr_api_key),
         },
     )
 
