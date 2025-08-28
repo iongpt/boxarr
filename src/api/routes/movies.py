@@ -153,13 +153,13 @@ async def upgrade_movie_quality(movie_id: int):
             )
 
         # Update quality profile
-        success = radarr_service.update_movie_quality_profile(
+        updated_movie = radarr_service.update_movie_quality_profile(
             movie_id, upgrade_profile.id
         )
 
-        if success:
+        if updated_movie:
             # Trigger search for new quality
-            radarr_service.search_movie(movie_id)
+            radarr_service.trigger_movie_search(movie_id)
 
             return UpgradeResponse(
                 success=True,
@@ -263,7 +263,7 @@ def regenerate_weeks_with_movie(movie_title: str):
                 matcher = MovieMatcher()
 
                 # Get week's data
-                box_office_movies = boxoffice_service.get_week(year, week)
+                box_office_movies = boxoffice_service.fetch_weekend_box_office(year, week)
                 matcher.build_movie_index(radarr_movies)
                 match_results = matcher.match_movies(box_office_movies, radarr_movies)
 

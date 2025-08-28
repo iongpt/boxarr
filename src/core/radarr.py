@@ -491,7 +491,7 @@ class RadarrService:
 
     def update_movie_quality_profile(
         self, movie_id: int, profile_id: int
-    ) -> bool:
+    ) -> RadarrMovie:
         """
         Update a movie's quality profile.
         Routes expect this method.
@@ -501,10 +501,39 @@ class RadarrService:
             profile_id: New quality profile ID
 
         Returns:
-            True if successful
+            Updated movie object
 
         Raises:
             RadarrError: If update fails
         """
         # Use existing upgrade_movie_quality method
         return self.upgrade_movie_quality(movie_id, profile_id)
+    
+    def trigger_movie_search(self, movie_id: int) -> bool:
+        """
+        Trigger a search for a specific movie in Radarr.
+
+        Args:
+            movie_id: Movie ID in Radarr
+
+        Returns:
+            True if command was successfully sent
+
+        Raises:
+            RadarrError: If command fails
+        """
+        try:
+            # Send command to Radarr to search for the movie
+            command_data = {
+                "name": "MoviesSearch",
+                "movieIds": [movie_id]
+            }
+            
+            response = self._make_request("POST", "/api/v3/command", json=command_data)
+            
+            # Check if command was accepted
+            result = response.json()
+            return result.get("status") in ["queued", "started", "completed"]
+        except Exception as e:
+            logger.error(f"Failed to trigger search for movie {movie_id}: {e}")
+            return False

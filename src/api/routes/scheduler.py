@@ -130,7 +130,7 @@ async def update_specific_week(year: int, week: int):
 
         # Get box office data
         boxoffice_service = BoxOfficeService()
-        box_office_movies = await boxoffice_service.get_week(year, week)
+        box_office_movies = boxoffice_service.fetch_weekend_box_office(year, week)
 
         if not box_office_movies:
             return {

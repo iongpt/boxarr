@@ -402,7 +402,11 @@ class MovieMatcher:
         Returns:
             MatchResult object
         """
-        return self.match_single(box_office_movie, radarr_movies)
+        # match_single expects a title string, not a BoxOfficeMovie object
+        result = self.match_single(box_office_movie.title, radarr_movies)
+        # Update the box_office_movie in the result to use the one passed in
+        result.box_office_movie = box_office_movie
+        return result
 
     def match_movies(
         self, box_office_movies: List[BoxOfficeMovie], radarr_movies: List[RadarrMovie]

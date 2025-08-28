@@ -166,8 +166,9 @@ class Settings(BaseSettings):
 
     @validator("boxarr_data_directory")
     def ensure_data_directory_exists(cls, v: Path) -> Path:
-        """Create data directory if it doesn't exist."""
-        v.mkdir(parents=True, exist_ok=True)
+        """Validate data directory path without creating it."""
+        # Don't create directory during validation - this causes import-time side effects
+        # Directory creation should happen when actually needed
         return v
 
     def load_from_yaml(self, config_path: Path) -> None:
@@ -222,8 +223,15 @@ class Settings(BaseSettings):
     def get_history_path(self) -> Path:
         """Get history storage directory path."""
         history_dir = self.boxarr_data_directory / "history"
-        history_dir.mkdir(parents=True, exist_ok=True)
+        # Don't create directory here - let the caller create it when needed
         return history_dir
+    
+    def ensure_directories(self) -> None:
+        """Create necessary directories - call this explicitly when needed."""
+        self.boxarr_data_directory.mkdir(parents=True, exist_ok=True)
+        (self.boxarr_data_directory / "history").mkdir(parents=True, exist_ok=True)
+        (self.boxarr_data_directory / "logs").mkdir(parents=True, exist_ok=True)
+        (self.boxarr_data_directory / "weekly_pages").mkdir(parents=True, exist_ok=True)
 
     def to_dict(self, include_sensitive: bool = False) -> Dict:
         """Export settings as dictionary."""
@@ -235,17 +243,26 @@ class Settings(BaseSettings):
         return data
 
 
-# Create global settings instance
+# Lazy-loaded settings to avoid import-time side effects
+_settings: Optional[Settings] = None
+
+
 def load_settings() -> Settings:
     """Load settings with configuration file support."""
-    settings = Settings()
+    # Use environment variable to override default data directory
+    data_dir = os.getenv("BOXARR_DATA_DIRECTORY", "config")
+    
+    # Create settings with potentially overridden data directory
+    settings = Settings(boxarr_data_directory=Path(data_dir))
 
     # Try to load from config file
     config_paths = [
-        Path("/config/local.yaml"),  # First check mounted volume
-        Path("/config/config.yaml"),
+        Path(data_dir) / "local.yaml",
+        Path(data_dir) / "config.yaml", 
         Path("config/local.yaml"),
         Path("config/default.yaml"),
+        Path("/config/local.yaml"),  # Docker volume
+        Path("/config/config.yaml"),
     ]
 
     for config_path in config_paths:
@@ -256,5 +273,31 @@ def load_settings() -> Settings:
     return settings
 
 
-# Global settings instance
-settings = load_settings()
+def get_settings() -> Settings:
+    """Get settings instance (lazy-loaded to avoid import side effects)."""
+    global _settings
+    if _settings is None:
+        _settings = load_settings()
+    return _settings
+
+
+# For backward compatibility - but this should be avoided
+@property
+def settings() -> Settings:
+    """Backward compatible settings access."""
+    return get_settings()
+
+
+# Create a settings proxy that lazy-loads on first access
+class SettingsProxy:
+    """Proxy for lazy-loading settings."""
+    
+    def __getattr__(self, name):
+        return getattr(get_settings(), name)
+    
+    def __setattr__(self, name, value):
+        setattr(get_settings(), name, value)
+
+
+# Export settings as a proxy for lazy loading
+settings = SettingsProxy()

@@ -37,7 +37,7 @@ async def get_current_box_office():
     try:
         # Get current week's box office
         boxoffice_service = BoxOfficeService()
-        movies = await boxoffice_service.get_current_week()
+        movies = boxoffice_service.get_current_week_movies()
 
         # Match with Radarr if configured
         results = []
@@ -110,7 +110,7 @@ async def get_historical_box_office(year: int, week: int):
 
         # Get historical data
         boxoffice_service = BoxOfficeService()
-        movies = await boxoffice_service.get_week(year, week)
+        movies = boxoffice_service.fetch_weekend_box_office(year, week)
 
         # Return simplified data
         return [
