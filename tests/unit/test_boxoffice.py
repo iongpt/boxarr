@@ -147,3 +147,4 @@ class TestBoxOfficeService:
 
         assert "Network error" in str(exc_info.value)
         assert mock_get.call_count == 2
+

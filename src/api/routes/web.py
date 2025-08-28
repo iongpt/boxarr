@@ -281,3 +281,4 @@ async def get_widget_data() -> WidgetData:
             for m in metadata.get("movies", [])[:10]
         ],
     )
+

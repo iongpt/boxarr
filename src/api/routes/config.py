@@ -140,3 +140,4 @@ async def save_configuration(config: SaveConfigRequest):
     except Exception as e:
         logger.error(f"Error saving configuration: {e}")
         return {"success": False, "message": str(e)}
+

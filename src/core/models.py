@@ -223,3 +223,4 @@ class WeeklyBoxOfficeReport:
             generated_at=datetime.fromisoformat(data["generated_at"]),
             entries=entries,
         )
+

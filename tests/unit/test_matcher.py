@@ -239,3 +239,4 @@ class TestMovieMatcher:
 
         assert result.is_matched
         assert result.confidence >= 0.8
+

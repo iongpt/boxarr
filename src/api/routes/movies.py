@@ -272,3 +272,4 @@ def regenerate_weeks_with_movie(movie_title: str):
         except Exception as e:
             logger.error(f"Error processing {json_file}: {e}")
             continue
+
