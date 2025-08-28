@@ -217,3 +217,4 @@ class TestRadarrService:
         mock_get.return_value = Mock(status_code=500)
         movies = self.service.get_all_movies()
         assert movies == []
+

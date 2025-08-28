@@ -196,3 +196,4 @@ async def update_specific_week(year: int, week: int):
     except Exception as e:
         logger.error(f"Error updating week: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
