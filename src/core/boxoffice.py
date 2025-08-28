@@ -168,7 +168,7 @@ class BoxOfficeService:
 
         return self.parse_box_office_html(response.text)
 
-    def parse_box_office_html(self, html: str) -> List[BoxOfficeMovie]:
+    def parse_box_office_html(self, html: str) -> List[BoxOfficeMovie]:  # noqa: C901
         """
         Parse box office data from HTML.
 

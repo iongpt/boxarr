@@ -58,8 +58,10 @@ async def get_current_box_office():
                         title=movie.title,
                         weekend_gross=movie.weekend_gross,
                         total_gross=movie.total_gross,
-                        weeks_in_release=movie.weeks_in_release,
-                        is_new_release=movie.is_new_release,
+                        weeks_in_release=movie.weeks_released,
+                        is_new_release=(
+                            movie.weeks_released == 1 if movie.weeks_released else False
+                        ),
                         radarr_id=(
                             match_result.radarr_movie.id
                             if match_result.is_matched
@@ -86,8 +88,10 @@ async def get_current_box_office():
                     title=movie.title,
                     weekend_gross=movie.weekend_gross,
                     total_gross=movie.total_gross,
-                    weeks_in_release=movie.weeks_in_release,
-                    is_new_release=movie.is_new_release,
+                    weeks_in_release=movie.weeks_released,
+                    is_new_release=(
+                        movie.weeks_released == 1 if movie.weeks_released else False
+                    ),
                 )
                 for movie in movies
             ]

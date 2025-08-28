@@ -27,7 +27,7 @@ class WeeklyPageGenerator:
         self.output_dir = settings.boxarr_data_directory / "weekly_pages"
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-    def generate_weekly_page(
+    def generate_weekly_page(  # noqa: C901
         self,
         match_results: List[MatchResult],
         year: int,
@@ -258,28 +258,28 @@ class WeeklyPageGenerator:
     <title>Box Office Top 10 - Week {week}, {year}</title>
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-        body {{ 
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
-            background: linear-gradient(135deg, #667eea, #764ba2); 
-            min-height: 100vh; 
-            padding: 15px; 
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            min-height: 100vh;
+            padding: 15px;
         }}
         .container {{ max-width: 2400px; margin: 0 auto; }}
-        
+
         /* Compact header with integrated navigation */
-        .header-nav {{ 
-            background: rgba(255,255,255,0.98); 
-            border-radius: 12px; 
-            padding: 15px 20px; 
-            margin: 0 15px 20px; 
-            box-shadow: 0 8px 24px rgba(0,0,0,0.15); 
+        .header-nav {{
+            background: rgba(255,255,255,0.98);
+            border-radius: 12px;
+            padding: 15px 20px;
+            margin: 0 15px 20px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.15);
             display: flex;
             align-items: center;
             justify-content: space-between;
             flex-wrap: wrap;
             gap: 15px;
         }}
-        
+
         .header-left {{
             display: flex;
             align-items: center;
@@ -287,33 +287,33 @@ class WeeklyPageGenerator:
             flex: 1;
             min-width: 300px;
         }}
-        
+
         .title-group {{
             display: flex;
             flex-direction: column;
             gap: 2px;
         }}
-        
-        .page-title {{ 
-            font-size: 1.5em; 
+
+        .page-title {{
+            font-size: 1.5em;
             font-weight: bold;
-            background: linear-gradient(135deg, #667eea, #764ba2); 
-            -webkit-background-clip: text; 
-            -webkit-text-fill-color: transparent; 
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
             background-clip: text;
             display: flex;
             align-items: center;
             gap: 8px;
         }}
-        
-        .date-info {{ 
-            font-size: 0.85em; 
+
+        .date-info {{
+            font-size: 0.85em;
             color: #718096;
             display: flex;
             align-items: center;
             gap: 8px;
         }}
-        
+
         .week-badge {{
             background: #f7fafc;
             color: #667eea;
@@ -322,7 +322,7 @@ class WeeklyPageGenerator:
             font-weight: 600;
             font-size: 0.9em;
         }}
-        
+
         .connection-status {{
             display: inline-flex;
             align-items: center;
@@ -340,13 +340,13 @@ class WeeklyPageGenerator:
         }}
         .status-dot.connected {{ background: #48bb78; }}
         .status-dot.disconnected {{ background: #f56565; }}
-        
+
         .nav-section {{
             display: flex;
             align-items: center;
             gap: 10px;
         }}
-        
+
         .dashboard-btn {{
             padding: 8px 16px;
             background: #667eea;
@@ -366,20 +366,20 @@ class WeeklyPageGenerator:
             transform: translateY(-1px);
             box-shadow: 0 4px 8px rgba(102, 126, 234, 0.2);
         }}
-        
+
         .week-nav {{
             display: flex;
             align-items: center;
             gap: 6px;
         }}
-        
+
         .week-nav-label {{
             color: #4a5568;
             font-weight: 600;
             font-size: 0.85em;
             margin-right: 4px;
         }}
-        
+
         .week-link {{
             padding: 6px 10px;
             background: white;
@@ -403,7 +403,7 @@ class WeeklyPageGenerator:
             color: white;
             border-color: #764ba2;
         }}
-        
+
         .week-dropdown {{
             padding: 6px 10px;
             background: white;
@@ -419,7 +419,7 @@ class WeeklyPageGenerator:
             background: #f7fafc;
             border-color: #667eea;
         }}
-        
+
         /* Mobile responsive header */
         @media (max-width: 1024px) {{
             .header-nav {{
@@ -445,27 +445,27 @@ class WeeklyPageGenerator:
                 padding-bottom: 5px;
             }}
         }}
-        
+
         /* Grid for 5 movies per row on 4K */
-        .movies-grid {{ 
-            display: grid; 
+        .movies-grid {{
+            display: grid;
             grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: 20px; 
-            margin-top: 20px; 
+            gap: 20px;
+            margin-top: 20px;
         }}
-        
+
         @media (min-width: 2560px) {{
             .movies-grid {{ grid-template-columns: repeat(5, 1fr); }}
         }}
-        
-        .movie-card {{ 
-            background: white; 
-            border-radius: 15px; 
-            overflow: hidden; 
-            box-shadow: 0 10px 30px rgba(0,0,0,0.15); 
-            transition: all 0.3s; 
-            display: flex; 
-            flex-direction: column; 
+
+        .movie-card {{
+            background: white;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+            transition: all 0.3s;
+            display: flex;
+            flex-direction: column;
             height: 100%;
             position: relative;
         }}
@@ -476,106 +476,106 @@ class WeeklyPageGenerator:
             0%, 100% {{ opacity: 1; }}
             50% {{ opacity: 0.7; }}
         }}
-        .movie-card:hover {{ 
-            transform: translateY(-8px) scale(1.02); 
-            box-shadow: 0 20px 50px rgba(0,0,0,0.25); 
+        .movie-card:hover {{
+            transform: translateY(-8px) scale(1.02);
+            box-shadow: 0 20px 50px rgba(0,0,0,0.25);
         }}
-        
-        .movie-poster-container {{ 
-            position: relative; 
-            padding-top: 120%; 
-            background: linear-gradient(135deg, #667eea, #764ba2); 
-            overflow: hidden; 
+
+        .movie-poster-container {{
+            position: relative;
+            padding-top: 120%;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            overflow: hidden;
         }}
-        .movie-poster {{ 
-            position: absolute; 
-            top: 0; 
-            left: 0; 
-            width: 100%; 
-            height: 100%; 
-            object-fit: cover; 
+        .movie-poster {{
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
         }}
-        .movie-rank {{ 
-            position: absolute; 
-            top: 8px; 
-            left: 8px; 
-            background: rgba(255,255,255,0.95); 
-            color: #667eea; 
-            font-size: 1.4em; 
-            font-weight: bold; 
-            width: 40px; 
-            height: 40px; 
-            border-radius: 50%; 
-            display: flex; 
-            align-items: center; 
-            justify-content: center; 
-            box-shadow: 0 4px 12px rgba(0,0,0,0.25); 
+        .movie-rank {{
+            position: absolute;
+            top: 8px;
+            left: 8px;
+            background: rgba(255,255,255,0.95);
+            color: #667eea;
+            font-size: 1.4em;
+            font-weight: bold;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.25);
         }}
-        
-        .movie-content {{ 
-            padding: 18px; 
-            display: flex; 
-            flex-direction: column; 
+
+        .movie-content {{
+            padding: 18px;
+            display: flex;
+            flex-direction: column;
             flex-grow: 1;
         }}
-        
-        .movie-title {{ 
-            font-size: 1.1em; 
-            font-weight: bold; 
-            color: #2d3748; 
-            margin-bottom: 8px; 
+
+        .movie-title {{
+            font-size: 1.1em;
+            font-weight: bold;
+            color: #2d3748;
+            margin-bottom: 8px;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
         }}
-        
-        .movie-status {{ 
-            display: flex; 
-            align-items: center; 
-            gap: 6px; 
-            padding: 6px 10px; 
-            border-radius: 6px; 
-            font-weight: 600; 
+
+        .movie-status {{
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-weight: 600;
             margin-bottom: 8px;
             font-size: 0.85em;
             transition: all 0.3s;
         }}
-        
-        .quality-row {{ 
-            display: flex; 
-            align-items: center; 
-            justify-content: space-between; 
-            background: #f7fafc; 
-            padding: 8px 10px; 
-            border-radius: 6px; 
+
+        .quality-row {{
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: #f7fafc;
+            padding: 8px 10px;
+            border-radius: 6px;
             margin-bottom: 10px;
             min-height: 36px;
         }}
-        .quality-text {{ 
-            font-size: 0.85em; 
+        .quality-text {{
+            font-size: 0.85em;
             color: #4a5568;
             font-weight: 600;
         }}
-        .upgrade-btn {{ 
-            background: linear-gradient(135deg, #9f7aea, #805ad5); 
-            color: white; 
-            border: none; 
-            padding: 4px 8px; 
-            border-radius: 4px; 
-            cursor: pointer; 
+        .upgrade-btn {{
+            background: linear-gradient(135deg, #9f7aea, #805ad5);
+            color: white;
+            border: none;
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
             font-size: 0.75em;
             font-weight: 600;
             transition: all 0.2s;
         }}
-        .upgrade-btn:hover {{ 
-            transform: scale(1.1); 
-            box-shadow: 0 2px 8px rgba(159,122,234,0.4); 
+        .upgrade-btn:hover {{
+            transform: scale(1.1);
+            box-shadow: 0 2px 8px rgba(159,122,234,0.4);
         }}
         .upgrade-btn:disabled {{
             background: #cbd5e0;
             cursor: not-allowed;
         }}
-        
+
         .add-btn {{
             background: linear-gradient(135deg, #48bb78, #38a169);
             color: white;
@@ -596,23 +596,23 @@ class WeeklyPageGenerator:
             background: #cbd5e0;
             cursor: not-allowed;
         }}
-        
-        .movie-details {{ 
+
+        .movie-details {{
             flex-grow: 1;
             margin-bottom: 12px;
         }}
-        .movie-year {{ 
-            font-weight: 600; 
+        .movie-year {{
+            font-weight: 600;
             color: #4a5568;
             font-size: 0.85em;
             margin-bottom: 4px;
         }}
-        .movie-genre {{ 
+        .movie-genre {{
             color: #718096;
             font-size: 0.8em;
             margin-bottom: 6px;
         }}
-        .movie-plot {{ 
+        .movie-plot {{
             color: #718096;
             font-size: 0.8em;
             line-height: 1.4;
@@ -621,50 +621,50 @@ class WeeklyPageGenerator:
             -webkit-box-orient: vertical;
             overflow: hidden;
         }}
-        
-        .movie-links {{ 
-            display: flex; 
-            gap: 8px; 
+
+        .movie-links {{
+            display: flex;
+            gap: 8px;
             margin-top: auto;
         }}
-        .movie-link {{ 
-            flex: 1; 
-            padding: 8px; 
-            text-align: center; 
-            text-decoration: none; 
-            border-radius: 6px; 
-            font-weight: 600; 
+        .movie-link {{
+            flex: 1;
+            padding: 8px;
+            text-align: center;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: 600;
             transition: all 0.3s;
             font-size: 0.85em;
         }}
         .imdb-link {{ background: #f5c518; color: black; }}
         .wiki-link {{ background: #4a5568; color: white; }}
-        .movie-link:hover {{ 
-            transform: translateY(-2px); 
-            box-shadow: 0 4px 12px rgba(0,0,0,0.2); 
+        .movie-link:hover {{
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
         }}
-        
-        .no-poster {{ 
-            display: flex; 
-            align-items: center; 
-            justify-content: center; 
-            font-size: 3em; 
-            color: white; 
-            position: absolute; 
-            top: 0; 
-            left: 0; 
-            width: 100%; 
-            height: 100%; 
+
+        .no-poster {{
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 3em;
+            color: white;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
         }}
-        
-        .footer {{ 
-            text-align: center; 
-            margin-top: 40px; 
-            color: white; 
-            font-size: 0.85em; 
-            opacity: 0.8; 
+
+        .footer {{
+            text-align: center;
+            margin-top: 40px;
+            color: white;
+            font-size: 0.85em;
+            opacity: 0.8;
         }}
-        
+
         .notification {{
             position: fixed;
             top: 20px;
@@ -700,7 +700,7 @@ class WeeklyPageGenerator:
                     </div>
                 </div>
             </div>
-            
+
             <div class="nav-section">
                 <a href="/dashboard" class="dashboard-btn">← Dashboard</a>
                 <div class="week-nav" id="weekNav">
@@ -708,7 +708,7 @@ class WeeklyPageGenerator:
                 </div>
             </div>
         </div>
-        
+
         <div class="content-wrapper" style="padding: 0 15px;">
             <div class="movies-grid" id="moviesGrid">
 """
@@ -787,17 +787,17 @@ class WeeklyPageGenerator:
 """
 
         html += f"""        </div>
-        
+
         <div class="footer">
             <p>🤖 Generated by Boxarr • Updates every Tuesday at 11 PM</p>
             <p>Data from Box Office Mojo • Connected to Radarr</p>
         </div>
     </div>
-    
+
     <div class="notification" id="notification">
         <span id="notificationText"></span>
     </div>
-    
+
     <script>
     // Configuration from page
     const pageData = {{
@@ -806,31 +806,31 @@ class WeeklyPageGenerator:
         week_str: "{year}W{week:02d}",
         movies: {json.dumps([m['radarr_id'] for m in movies if m['radarr_id']])}
     }};
-    
+
     // Load dynamic navigation
     async function loadNavigation() {{
         const navContainer = document.getElementById('weekNav');
-        
+
         try {{
             const response = await fetch('/api/weeks');
             const data = await response.json();
-            
+
             if (data.weeks && data.weeks.length > 0) {{
                 let navHTML = '<span class="week-nav-label">Weeks:</span>';
-                
+
                 // Show only the most recent 4 weeks as buttons
                 const recentWeeks = data.weeks.slice(0, 4);
                 recentWeeks.forEach(week => {{
                     const isCurrent = week.week_str === pageData.week_str;
                     navHTML += `<a href="/${{week.week_str}}.html" class="week-link ${{isCurrent ? 'current' : ''}}">W${{week.week}}/${{week.year % 100}}</a>`;
                 }});
-                
+
                 // Add comprehensive dropdown for all weeks (including recent ones)
                 if (data.weeks.length > 1) {{
                     navHTML += `
                         <select class="week-dropdown" onchange="if(this.value) window.location.href=this.value">
                             <option value="">All weeks (${{data.weeks.length}})</option>`;
-                    
+
                     // Group weeks by year for better organization
                     let currentYear = null;
                     data.weeks.forEach((week, index) => {{
@@ -844,14 +844,14 @@ class WeeklyPageGenerator:
                         const selected = week.week_str === pageData.week_str ? ' selected' : '';
                         navHTML += `<option value="/${{week.week_str}}.html"${{selected}}>Week ${{week.week}} - ${{week.date_range || 'No date'}}</option>`;
                     }});
-                    
+
                     if (currentYear !== null) {{
                         navHTML += '</optgroup>';
                     }}
-                    
+
                     navHTML += '</select>';
                 }}
-                
+
                 navContainer.innerHTML = navHTML;
             }} else {{
                 navContainer.innerHTML = '<span class="week-nav-label">No weeks available</span>';
@@ -861,12 +861,12 @@ class WeeklyPageGenerator:
             navContainer.innerHTML = '<span class="week-nav-label">Navigation unavailable</span>';
         }}
     }}
-    
+
     // Check connection and update status
     async function checkConnection() {{
         const statusDot = document.querySelector('.status-dot');
         const statusText = document.querySelector('.status-text');
-        
+
         try {{
             const response = await fetch('/api/health');
             if (response.ok) {{
@@ -881,19 +881,19 @@ class WeeklyPageGenerator:
         }} catch (e) {{
             console.error('Connection check failed:', e);
         }}
-        
+
         statusDot.classList.add('disconnected');
         statusDot.classList.remove('connected');
         statusText.textContent = 'Disconnected';
         return false;
     }}
-    
+
     // Update movie statuses dynamically
     async function updateMovieStatuses() {{
         // Filter out null IDs (movies not in Radarr)
         const validMovieIds = pageData.movies.filter(id => id !== null);
         if (!validMovieIds.length) return;
-        
+
         try {{
             // Get current status for all movies
             const response = await fetch('/api/movies/status', {{
@@ -901,33 +901,33 @@ class WeeklyPageGenerator:
                 headers: {{ 'Content-Type': 'application/json' }},
                 body: JSON.stringify({{ movie_ids: validMovieIds }})
             }});
-            
+
             if (!response.ok) return;
-            
+
             const statuses = await response.json();
-            
+
             // Update each movie card
             statuses.forEach(movie => {{
                 const card = document.querySelector(`[data-radarr-id="${{movie.id}}"]`);
                 if (!card) return;
-                
+
                 // Update status
                 const statusEl = card.querySelector('.movie-status');
                 const statusIcon = statusEl.querySelector('.status-icon');
                 const statusText = statusEl.querySelector('.status-text');
-                
+
                 statusText.textContent = movie.status;
                 statusIcon.textContent = movie.status_icon;
                 statusEl.style.backgroundColor = `${{movie.status_color}}20`;
                 statusEl.style.color = movie.status_color;
                 statusEl.style.borderColor = movie.status_color;
-                
+
                 // Update quality profile
                 const profileName = card.querySelector('.profile-name');
                 if (profileName && movie.quality_profile) {{
                     profileName.textContent = movie.quality_profile;
                 }}
-                
+
                 // Update upgrade button
                 const upgradeBtn = card.querySelector('.upgrade-btn');
                 if (upgradeBtn) {{
@@ -938,15 +938,15 @@ class WeeklyPageGenerator:
             console.error('Failed to update statuses:', e);
         }}
     }}
-    
+
     // Upgrade quality profile
     async function upgradeQuality(button) {{
         const movieId = button.dataset.movieId;
         const profileId = button.dataset.profileId;
-        
+
         button.disabled = true;
         button.textContent = 'Upgrading...';
-        
+
         try {{
             const response = await fetch(`/api/movies/${{movieId}}/upgrade`, {{
                 method: 'POST',
@@ -956,14 +956,14 @@ class WeeklyPageGenerator:
                     quality_profile_id: parseInt(profileId)
                 }})
             }});
-            
+
             const result = await response.json();
-            
+
             if (result.success) {{
                 showNotification('Quality profile upgraded successfully!', 'success');
                 button.textContent = '✅';
                 button.disabled = true;
-                
+
                 // Update profile name
                 const card = button.closest('.movie-card');
                 const profileName = card.querySelector('.profile-name');
@@ -981,37 +981,37 @@ class WeeklyPageGenerator:
             button.disabled = false;
         }}
     }}
-    
+
     // Add movie to Radarr
     async function addToRadarr(button) {{
         const movieTitle = button.dataset.movieTitle;
-        
+
         if (!confirm(`Add "${{movieTitle}}" to Radarr?`)) {{
             return;
         }}
-        
+
         button.disabled = true;
         button.textContent = 'Adding...';
-        
+
         try {{
             const response = await fetch('/api/movies/add', {{
                 method: 'POST',
                 headers: {{ 'Content-Type': 'application/json' }},
                 body: JSON.stringify({{ movie_title: movieTitle }})
             }});
-            
+
             const result = await response.json();
-            
+
             if (result.success) {{
                 showNotification(result.message, 'success');
                 button.textContent = '✅ Added';
                 button.disabled = true;
-                
+
                 // Reload page after allowing time for regeneration
                 if (result.regenerated_weeks && result.regenerated_weeks.length > 0) {{
                     showNotification(`Updating ${{result.regenerated_weeks.length}} weeks...`, 'success');
                 }}
-                
+
                 setTimeout(() => {{
                     location.reload();
                 }}, 3000);  // Give time for backend regeneration
@@ -1026,25 +1026,25 @@ class WeeklyPageGenerator:
             button.disabled = false;
         }}
     }}
-    
+
     // Show notification
     function showNotification(message, type) {{
         const notification = document.getElementById('notification');
         const text = document.getElementById('notificationText');
-        
+
         text.textContent = message;
         notification.className = `notification ${{type}} show`;
-        
+
         setTimeout(() => {{
             notification.classList.remove('show');
         }}, 3000);
     }}
-    
+
     // Initialize on load
     document.addEventListener('DOMContentLoaded', async () => {{
         // Load navigation immediately
         await loadNavigation();
-        
+
         // Check connection and update movie statuses
         const connected = await checkConnection();
         if (connected) {{
@@ -1053,10 +1053,10 @@ class WeeklyPageGenerator:
             setInterval(updateMovieStatuses, 30000);
         }}
     }});
-    
+
     // Check connection every 10 seconds
     setInterval(checkConnection, 10000);
-    
+
     // Reload navigation every 5 minutes (in case new weeks are added)
     setInterval(loadNavigation, 300000);
     </script>
