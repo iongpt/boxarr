@@ -192,7 +192,7 @@ class TestBoxOfficeHTMLParsing:
 
     def test_network_failure_handling(self):
         """Test handling when Box Office Mojo is not accessible."""
-        with patch.object(self.service.client, 'get') as mock_get:
+        with patch.object(self.service.client, "get") as mock_get:
             mock_get.side_effect = httpx.ConnectError("Connection timeout")
 
             with pytest.raises(BoxOfficeError) as exc_info:

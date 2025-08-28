@@ -114,7 +114,7 @@ async def get_scheduler_history():
 
 
 @router.post("/update-week")
-async def update_specific_week(year: int, week: int):
+async def update_specific_week(year: int, week: int):  # noqa: C901
     """Update box office for a specific historical week."""
     try:
         # Validate inputs

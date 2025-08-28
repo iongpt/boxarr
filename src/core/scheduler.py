@@ -86,7 +86,7 @@ class BoxarrScheduler:
         self._running = False
         logger.info("Scheduler stopped")
 
-    async def update_box_office(
+    async def update_box_office(  # noqa: C901
         self, year: Optional[int] = None, week: Optional[int] = None
     ) -> Dict[str, Any]:
         """

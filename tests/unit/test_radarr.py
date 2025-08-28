@@ -79,7 +79,7 @@ class TestRadarrErrorHandling:
     def test_test_connection_failure(self):
         """Test failed connection test - gracefully returns False."""
         service = RadarrService(url="http://localhost:7878", api_key="test_key")
-        with patch.object(service.client, 'request') as mock_request:
+        with patch.object(service.client, "request") as mock_request:
             mock_request.side_effect = httpx.ConnectError("Network error")
 
             result = service.test_connection()
@@ -92,7 +92,7 @@ class TestRadarrErrorHandling:
         with patch("src.core.radarr.settings") as mock_settings:
             mock_settings.radarr_api_key = ""
             mock_settings.radarr_url = "http://localhost:7878"
-            
+
             with pytest.raises(RadarrAuthenticationError) as exc_info:
                 RadarrService(url="http://localhost:7878", api_key="")
 

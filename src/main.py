@@ -13,12 +13,12 @@ from src.utils.logger import setup_logging
 # Setup logging first, before any other imports that might use logging
 setup_logging()
 
-from src.api.app import create_app_with_scheduler
-from src.core.boxoffice import BoxOfficeService
-from src.core.radarr import RadarrService
-from src.core.scheduler import BoxarrScheduler
-from src.utils.config import settings
-from src.utils.logger import get_logger
+from src.api.app import create_app_with_scheduler  # noqa: E402
+from src.core.boxoffice import BoxOfficeService  # noqa: E402
+from src.core.radarr import RadarrService  # noqa: E402
+from src.core.scheduler import BoxarrScheduler  # noqa: E402
+from src.utils.config import settings  # noqa: E402
+from src.utils.logger import get_logger  # noqa: E402
 
 logger = get_logger(__name__)
 
