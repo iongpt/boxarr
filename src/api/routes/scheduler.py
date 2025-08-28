@@ -113,9 +113,16 @@ async def get_scheduler_history():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class UpdateWeekRequest(BaseModel):
+    """Request model for updating a specific week."""
+    year: int
+    week: int
+
 @router.post("/update-week")
-async def update_specific_week(year: int, week: int):  # noqa: C901
+async def update_specific_week(request: UpdateWeekRequest):  # noqa: C901
     """Update box office for a specific historical week."""
+    year = request.year
+    week = request.week
     try:
         # Validate inputs
         if year < 2000 or year > datetime.now().year:

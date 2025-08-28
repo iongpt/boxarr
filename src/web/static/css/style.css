@@ -658,6 +658,15 @@ body {
   background: var(--border-color);
 }
 
+.btn-success {
+  background: var(--success);
+  color: white;
+}
+
+.btn-success:hover:not(:disabled) {
+  background: #059669;
+}
+
 /* Button Row */
 .button-row {
   display: flex;
