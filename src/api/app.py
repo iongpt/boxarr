@@ -37,7 +37,7 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
         docs_url="/api/docs",
         redoc_url="/api/redoc",
     )
-    
+
     # Add CORS middleware for local network access
     app.add_middleware(
         CORSMiddleware,
@@ -45,44 +45,45 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    
+
     # Mount static files
     app.mount("/static", StaticFiles(directory="src/web/static"), name="static")
-    
+
     # Include routers
     app.include_router(config_router)
     app.include_router(boxoffice_router)
     app.include_router(movies_router)
     app.include_router(scheduler_router)
     app.include_router(web_router)
-    
+
     # Store scheduler instance if provided
     if scheduler:
         app.state.scheduler = scheduler
         # Update scheduler reference in routes
         from .routes import scheduler as scheduler_module
+
         scheduler_module._scheduler = scheduler
-    
+
     @app.on_event("startup")
     async def startup_event():
         """Initialize application on startup."""
         logger.info("Boxarr API starting up...")
-        
+
         # Start scheduler if configured and enabled
         if scheduler and settings.boxarr_scheduler_enabled:
             scheduler.start()
             logger.info("Scheduler started")
-    
+
     @app.on_event("shutdown")
     async def shutdown_event():
         """Cleanup on application shutdown."""
         logger.info("Boxarr API shutting down...")
-        
+
         # Stop scheduler if running
         if scheduler:
             scheduler.stop()
             logger.info("Scheduler stopped")
-    
+
     @app.get("/api/health")
     async def health_check():
         """Simple health check endpoint."""
@@ -92,7 +93,7 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
             "radarr_configured": bool(settings.radarr_api_key),
             "scheduler_enabled": settings.boxarr_scheduler_enabled,
         }
-    
+
     return app
 
 
@@ -100,11 +101,11 @@ def create_app_with_scheduler() -> FastAPI:
     """Create application with scheduler enabled."""
     from ..core.boxoffice import BoxOfficeService
     from ..core.radarr import RadarrService
-    
+
     # Initialize scheduler with services
     scheduler = BoxarrScheduler(
         boxoffice_service=BoxOfficeService(),
         radarr_service=RadarrService() if settings.radarr_api_key else None,
     )
-    
+
     return create_app(scheduler)

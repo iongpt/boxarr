@@ -355,4 +355,3 @@ class BoxOfficeService:
                 continue
 
         return history
-

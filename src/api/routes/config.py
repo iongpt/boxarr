@@ -78,7 +78,7 @@ async def test_configuration(config: TestConfigRequest):
             "success": True,
             "message": "Connected successfully!",
             "profiles": [{"id": p.id, "name": p.name} for p in profiles],
-            "folders": [{"path": f.path, "freeSpace": f.freeSpace} for f in folders],
+            "folders": [{"path": f["path"], "freeSpace": f["freeSpace"]} for f in folders],
         }
     except Exception as e:
         logger.error(f"Error testing configuration: {e}")
@@ -140,4 +140,3 @@ async def save_configuration(config: SaveConfigRequest):
     except Exception as e:
         logger.error(f"Error saving configuration: {e}")
         return {"success": False, "message": str(e)}
-

@@ -225,7 +225,7 @@ class Settings(BaseSettings):
         history_dir = self.boxarr_data_directory / "history"
         # Don't create directory here - let the caller create it when needed
         return history_dir
-    
+
     def ensure_directories(self) -> None:
         """Create necessary directories - call this explicitly when needed."""
         self.boxarr_data_directory.mkdir(parents=True, exist_ok=True)
@@ -242,6 +242,12 @@ class Settings(BaseSettings):
                 data["radarr_api_key"] = "***" if data["radarr_api_key"] else ""
         return data
 
+    @classmethod
+    def reload_from_file(cls, config_path: Path) -> None:
+        """Reload settings from file by clearing the cache."""
+        global _settings
+        _settings = None  # Clear cache to force reload
+
 
 # Lazy-loaded settings to avoid import-time side effects
 _settings: Optional[Settings] = None
@@ -251,14 +257,14 @@ def load_settings() -> Settings:
     """Load settings with configuration file support."""
     # Use environment variable to override default data directory
     data_dir = os.getenv("BOXARR_DATA_DIRECTORY", "config")
-    
+
     # Create settings with potentially overridden data directory
     settings = Settings(boxarr_data_directory=Path(data_dir))
 
     # Try to load from config file
     config_paths = [
         Path(data_dir) / "local.yaml",
-        Path(data_dir) / "config.yaml", 
+        Path(data_dir) / "config.yaml",
         Path("config/local.yaml"),
         Path("config/default.yaml"),
         Path("/config/local.yaml"),  # Docker volume
@@ -281,23 +287,16 @@ def get_settings() -> Settings:
     return _settings
 
 
-# For backward compatibility - but this should be avoided
-@property
-def settings() -> Settings:
-    """Backward compatible settings access."""
-    return get_settings()
-
-
 # Create a settings proxy that lazy-loads on first access
 class SettingsProxy:
     """Proxy for lazy-loading settings."""
-    
+
     def __getattr__(self, name):
         return getattr(get_settings(), name)
-    
+
     def __setattr__(self, name, value):
         setattr(get_settings(), name, value)
 
 
 # Export settings as a proxy for lazy loading
-settings = SettingsProxy()
+settings: Settings = SettingsProxy()  # type: ignore

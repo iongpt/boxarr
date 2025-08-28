@@ -203,7 +203,7 @@ async def add_movie_to_radarr(request: AddMovieRequest):
         # Add movie
         result = radarr_service.add_movie(
             tmdb_id=movie_data["tmdbId"],
-            quality_profile=settings.radarr_quality_profile_default,
+            quality_profile_id=None,  # Uses default from settings
             root_folder=str(settings.radarr_root_folder),
             monitored=True,
             search_for_movie=settings.radarr_search_for_movie,
@@ -263,7 +263,9 @@ def regenerate_weeks_with_movie(movie_title: str):
                 matcher = MovieMatcher()
 
                 # Get week's data
-                box_office_movies = boxoffice_service.fetch_weekend_box_office(year, week)
+                box_office_movies = boxoffice_service.fetch_weekend_box_office(
+                    year, week
+                )
                 matcher.build_movie_index(radarr_movies)
                 match_results = matcher.match_movies(box_office_movies, radarr_movies)
 
@@ -272,4 +274,3 @@ def regenerate_weeks_with_movie(movie_title: str):
         except Exception as e:
             logger.error(f"Error processing {json_file}: {e}")
             continue
-

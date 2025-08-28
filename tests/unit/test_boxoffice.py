@@ -1,10 +1,12 @@
 """Unit tests for box office parsing - focused on critical functionality."""
 
-import pytest
-from unittest.mock import Mock, patch, MagicMock
 from datetime import datetime
+from unittest.mock import MagicMock, Mock, patch
 
-from src.core.boxoffice import BoxOfficeService, BoxOfficeError
+import httpx
+import pytest
+
+from src.core.boxoffice import BoxOfficeError, BoxOfficeService
 
 
 class TestBoxOfficeHTMLParsing:
@@ -142,12 +144,12 @@ class TestBoxOfficeHTMLParsing:
         </body>
         </html>
         """
-        
+
         movies = self.service.parse_box_office_html(html_fixture)
-        
+
         # Should get exactly 10 movies, studio name should be filtered
         assert len(movies) == 10
-        
+
         # Check specific challenging titles are parsed correctly
         titles = [m.title for m in movies]
         assert "Wicked" in titles
@@ -157,12 +159,14 @@ class TestBoxOfficeHTMLParsing:
         assert "M3GAN 2.0" in titles  # Numbers and dots
         assert "...And Justice for All" in titles  # Starts with dots
         assert "Dr. Seuss' The Grinch" in titles  # Apostrophe
-        
+
         # Check financial data is parsed
         assert movies[0].weekend_gross == 114000000.0
         assert movies[0].total_gross == 162000000.0
         assert movies[0].theater_count == 3888
-        assert movies[0].weeks_released == 1 or movies[0].weeks_released is None  # May vary by structure
+        assert (
+            movies[0].weeks_released == 1 or movies[0].weeks_released is None
+        )  # May vary by structure
 
     def test_parse_alternative_format_fallback(self):
         """Test fallback parsing when table structure is different."""
@@ -178,33 +182,34 @@ class TestBoxOfficeHTMLParsing:
         </body>
         </html>
         """
-        
+
         movies = self.service.parse_box_office_html(html_fixture)
-        
+
         assert len(movies) == 3
         assert movies[0].title == "Avatar: The Way of Water"
         assert movies[1].title == "Top Gun: Maverick"
         assert movies[2].title == "Black Panther: Wakanda Forever"
 
-    @patch("httpx.Client.get")
-    def test_network_failure_handling(self, mock_get):
+    def test_network_failure_handling(self):
         """Test handling when Box Office Mojo is not accessible."""
-        mock_get.side_effect = Exception("Connection timeout")
-        
-        with pytest.raises(BoxOfficeError) as exc_info:
-            self.service.fetch_weekend_box_office(2024, 48)
-        
-        assert "Failed to fetch box office data" in str(exc_info.value)
+        with patch.object(self.service.client, 'get') as mock_get:
+            mock_get.side_effect = httpx.ConnectError("Connection timeout")
+
+            with pytest.raises(BoxOfficeError) as exc_info:
+                self.service.fetch_weekend_box_office(2024, 48)
+
+            assert "Failed to fetch box office data" in str(exc_info.value)
 
     def test_empty_html_handling(self):
         """Test handling of empty or malformed HTML."""
         with pytest.raises(BoxOfficeError) as exc_info:
             self.service.parse_box_office_html("")
-        
-        assert "No movies found" in str(exc_info.value)
-        
-        with pytest.raises(BoxOfficeError) as exc_info:
-            self.service.parse_box_office_html("<html><body>No table here</body></html>")
-        
+
         assert "No movies found" in str(exc_info.value)
 
+        with pytest.raises(BoxOfficeError) as exc_info:
+            self.service.parse_box_office_html(
+                "<html><body>No table here</body></html>"
+            )
+
+        assert "No movies found" in str(exc_info.value)
