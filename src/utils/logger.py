@@ -8,9 +8,11 @@ from pathlib import Path
 from typing import Optional
 
 
-def setup_logging(log_level: Optional[str] = None, data_directory: Optional[Path] = None) -> None:
+def setup_logging(
+    log_level: Optional[str] = None, data_directory: Optional[Path] = None
+) -> None:
     """Configure application-wide logging.
-    
+
     Args:
         log_level: Override log level (DEBUG, INFO, WARNING, ERROR)
         data_directory: Override data directory for log files
@@ -18,11 +20,11 @@ def setup_logging(log_level: Optional[str] = None, data_directory: Optional[Path
     # Use environment variables or defaults if not provided
     if log_level is None:
         log_level = os.getenv("LOG_LEVEL", "INFO")
-    
+
     if data_directory is None:
         data_dir = os.getenv("BOXARR_DATA_DIRECTORY", "config")
         data_directory = Path(data_dir)
-    
+
     # Create logs directory
     log_dir = data_directory / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -35,7 +37,9 @@ def setup_logging(log_level: Optional[str] = None, data_directory: Optional[Path
     root_logger.handlers.clear()
 
     # Create formatters
-    log_format = os.getenv("LOG_FORMAT", "%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    log_format = os.getenv(
+        "LOG_FORMAT", "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
     formatter = logging.Formatter(log_format)
 
     # Console handler

@@ -161,7 +161,7 @@ async def update_specific_week(year: int, week: int):
                         if search:
                             movie = radarr_service.add_movie(
                                 tmdb_id=search[0]["tmdbId"],
-                                quality_profile=settings.radarr_quality_profile_default,
+                                quality_profile_id=None,  # Uses default from settings
                                 root_folder=str(settings.radarr_root_folder),
                                 monitored=True,
                                 search_for_movie=True,
@@ -196,4 +196,3 @@ async def update_specific_week(year: int, week: int):
     except Exception as e:
         logger.error(f"Error updating week: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-

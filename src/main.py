@@ -9,13 +9,14 @@ from pathlib import Path
 import uvicorn
 
 from src.utils.logger import setup_logging
+
 # Setup logging first, before any other imports that might use logging
 setup_logging()
 
 from src.api.app import create_app_with_scheduler
-from src.core.scheduler import BoxarrScheduler
 from src.core.boxoffice import BoxOfficeService
 from src.core.radarr import RadarrService
+from src.core.scheduler import BoxarrScheduler
 from src.utils.config import settings
 from src.utils.logger import get_logger
 

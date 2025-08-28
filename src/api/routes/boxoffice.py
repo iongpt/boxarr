@@ -127,4 +127,3 @@ async def get_historical_box_office(year: int, week: int):
     except Exception as e:
         logger.error(f"Error getting historical box office: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-

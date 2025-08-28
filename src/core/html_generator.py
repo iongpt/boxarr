@@ -48,7 +48,7 @@ class WeeklyPageGenerator:
         """
         # Calculate friday and sunday from year and week
         from datetime import date, timedelta
-        
+
         # Get the first day of the week (Monday)
         monday = date.fromisocalendar(year, week, 1)
         # Calculate Friday (4 days after Monday) and Sunday (6 days after Monday)

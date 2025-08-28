@@ -508,7 +508,7 @@ class RadarrService:
         """
         # Use existing upgrade_movie_quality method
         return self.upgrade_movie_quality(movie_id, profile_id)
-    
+
     def trigger_movie_search(self, movie_id: int) -> bool:
         """
         Trigger a search for a specific movie in Radarr.
@@ -524,13 +524,10 @@ class RadarrService:
         """
         try:
             # Send command to Radarr to search for the movie
-            command_data = {
-                "name": "MoviesSearch",
-                "movieIds": [movie_id]
-            }
-            
+            command_data = {"name": "MoviesSearch", "movieIds": [movie_id]}
+
             response = self._make_request("POST", "/api/v3/command", json=command_data)
-            
+
             # Check if command was accepted
             result = response.json()
             return result.get("status") in ["queued", "started", "completed"]
