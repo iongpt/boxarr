@@ -24,7 +24,7 @@ def get_scheduler() -> BoxarrScheduler:
     if not _scheduler:
         from ...core.boxoffice import BoxOfficeService
         from ...core.radarr import RadarrService
-        
+
         _scheduler = BoxarrScheduler(
             boxoffice_service=BoxOfficeService(),
             radarr_service=RadarrService() if settings.radarr_api_key else None,
@@ -34,7 +34,7 @@ def get_scheduler() -> BoxarrScheduler:
 
 class TriggerResponse(BaseModel):
     """Trigger response model."""
-    
+
     success: bool
     message: str
     movies_found: Optional[int] = None
@@ -47,7 +47,7 @@ async def trigger_update():
     try:
         scheduler = get_scheduler()
         result = await scheduler.update_box_office()
-        
+
         return TriggerResponse(
             success=True,
             message="Box office update completed",
@@ -69,10 +69,10 @@ async def get_scheduler_history():
         history_dir = Path(settings.boxarr_data_directory) / "history"
         if not history_dir.exists():
             return {"runs": []}
-        
+
         # Get all history files
         history_files = sorted(history_dir.glob("*.json"), reverse=True)[:20]
-        
+
         runs = []
         for file_path in history_files:
             # Parse filename for timestamp
@@ -81,27 +81,32 @@ async def get_scheduler_history():
             if len(parts) >= 3:
                 date_str = parts[1]
                 time_str = parts[2]
-                
+
                 try:
-                    run_time = datetime.strptime(f"{date_str}_{time_str}", "%Y%m%d_%H%M%S")
-                    
+                    run_time = datetime.strptime(
+                        f"{date_str}_{time_str}", "%Y%m%d_%H%M%S"
+                    )
+
                     # Read result
                     import json
+
                     with open(file_path) as f:
                         result = json.load(f)
-                    
-                    runs.append({
-                        "timestamp": run_time.isoformat(),
-                        "week": parts[0],
-                        "success": result.get("success", False),
-                        "movies_found": result.get("total_movies"),
-                        "movies_added": result.get("added_movies"),
-                        "error": result.get("error"),
-                    })
+
+                    runs.append(
+                        {
+                            "timestamp": run_time.isoformat(),
+                            "week": parts[0],
+                            "success": result.get("success", False),
+                            "movies_found": result.get("total_movies"),
+                            "movies_added": result.get("added_movies"),
+                            "error": result.get("error"),
+                        }
+                    )
                 except Exception as e:
                     logger.warning(f"Error parsing history file {file_path}: {e}")
                     continue
-        
+
         return {"runs": runs}
     except Exception as e:
         logger.error(f"Error getting scheduler history: {e}")
@@ -117,40 +122,42 @@ async def update_specific_week(year: int, week: int):
             raise HTTPException(status_code=400, detail="Invalid year")
         if week < 1 or week > 53:
             raise HTTPException(status_code=400, detail="Invalid week number")
-        
+
         from ...core.boxoffice import BoxOfficeService
         from ...core.html_generator import WeeklyPageGenerator
         from ...core.matcher import MovieMatcher
         from ...core.radarr import RadarrService
-        
+
         # Get box office data
         boxoffice_service = BoxOfficeService()
         box_office_movies = await boxoffice_service.get_week(year, week)
-        
+
         if not box_office_movies:
             return {
                 "success": False,
                 "message": f"No data found for week {year}W{week:02d}",
             }
-        
+
         # Match with Radarr
         match_results = []
         added_count = 0
-        
+
         if settings.radarr_api_key:
             radarr_service = RadarrService()
             matcher = MovieMatcher()
-            
+
             radarr_movies = radarr_service.get_all_movies()
             matcher.build_movie_index(radarr_movies)
             match_results = matcher.match_movies(box_office_movies, radarr_movies)
-            
+
             # Auto-add if enabled
             if settings.boxarr_features_auto_add:
                 for result in match_results:
                     if not result.is_matched:
                         # Search and add
-                        search = radarr_service.search_movie_tmdb(result.box_office_movie.title)
+                        search = radarr_service.search_movie_tmdb(
+                            result.box_office_movie.title
+                        )
                         if search:
                             movie = radarr_service.add_movie(
                                 tmdb_id=search[0]["tmdbId"],
@@ -164,10 +171,11 @@ async def update_specific_week(year: int, week: int):
         else:
             # No Radarr, create unmatched results
             from ...core.matcher import MatchResult
+
             match_results = [
                 MatchResult(box_office_movie=movie) for movie in box_office_movies
             ]
-        
+
         # Generate page
         generator = WeeklyPageGenerator()
         generator.generate_weekly_page(
@@ -176,7 +184,7 @@ async def update_specific_week(year: int, week: int):
             week,
             radarr_movies if settings.radarr_api_key else [],
         )
-        
+
         return {
             "success": True,
             "message": f"Updated week {year}W{week:02d}",

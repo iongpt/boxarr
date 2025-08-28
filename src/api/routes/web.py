@@ -22,7 +22,7 @@ templates = Jinja2Templates(directory="src/web/templates")
 
 class WeekInfo(BaseModel):
     """Week information model."""
-    
+
     year: int
     week: int
     filename: str
@@ -33,7 +33,7 @@ class WeekInfo(BaseModel):
 
 class WidgetData(BaseModel):
     """Widget data model."""
-    
+
     current_week: int
     current_year: int
     movies: List[dict]
@@ -45,15 +45,15 @@ async def home_page(request: Request):
     # Check if Radarr is configured
     if not settings.radarr_api_key:
         return RedirectResponse(url="/setup")
-    
+
     # Check for current week page
     weekly_pages_dir = Path(settings.boxarr_data_directory) / "weekly_pages"
     current_page = weekly_pages_dir / "current.html"
-    
+
     if current_page.exists():
         with open(current_page) as f:
             return HTMLResponse(content=f.read())
-    
+
     # No current page, redirect to dashboard
     return RedirectResponse(url="/dashboard")
 
@@ -63,11 +63,11 @@ async def dashboard_page(request: Request):
     """Serve the dashboard page."""
     # Get all available weeks
     weeks = await get_available_weeks()
-    
+
     # Separate into recent (first 24) and older
     recent_weeks = weeks[:24]
     older_weeks = weeks[24:] if len(weeks) > 24 else []
-    
+
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -98,12 +98,13 @@ async def settings_page(request: Request):
     # Parse cron for display
     cron = settings.boxarr_scheduler_cron
     import re
+
     cron_match = re.match(r"(\d+) (\d+) \* \* (\d+)", cron)
-    
+
     hour = int(cron_match.group(2)) if cron_match else 23
     minute = int(cron_match.group(1)) if cron_match else 0
     day = int(cron_match.group(3)) if cron_match else 2
-    
+
     return templates.TemplateResponse(
         "settings.html",
         {
@@ -128,11 +129,15 @@ async def settings_page(request: Request):
 @router.get("/{year}W{week}.html", response_class=HTMLResponse)
 async def serve_weekly_page(year: int, week: int):
     """Serve a specific week's static HTML page."""
-    page_file = Path(settings.boxarr_data_directory) / "weekly_pages" / f"{year}W{week:02d}.html"
-    
+    page_file = (
+        Path(settings.boxarr_data_directory)
+        / "weekly_pages"
+        / f"{year}W{week:02d}.html"
+    )
+
     if not page_file.exists():
         raise HTTPException(status_code=404, detail="Week not found")
-    
+
     with open(page_file) as f:
         return HTMLResponse(content=f.read())
 
@@ -150,7 +155,7 @@ async def delete_week(year: int, week: int):
         weekly_pages_dir = Path(settings.boxarr_data_directory) / "weekly_pages"
         html_file = weekly_pages_dir / f"{year}W{week:02d}.html"
         json_file = weekly_pages_dir / f"{year}W{week:02d}.json"
-        
+
         deleted_files = []
         if html_file.exists():
             html_file.unlink()
@@ -158,9 +163,11 @@ async def delete_week(year: int, week: int):
         if json_file.exists():
             json_file.unlink()
             deleted_files.append("JSON")
-        
+
         if deleted_files:
-            logger.info(f"Deleted week {year}W{week:02d} files: {', '.join(deleted_files)}")
+            logger.info(
+                f"Deleted week {year}W{week:02d} files: {', '.join(deleted_files)}"
+            )
             return {"success": True, "message": f"Deleted week {year}W{week:02d}"}
         else:
             return {"success": False, "message": "Week not found"}
@@ -175,7 +182,7 @@ async def get_widget():
     try:
         # Get current week data
         widget_data = await get_widget_data()
-        
+
         # Simple widget HTML
         html = f"""
         <div class="boxarr-widget">
@@ -203,29 +210,32 @@ async def get_available_weeks() -> List[WeekInfo]:
     weekly_pages_dir = Path(settings.boxarr_data_directory) / "weekly_pages"
     if not weekly_pages_dir.exists():
         return []
-    
+
     weeks = []
     for json_file in sorted(weekly_pages_dir.glob("*.json"), reverse=True):
         if json_file.name == "current.json":
             continue
-        
+
         try:
             with open(json_file) as f:
                 metadata = json.load(f)
-            
+
             # Calculate date range
             from datetime import datetime, timedelta
+
             year = metadata["year"]
             week = metadata["week"]
-            
+
             # Get first day of week (Monday)
             jan1 = datetime(year, 1, 1)
             week_start = jan1 + timedelta(weeks=week - 1)
             week_start -= timedelta(days=week_start.weekday())
             week_end = week_start + timedelta(days=6)
-            
-            date_range = f"{week_start.strftime('%b %d')} - {week_end.strftime('%b %d, %Y')}"
-            
+
+            date_range = (
+                f"{week_start.strftime('%b %d')} - {week_end.strftime('%b %d, %Y')}"
+            )
+
             weeks.append(
                 WeekInfo(
                     year=year,
@@ -239,14 +249,14 @@ async def get_available_weeks() -> List[WeekInfo]:
         except Exception as e:
             logger.warning(f"Error reading {json_file}: {e}")
             continue
-    
+
     return weeks
 
 
 async def get_widget_data() -> WidgetData:
     """Get current week widget data."""
     weekly_pages_dir = Path(settings.boxarr_data_directory) / "weekly_pages"
-    
+
     # Find most recent week
     json_files = sorted(weekly_pages_dir.glob("*.json"), reverse=True)
     if not json_files:
@@ -255,10 +265,10 @@ async def get_widget_data() -> WidgetData:
             current_year=datetime.now().year,
             movies=[],
         )
-    
+
     with open(json_files[0]) as f:
         metadata = json.load(f)
-    
+
     return WidgetData(
         current_week=metadata["week"],
         current_year=metadata["year"],

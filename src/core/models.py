@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 
 class MovieStatus(str, Enum):
     """Movie availability status in Radarr."""
-    
+
     TBA = "tba"
     ANNOUNCED = "announced"
     IN_CINEMAS = "inCinemas"
@@ -16,7 +16,7 @@ class MovieStatus(str, Enum):
     DELETED = "deleted"
     MISSING = "missing"
     DOWNLOADED = "downloaded"
-    
+
     @classmethod
     def from_radarr(cls, status: str, has_file: bool) -> "MovieStatus":
         """Convert Radarr status to display status."""
@@ -32,53 +32,53 @@ class MovieStatus(str, Enum):
 class MovieCard:
     """
     Reusable movie card data model.
-    
+
     This represents all the data needed to display a movie card
     across different weekly views. The same movie can appear in
     multiple weeks with updated box office numbers.
     """
-    
+
     # Core identifiers
     tmdb_id: int
     title: str
     year: Optional[int] = None
-    
+
     # Display data (static)
     poster_url: Optional[str] = None
     overview: Optional[str] = None
     genres: List[str] = field(default_factory=list)
     runtime: Optional[int] = None  # in minutes
-    
+
     # External links
     imdb_id: Optional[str] = None
     wikipedia_url: Optional[str] = None
-    
+
     # Radarr integration (dynamic)
     radarr_id: Optional[int] = None
     radarr_status: Optional[MovieStatus] = None
     quality_profile: Optional[str] = None
     monitored: bool = False
-    
+
     @property
     def imdb_url(self) -> Optional[str]:
         """Generate IMDb URL from ID."""
         return f"https://www.imdb.com/title/{self.imdb_id}/" if self.imdb_id else None
-    
+
     @property
     def status_color(self) -> str:
         """Get status color for display."""
         if not self.radarr_status:
             return "#888"  # Gray for not in Radarr
-        
+
         status_colors = {
             MovieStatus.DOWNLOADED: "#4CAF50",  # Green
-            MovieStatus.MISSING: "#FF9800",     # Orange  
+            MovieStatus.MISSING: "#FF9800",  # Orange
             MovieStatus.IN_CINEMAS: "#2196F3",  # Blue
-            MovieStatus.ANNOUNCED: "#9C27B0",   # Purple
-            MovieStatus.DELETED: "#F44336",     # Red
+            MovieStatus.ANNOUNCED: "#9C27B0",  # Purple
+            MovieStatus.DELETED: "#F44336",  # Red
         }
         return status_colors.get(self.radarr_status, "#888")
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
@@ -96,7 +96,7 @@ class MovieCard:
             "quality_profile": self.quality_profile,
             "monitored": self.monitored,
         }
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "MovieCard":
         """Create from dictionary."""
@@ -121,7 +121,7 @@ class MovieCard:
 @dataclass
 class WeeklyBoxOfficeEntry:
     """Box office performance for a movie in a specific week."""
-    
+
     rank: int
     movie_card: MovieCard
     weekend_gross: Optional[float] = None
@@ -129,21 +129,21 @@ class WeeklyBoxOfficeEntry:
     weeks_in_release: Optional[int] = None
     is_new_release: bool = False
     theaters_count: Optional[int] = None
-    
+
     @property
     def formatted_weekend_gross(self) -> str:
         """Format weekend gross for display."""
         if not self.weekend_gross:
             return "N/A"
         return f"${self.weekend_gross:,.0f}"
-    
+
     @property
     def formatted_total_gross(self) -> str:
         """Format total gross for display."""
         if not self.total_gross:
             return "N/A"
         return f"${self.total_gross:,.0f}"
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
@@ -160,35 +160,35 @@ class WeeklyBoxOfficeEntry:
 @dataclass
 class WeeklyBoxOfficeReport:
     """Complete box office report for a week."""
-    
+
     year: int
     week: int
     generated_at: datetime
     entries: List[WeeklyBoxOfficeEntry]
-    
+
     @property
     def date_range(self) -> tuple[datetime, datetime]:
         """Calculate the date range for this week."""
         from datetime import timedelta
-        
+
         # Get first day of the year
         jan1 = datetime(self.year, 1, 1)
-        
+
         # Calculate week start (Monday)
         week_start = jan1 + timedelta(weeks=self.week - 1)
         week_start -= timedelta(days=week_start.weekday())
-        
+
         # Calculate week end (Sunday)
         week_end = week_start + timedelta(days=6)
-        
+
         return week_start, week_end
-    
+
     @property
     def formatted_date_range(self) -> str:
         """Get formatted date range string."""
         start, end = self.date_range
         return f"{start.strftime('%b %d')} - {end.strftime('%b %d, %Y')}"
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
@@ -198,7 +198,7 @@ class WeeklyBoxOfficeReport:
             "date_range": self.formatted_date_range,
             "entries": [entry.to_dict() for entry in self.entries],
         }
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "WeeklyBoxOfficeReport":
         """Create from dictionary."""
@@ -216,7 +216,7 @@ class WeeklyBoxOfficeReport:
                     theaters_count=entry_data.get("theaters_count"),
                 )
             )
-        
+
         return cls(
             year=data["year"],
             week=data["week"],
