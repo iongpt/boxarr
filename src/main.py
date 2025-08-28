@@ -8,10 +8,17 @@ from pathlib import Path
 
 import uvicorn
 
-from src.api.app import create_app
-from src.core import BoxarrScheduler, BoxOfficeService, RadarrService
-from src.utils.config import settings
-from src.utils.logger import get_logger, setup_logging
+from src.utils.logger import setup_logging
+
+# Setup logging first, before any other imports that might use logging
+setup_logging()
+
+from src.api.app import create_app_with_scheduler  # noqa: E402
+from src.core.boxoffice import BoxOfficeService  # noqa: E402
+from src.core.radarr import RadarrService  # noqa: E402
+from src.core.scheduler import BoxarrScheduler  # noqa: E402
+from src.utils.config import settings  # noqa: E402
+from src.utils.logger import get_logger  # noqa: E402
 
 logger = get_logger(__name__)
 
@@ -50,15 +57,9 @@ class BoxarrApplication:
                 logger.warning(f"Radarr connection failed: {e}")
                 logger.info("Please check configuration via web UI")
 
-        # Initialize scheduler (even if not configured, it won't run without valid config)
-        self.scheduler = BoxarrScheduler()
-        if settings.is_configured:
-            self.scheduler.start()
-
-            if settings.boxarr_scheduler_enabled:
-                next_run = self.scheduler.get_next_run_time()
-                if next_run:
-                    logger.info(f"Next scheduled update: {next_run}")
+        # Scheduler will be initialized in app creation
+        if settings.is_configured and settings.boxarr_scheduler_enabled:
+            logger.info("Scheduler will be started with the application")
 
         logger.info("Boxarr startup complete")
 
@@ -66,9 +67,7 @@ class BoxarrApplication:
         """Application shutdown."""
         logger.info("Shutting down Boxarr")
 
-        if self.scheduler:
-            self.scheduler.stop()
-
+        # Scheduler cleanup is handled by FastAPI shutdown event
         self._shutdown_event.set()
         logger.info("Boxarr shutdown complete")
 
@@ -79,7 +78,7 @@ class BoxarrApplication:
 
     async def run_api(self):
         """Run FastAPI application."""
-        self.app = create_app(self.scheduler)
+        self.app = create_app_with_scheduler()
 
         config = uvicorn.Config(
             app=self.app,

@@ -14,18 +14,9 @@ from .exceptions import (
     RadarrError,
     RadarrNotFoundError,
 )
+from .models import MovieStatus
 
 logger = get_logger(__name__)
-
-
-class MovieStatus(str, Enum):
-    """Movie status in Radarr."""
-
-    TBA = "tba"
-    ANNOUNCED = "announced"
-    IN_CINEMAS = "inCinemas"
-    RELEASED = "released"
-    DELETED = "deleted"
 
 
 @dataclass
@@ -175,6 +166,12 @@ class RadarrService:
         except httpx.HTTPError as e:
             logger.error(f"Radarr API error: {e}")
             raise RadarrError(f"Radarr API error: {e}") from e
+        except RadarrError:
+            # Re-raise intentionally thrown Radarr* errors
+            raise
+        except Exception as e:
+            logger.error(f"Unexpected Radarr API error: {e}")
+            raise RadarrError(f"Radarr API error: {e}") from e
 
     def test_connection(self) -> bool:
         """
@@ -187,6 +184,8 @@ class RadarrService:
             response = self._make_request("GET", "/api/v3/system/status")
             return response.status_code == 200
         except RadarrError:
+            return False
+        except Exception:
             return False
 
     def get_all_movies(self) -> List[RadarrMovie]:
@@ -465,3 +464,81 @@ class RadarrService:
         response = self._make_request("GET", "/api/v3/system/status")
         result = response.json()
         return result if isinstance(result, dict) else {}
+
+    def get_root_folders(self) -> List[Dict[str, Any]]:
+        """
+        Get root folders configured in Radarr.
+        Routes expect this method.
+
+        Returns:
+            List of root folder configurations
+
+        Raises:
+            RadarrError: If request fails
+        """
+        response = self._make_request("GET", "/api/v3/rootFolder")
+        result = response.json()
+        return result if isinstance(result, list) else []
+
+    def search_movie_tmdb(self, title: str) -> List[Dict[str, Any]]:
+        """
+        Search for a movie on TMDB via Radarr.
+        Routes expect this method.
+
+        Args:
+            title: Movie title to search
+
+        Returns:
+            List of search results from TMDB
+
+        Raises:
+            RadarrError: If search fails
+        """
+        # Use existing search_movie method
+        return self.search_movie(title)
+
+    def update_movie_quality_profile(
+        self, movie_id: int, profile_id: int
+    ) -> RadarrMovie:
+        """
+        Update a movie's quality profile.
+        Routes expect this method.
+
+        Args:
+            movie_id: Movie ID in Radarr
+            profile_id: New quality profile ID
+
+        Returns:
+            Updated movie object
+
+        Raises:
+            RadarrError: If update fails
+        """
+        # Use existing upgrade_movie_quality method
+        return self.upgrade_movie_quality(movie_id, profile_id)
+
+    def trigger_movie_search(self, movie_id: int) -> bool:
+        """
+        Trigger a search for a specific movie in Radarr.
+
+        Args:
+            movie_id: Movie ID in Radarr
+
+        Returns:
+            True if command was successfully sent
+
+        Raises:
+            RadarrError: If command fails
+        """
+        try:
+            # Send command to Radarr to search for the movie
+            command_data = {"name": "MoviesSearch", "movieIds": [movie_id]}
+
+            response = self._make_request("POST", "/api/v3/command", json=command_data)
+
+            # Check if command was accepted
+            result = response.json()
+            return result.get("status") in ["queued", "started", "completed"]
+        except Exception as e:
+            logger.error(f"Failed to trigger search for movie {movie_id}: {e}")
+            return False
