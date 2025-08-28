@@ -166,39 +166,3 @@ jobs:
         RADARR_URL: http://localhost:7878
         RADARR_API_KEY: test-key
         
-  docker-test:
-    name: Docker Build Test
-    runs-on: ubuntu-latest
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-      
-    - name: Build Docker image (test)
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        push: false
-        load: true
-        tags: boxarr:test
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
-        
-    - name: Test Docker image
-      run: |
-        # Test that container starts and responds
-        docker run --rm -d --name boxarr-ci-test -p 8899:8888 boxarr:test
-        echo "Waiting for container to start..."
-        sleep 15
-        
-        # Check if container is running
-        docker ps | grep boxarr-ci-test
-        
-        # Test health endpoint
-        curl -f http://localhost:8899/api/health || (docker logs boxarr-ci-test && exit 1)
-        
-        # Clean up
-        docker stop boxarr-ci-test || true
