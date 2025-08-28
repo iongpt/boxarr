@@ -1,220 +1,295 @@
-"""Unit tests for Radarr service."""
+"""Unit tests for Radarr integration - focus on error handling and critical functionality."""
 
 import pytest
 from unittest.mock import Mock, patch, MagicMock
+import httpx
 
-from src.core.radarr import RadarrService, RadarrMovie, QualityProfile, MovieStatus
+from src.core.radarr import RadarrService, RadarrMovie, QualityProfile
+from src.core.exceptions import RadarrConnectionError, RadarrAuthenticationError, RadarrNotFoundError
+from src.core.models import MovieStatus
 
 
-class TestRadarrService:
-    """Test Radarr API interactions."""
+class TestRadarrErrorHandling:
+    """Test error handling when Radarr is not accessible."""
+
+    def test_radarr_connection_failure(self):
+        """Test handling when Radarr API is not accessible."""
+        with patch('httpx.Client.request') as mock_request:
+            mock_request.side_effect = httpx.ConnectError("Connection refused")
+            
+            service = RadarrService(url="http://localhost:7878", api_key="test_key")
+            
+            with pytest.raises(RadarrConnectionError) as exc_info:
+                service.get_all_movies()
+            
+            assert "Cannot connect to Radarr" in str(exc_info.value)
+
+    def test_radarr_authentication_failure(self):
+        """Test handling when API key is invalid."""
+        with patch('httpx.Client.request') as mock_request:
+            mock_response = Mock()
+            mock_response.status_code = 401
+            mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+                "401 Unauthorized", request=Mock(), response=mock_response
+            )
+            mock_request.return_value = mock_response
+            
+            service = RadarrService(url="http://localhost:7878", api_key="invalid_key")
+            
+            with pytest.raises(RadarrAuthenticationError) as exc_info:
+                service.get_all_movies()
+            
+            assert "Invalid API key" in str(exc_info.value)
+
+    def test_radarr_movie_not_found(self):
+        """Test handling when a movie is not found."""
+        with patch('httpx.Client.request') as mock_request:
+            mock_response = Mock()
+            mock_response.status_code = 404
+            mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+                "404 Not Found", request=Mock(), response=mock_response
+            )
+            mock_request.return_value = mock_response
+            
+            service = RadarrService(url="http://localhost:7878", api_key="test_key")
+            
+            with pytest.raises(RadarrNotFoundError) as exc_info:
+                service.get_movie(999999)
+            
+            assert "Resource not found" in str(exc_info.value)
+
+    def test_test_connection_success(self):
+        """Test successful connection test."""
+        with patch('httpx.Client.request') as mock_request:
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {"version": "3.2.2.5080"}
+            mock_request.return_value = mock_response
+            
+            service = RadarrService(url="http://localhost:7878", api_key="test_key")
+            result = service.test_connection()
+            
+            assert result is True
+
+    def test_test_connection_failure(self):
+        """Test failed connection test - gracefully returns False."""
+        with patch('httpx.Client.request') as mock_request:
+            mock_request.side_effect = Exception("Network error")
+            
+            service = RadarrService(url="http://localhost:7878", api_key="test_key")
+            result = service.test_connection()
+            
+            assert result is False
+
+    def test_no_api_key_provided(self):
+        """Test that missing API key raises authentication error."""
+        with pytest.raises(RadarrAuthenticationError) as exc_info:
+            RadarrService(url="http://localhost:7878", api_key="")
+        
+        assert "API key not provided" in str(exc_info.value)
+
+
+class TestRadarrMovieOperations:
+    """Test critical Radarr movie operations."""
 
     def setup_method(self):
         """Set up test fixtures."""
-        with patch("src.utils.config.settings") as mock_settings:
-            mock_settings.radarr_url = "http://localhost:7878"
-            mock_settings.radarr_api_key = "test_api_key"
-            self.service = RadarrService()
+        self.service = RadarrService(url="http://localhost:7878", api_key="test_key")
 
-    @patch("httpx.Client.get")
-    def test_test_connection_success(self, mock_get):
-        """Test successful connection test."""
-        mock_get.return_value = Mock(status_code=200, json=lambda: {"version": "4.0.0"})
-
-        result = self.service.test_connection()
-
-        assert result is True
-        mock_get.assert_called_once()
-        assert "system/status" in mock_get.call_args[0][0]
-
-    @patch("httpx.Client.get")
-    def test_test_connection_failure(self, mock_get):
-        """Test failed connection test."""
-        mock_get.side_effect = Exception("Connection refused")
-
-        result = self.service.test_connection()
-
-        assert result is False
-
-    @patch("httpx.Client.get")
-    def test_get_all_movies(self, mock_get):
-        """Test fetching all movies."""
-        mock_get.return_value = Mock(
-            status_code=200,
-            json=lambda: [
-                {
-                    "id": 1,
-                    "title": "Test Movie",
-                    "tmdbId": 12345,
-                    "year": 2024,
-                    "hasFile": True,
-                    "status": "released",
-                    "monitored": True,
-                    "qualityProfileId": 1,
-                    "overview": "Test overview",
-                    "runtime": 120,
-                    "imdbId": "tt1234567",
-                    "images": [
-                        {"coverType": "poster", "remoteUrl": "http://poster.jpg"}
-                    ],
-                }
-            ],
-        )
-
-        movies = self.service.get_all_movies()
-
-        assert len(movies) == 1
-        assert movies[0].id == 1
-        assert movies[0].title == "Test Movie"
-        assert movies[0].hasFile is True
-        assert movies[0].status == MovieStatus.RELEASED
-
-    @patch("httpx.Client.get")
-    def test_get_quality_profiles(self, mock_get):
-        """Test fetching quality profiles."""
-        mock_get.return_value = Mock(
-            status_code=200,
-            json=lambda: [
-                {"id": 1, "name": "HD-1080p", "upgradeAllowed": True, "cutoff": 7},
-                {"id": 2, "name": "Ultra-HD", "upgradeAllowed": True, "cutoff": 10},
-            ],
-        )
-
-        profiles = self.service.get_quality_profiles()
-
-        assert len(profiles) == 2
-        assert profiles[0].name == "HD-1080p"
-        assert profiles[1].name == "Ultra-HD"
-        assert profiles[0].upgradeAllowed is True
-
-    @patch("httpx.Client.get")
-    def test_search_movie_tmdb(self, mock_get):
-        """Test searching for a movie on TMDB."""
-        mock_get.return_value = Mock(
-            status_code=200,
-            json=lambda: [
-                {
-                    "title": "The Matrix",
-                    "tmdbId": 603,
-                    "year": 1999,
-                    "overview": "A computer hacker learns...",
-                    "remotePoster": "http://poster.jpg",
-                }
-            ],
-        )
-
-        results = self.service.search_movie_tmdb("The Matrix")
-
-        assert len(results) == 1
-        assert results[0]["title"] == "The Matrix"
-        assert results[0]["tmdbId"] == 603
-
-    @patch("httpx.Client.post")
-    @patch("httpx.Client.get")
-    def test_add_movie_success(self, mock_get, mock_post):
-        """Test successfully adding a movie."""
-        # Mock search results
-        mock_get.return_value = Mock(
-            status_code=200,
-            json=lambda: [
-                {
-                    "title": "New Movie",
-                    "tmdbId": 999,
-                    "year": 2024,
-                    "qualityProfileId": 1,
-                    "rootFolderPath": "/movies",
-                    "monitored": True,
-                    "images": [],
-                }
-            ],
-        )
-
-        # Mock add response
-        mock_post.return_value = Mock(
-            status_code=201,
-            json=lambda: {
-                "id": 10,
-                "title": "New Movie",
-                "tmdbId": 999,
-                "hasFile": False,
+    def test_get_all_movies_parsing(self):
+        """Test parsing of movie list from Radarr."""
+        mock_movies = [
+            {
+                "id": 1,
+                "title": "The Batman",
+                "tmdbId": 414906,
+                "year": 2022,
+                "status": "released",
+                "hasFile": True,
+                "monitored": True,
+                "isAvailable": True,
+                "qualityProfileId": 4,
+                "rootFolderPath": "/movies",
+                "movieFile": {
+                    "size": 5000000000,
+                    "quality": {"quality": {"name": "Bluray-1080p"}}
+                },
+                "images": [{"coverType": "poster", "remoteUrl": "https://image.tmdb.org/poster.jpg"}],
+                "genres": ["Action", "Crime"],
+                "runtime": 176
             },
-        )
+            {
+                "id": 2,
+                "title": "Dune",
+                "tmdbId": 438631,
+                "year": 2021,
+                "status": "released",
+                "hasFile": False,
+                "monitored": True,
+                "isAvailable": True,
+                "qualityProfileId": 4,
+                "rootFolderPath": "/movies",
+                "images": [],
+                "genres": ["Science Fiction"],
+                "runtime": 155
+            }
+        ]
+        
+        with patch('httpx.Client.request') as mock_request:
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = mock_movies
+            mock_request.return_value = mock_response
+            
+            movies = self.service.get_all_movies()
+            
+            assert len(movies) == 2
+            assert movies[0].title == "The Batman"
+            assert movies[0].hasFile is True
+            assert movies[0].file_quality == "Bluray-1080p"
+            assert abs(movies[0].file_size_gb - 4.66) < 0.01  # 5GB = ~4.66 GiB
+            assert movies[1].title == "Dune"
+            assert movies[1].hasFile is False
+            assert movies[1].file_quality is None
 
-        movie = self.service.add_movie(
-            tmdb_id=999, quality_profile="HD-1080p", root_folder="/movies"
-        )
+    def test_search_movie_tmdb(self):
+        """Test searching for a movie via TMDB."""
+        mock_search_results = [
+            {
+                "title": "Spider-Man: No Way Home",
+                "tmdbId": 634649,
+                "year": 2021,
+                "overview": "Peter Parker is unmasked...",
+                "remotePoster": "https://image.tmdb.org/poster.jpg"
+            }
+        ]
+        
+        with patch('httpx.Client.request') as mock_request:
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = mock_search_results
+            mock_request.return_value = mock_response
+            
+            results = self.service.search_movie_tmdb("Spider-Man No Way Home")
+            
+            assert len(results) == 1
+            assert results[0]["title"] == "Spider-Man: No Way Home"
+            assert results[0]["tmdbId"] == 634649
 
-        assert movie is not None
-        assert movie.id == 10
-        assert movie.title == "New Movie"
-        mock_post.assert_called_once()
+    def test_trigger_movie_search(self):
+        """Test triggering a search for a specific movie."""
+        with patch('httpx.Client.request') as mock_request:
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {"status": "queued", "id": 1}
+            mock_request.return_value = mock_response
+            
+            result = self.service.trigger_movie_search(123)
+            
+            assert result is True
+            
+            # Verify the correct command was sent
+            mock_request.assert_called_once()
+            call_args = mock_request.call_args
+            assert call_args[1]['json'] == {"name": "MoviesSearch", "movieIds": [123]}
 
-    @patch("httpx.Client.post")
-    def test_add_movie_already_exists(self, mock_post):
-        """Test adding a movie that already exists."""
-        mock_post.return_value = Mock(
-            status_code=400, json=lambda: {"error": "Movie already exists"}
-        )
+    def test_get_quality_profiles(self):
+        """Test fetching quality profiles from Radarr."""
+        mock_profiles = [
+            {
+                "id": 1,
+                "name": "Any",
+                "upgradeAllowed": True,
+                "cutoff": 20,
+                "items": []
+            },
+            {
+                "id": 4,
+                "name": "HD-1080p",
+                "upgradeAllowed": True,
+                "cutoff": 7,
+                "items": []
+            },
+            {
+                "id": 5,
+                "name": "Ultra-HD",
+                "upgradeAllowed": True,
+                "cutoff": 19,
+                "items": []
+            }
+        ]
+        
+        with patch('httpx.Client.request') as mock_request:
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = mock_profiles
+            mock_request.return_value = mock_response
+            
+            profiles = self.service.get_quality_profiles()
+            
+            assert len(profiles) == 3
+            assert profiles[0].name == "Any"
+            assert profiles[1].name == "HD-1080p"
+            assert profiles[2].name == "Ultra-HD"
 
-        movie = self.service.add_movie(
-            tmdb_id=999, quality_profile="HD-1080p", root_folder="/movies"
-        )
-
-        assert movie is None
-
-    @patch("httpx.Client.put")
-    @patch("httpx.Client.get")
-    def test_update_movie_quality_profile(self, mock_get, mock_put):
+    def test_update_movie_quality_profile(self):
         """Test updating a movie's quality profile."""
-        # Mock get movie
-        mock_get.return_value = Mock(
-            status_code=200,
-            json=lambda: {"id": 1, "title": "Test Movie", "qualityProfileId": 1},
-        )
+        mock_movie_before = {
+            "id": 123,
+            "title": "Test Movie",
+            "tmdbId": 111,
+            "qualityProfileId": 4,
+            "status": "released",
+            "hasFile": False
+        }
+        
+        mock_movie_after = {
+            **mock_movie_before,
+            "qualityProfileId": 5
+        }
+        
+        with patch('httpx.Client.request') as mock_request:
+            # First request: get movie
+            mock_get_response = Mock()
+            mock_get_response.status_code = 200
+            mock_get_response.json.return_value = mock_movie_before
+            
+            # Second request: update movie
+            mock_update_response = Mock()
+            mock_update_response.status_code = 200
+            mock_update_response.json.return_value = mock_movie_after
+            
+            mock_request.side_effect = [mock_get_response, mock_update_response]
+            
+            updated_movie = self.service.update_movie_quality_profile(123, 5)
+            
+            assert updated_movie.qualityProfileId == 5
 
-        # Mock update
-        mock_put.return_value = Mock(status_code=202)
-
-        result = self.service.update_movie_quality_profile(1, 2)
-
-        assert result is True
-        mock_put.assert_called_once()
-
-        # Check that the quality profile was updated in the call
-        put_data = mock_put.call_args[1]["json"]
-        assert put_data["qualityProfileId"] == 2
-
-    @patch("httpx.Client.post")
-    def test_search_movie_command(self, mock_post):
-        """Test triggering a movie search."""
-        mock_post.return_value = Mock(status_code=201)
-
-        result = self.service.search_movie(1)
-
-        assert result is True
-        mock_post.assert_called_once()
-        assert "command/MoviesSearch" in mock_post.call_args[0][0]
-        assert mock_post.call_args[1]["json"]["movieIds"] == [1]
-
-    @patch("httpx.Client.get")
-    def test_get_movie_not_found(self, mock_get):
-        """Test getting a movie that doesn't exist."""
-        mock_get.return_value = Mock(status_code=404)
-
-        movie = self.service.get_movie(999)
-
-        assert movie is None
-
-    @patch("httpx.Client.get")
-    def test_handle_api_errors(self, mock_get):
-        """Test handling various API errors."""
-        # Unauthorized
-        mock_get.return_value = Mock(status_code=401)
-        movies = self.service.get_all_movies()
-        assert movies == []
-
-        # Server error
-        mock_get.return_value = Mock(status_code=500)
-        movies = self.service.get_all_movies()
-        assert movies == []
-
+    def test_get_root_folders(self):
+        """Test fetching root folders from Radarr."""
+        mock_folders = [
+            {
+                "id": 1,
+                "path": "/movies",
+                "accessible": True,
+                "freeSpace": 1000000000000
+            },
+            {
+                "id": 2,
+                "path": "/movies2",
+                "accessible": True,
+                "freeSpace": 500000000000
+            }
+        ]
+        
+        with patch('httpx.Client.request') as mock_request:
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = mock_folders
+            mock_request.return_value = mock_response
+            
+            folders = self.service.get_root_folders()
+            
+            assert len(folders) == 2
+            assert folders[0]["path"] == "/movies"
+            assert folders[1]["path"] == "/movies2"
