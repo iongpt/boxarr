@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from ...utils.config import settings
 from ...utils.logger import get_logger
+from ... import __version__
 
 logger = get_logger(__name__)
 router = APIRouter(tags=["web"])
@@ -28,7 +29,9 @@ class WeekInfo(BaseModel):
     filename: str
     date_range: str
     movie_count: int
+    matched_count: int = 0
     has_data: bool
+    timestamp_str: str = ""
 
 
 class WidgetData(BaseModel):
@@ -43,7 +46,7 @@ class WidgetData(BaseModel):
 async def home_page(request: Request):
     """Serve the home page (current week or setup)."""
     # Check if Radarr is configured
-    if not settings.radarr_api_key:
+    if not settings.is_configured:
         return RedirectResponse(url="/setup")
 
     # Check for current week page
@@ -61,21 +64,44 @@ async def home_page(request: Request):
 @router.get("/dashboard", response_class=HTMLResponse)
 async def dashboard_page(request: Request):
     """Serve the dashboard page."""
+    # Check if configured - if not, redirect to setup
+    if not settings.is_configured:
+        return RedirectResponse(url="/setup")
+    
     # Get all available weeks
     weeks = await get_available_weeks()
 
     # Separate into recent (first 24) and older
     recent_weeks = weeks[:24]
     older_weeks = weeks[24:] if len(weeks) > 24 else []
+    
+    # Calculate next scheduled update
+    from datetime import datetime
+    next_update = "Not scheduled"
+    if settings.boxarr_scheduler_enabled:
+        # Parse cron to get next run time (simplified display)
+        import re
+        cron_match = re.match(r"(\d+) (\d+) \* \* (\d+)", settings.boxarr_scheduler_cron)
+        if cron_match:
+            hour = int(cron_match.group(2))
+            day = int(cron_match.group(3))
+            days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+            next_update = f"{days[day]} at {hour}:00"
 
     return templates.TemplateResponse(
         "dashboard.html",
         {
             "request": request,
+            "weeks": weeks,
             "recent_weeks": recent_weeks,
             "older_weeks": older_weeks,
             "total_weeks": len(weeks),
             "radarr_configured": bool(settings.radarr_api_key),
+            "scheduler_enabled": settings.boxarr_scheduler_enabled,
+            "auto_add": settings.boxarr_features_auto_add,
+            "quality_upgrade": settings.boxarr_features_quality_upgrade,
+            "next_update": next_update,
+            "version": __version__,
         },
     )
 
@@ -145,6 +171,7 @@ async def settings_page(request: Request):
                 "auto_add": settings.boxarr_features_auto_add,
                 "quality_upgrade": settings.boxarr_features_quality_upgrade,
             },
+            "version": __version__,
         },
     )
 
@@ -258,6 +285,20 @@ async def get_available_weeks() -> List[WeekInfo]:
             date_range = (
                 f"{week_start.strftime('%b %d')} - {week_end.strftime('%b %d, %Y')}"
             )
+            
+            # Count matched movies
+            movies = metadata.get("movies", [])
+            matched_count = sum(1 for m in movies if m.get("radarr_id"))
+            
+            # Get timestamp
+            timestamp_str = metadata.get("generated", "Unknown")
+            if timestamp_str != "Unknown":
+                try:
+                    # Parse and format the timestamp
+                    ts = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                    timestamp_str = ts.strftime("%Y-%m-%d %H:%M")
+                except:
+                    pass
 
             weeks.append(
                 WeekInfo(
@@ -265,8 +306,10 @@ async def get_available_weeks() -> List[WeekInfo]:
                     week=week,
                     filename=f"{year}W{week:02d}.html",
                     date_range=date_range,
-                    movie_count=len(metadata.get("movies", [])),
+                    movie_count=len(movies),
+                    matched_count=matched_count,
                     has_data=True,
+                    timestamp_str=timestamp_str,
                 )
             )
         except Exception as e:
@@ -304,3 +347,5 @@ async def get_widget_data() -> WidgetData:
             for m in metadata.get("movies", [])[:10]
         ],
     )
+
+
