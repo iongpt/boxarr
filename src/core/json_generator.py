@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 from ..utils.config import settings
 from ..utils.logger import get_logger
 from .matcher import MatchResult
+from .models import MovieStatus
 from .radarr import RadarrService
 
 logger = get_logger(__name__)
@@ -149,11 +150,11 @@ class WeeklyDataGenerator:
                     movie_data["status"] = "Downloaded"
                     movie_data["status_color"] = "#48bb78"
                     movie_data["status_icon"] = "✅"
-                elif movie.status == "released" and movie.isAvailable:
+                elif movie.status == MovieStatus.RELEASED and movie.isAvailable:
                     movie_data["status"] = "Missing"
                     movie_data["status_color"] = "#f56565"
                     movie_data["status_icon"] = "❌"
-                elif movie.status == "inCinemas":
+                elif movie.status == MovieStatus.IN_CINEMAS:
                     movie_data["status"] = "In Cinemas"
                     movie_data["status_color"] = "#f6ad55"
                     movie_data["status_icon"] = "🎬"

@@ -132,11 +132,6 @@ class Settings(BaseSettings):
         default=Path("/config"), description="Data storage directory"
     )
 
-    # Database Configuration
-    database_url: str = Field(
-        default="sqlite:///config/boxarr.db", description="Database connection URL"
-    )
-
     # Logging Configuration
     log_level: str = Field(
         default="INFO", description="Logging level (DEBUG, INFO, WARNING, ERROR)"
@@ -177,26 +172,54 @@ class Settings(BaseSettings):
             with open(config_path) as f:
                 config_data = yaml.safe_load(f) or {}
 
-            # Flatten nested configuration
-            flat_config = {}
+            # Process configuration sections
             for section, values in config_data.items():
-                if isinstance(values, dict):
+                if section == "version":
+                    continue  # Skip version field
+                elif section == "radarr" and isinstance(values, dict):
+                    # Map radarr section directly
                     for key, value in values.items():
-                        # Use single underscore for attribute names to match Settings class
-                        if isinstance(value, dict):
+                        attr_name = f"radarr_{key}"
+                        if hasattr(self, attr_name):
+                            setattr(self, attr_name, value)
+                elif section == "boxarr" and isinstance(values, dict):
+                    # Process boxarr nested configuration
+                    for key, value in values.items():
+                        if key == "scheduler" and isinstance(value, dict):
                             for sub_key, sub_value in value.items():
-                                # Three-level nesting: section_key_subkey
-                                flat_config[f"{section}_{key}_{sub_key}"] = sub_value
+                                attr_name = f"boxarr_scheduler_{sub_key}"
+                                if hasattr(self, attr_name):
+                                    setattr(self, attr_name, sub_value)
+                        elif key == "features" and isinstance(value, dict):
+                            for sub_key, sub_value in value.items():
+                                attr_name = f"boxarr_features_{sub_key}"
+                                if hasattr(self, attr_name):
+                                    setattr(self, attr_name, sub_value)
+                        elif key == "ui" and isinstance(value, dict):
+                            for sub_key, sub_value in value.items():
+                                if sub_key == "cards_per_row" and isinstance(sub_value, dict):
+                                    for device, count in sub_value.items():
+                                        attr_name = f"boxarr_ui_cards_per_row_{device.replace('4k', '_4k')}"
+                                        if hasattr(self, attr_name):
+                                            setattr(self, attr_name, count)
+                                else:
+                                    attr_name = f"boxarr_ui_{sub_key}"
+                                    if hasattr(self, attr_name):
+                                        setattr(self, attr_name, sub_value)
+                        elif key == "data" and isinstance(value, dict):
+                            for sub_key, sub_value in value.items():
+                                attr_name = f"boxarr_data_{sub_key}"
+                                if hasattr(self, attr_name):
+                                    setattr(self, attr_name, sub_value)
                         else:
-                            # Two-level nesting: section_key
-                            flat_config[f"{section}_{key}"] = value
+                            # Direct boxarr attributes
+                            attr_name = f"boxarr_{key}"
+                            if hasattr(self, attr_name):
+                                setattr(self, attr_name, value)
                 else:
-                    flat_config[section] = values
-
-            # Update settings with YAML values
-            for key, value in flat_config.items():
-                if hasattr(self, key):
-                    setattr(self, key, value)
+                    # Top-level attributes (like log_level)
+                    if hasattr(self, section):
+                        setattr(self, section, values)
 
     @property
     def is_configured(self) -> bool:
@@ -212,13 +235,6 @@ class Settings(BaseSettings):
             "desktop": self.boxarr_ui_cards_per_row_desktop,
             "4k": self.boxarr_ui_cards_per_row_4k,
         }
-
-    def get_database_path(self) -> Path:
-        """Get full database file path."""
-        if self.database_url.startswith("sqlite:///"):
-            db_path = self.database_url.replace("sqlite:///", "")
-            return Path(db_path)
-        return self.boxarr_data_directory / "boxarr.db"
 
     def get_history_path(self) -> Path:
         """Get history storage directory path."""

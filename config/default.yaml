@@ -5,44 +5,42 @@ version: 1
 
 # Radarr connection (REQUIRED)
 radarr:
-  connection:
-    url: "http://localhost:7878"  # Change to your Radarr URL
-    api_key: ""                    # Add your Radarr API key here
-
-  movies:
-    root_folder: "/movies"
-    default_profile: "HD-1080p"
-    upgrade_profile: "Ultra-HD"
+  url: "http://localhost:7878"  # Change to your Radarr URL
+  api_key: ""                    # Add your Radarr API key here
+  root_folder: "/movies"
+  quality_profile_default: "HD-1080p"
+  quality_profile_upgrade: "Ultra-HD"
 
 # Boxarr settings
 boxarr:
-  server:
-    port: 8888
-    api_port: 8889
-
+  # Server configuration
+  host: "0.0.0.0"
+  port: 8888
+  
+  # Scheduler configuration  
   scheduler:
     enabled: true
     cron: "0 23 * * 2"  # Tuesday at 11 PM
-
+    
+  # Feature flags
+  features:
+    auto_add: true
+    quality_upgrade: true
+    notifications: false
+  
+  # UI configuration
   ui:
     theme: "purple"
-    cards:
-      size: "compact"
-      per_row:
-        4k: 5
-        desktop: 4
-        tablet: 3
-        mobile: 1
-
-# Database
-database:
-  type: "sqlite"
-  sqlite:
-    path: "/config/boxarr.db"
+    cards_per_row:
+      mobile: 1
+      tablet: 3
+      desktop: 4
+      4k: 5
+      
+  # Data storage
+  data:
+    directory: "/config"
+    history_retention_days: 90
 
 # Logging
-logging:
-  level: "INFO"
-  file:
-    enabled: true
-    path: "/config/logs/boxarr.log"
+log_level: "INFO"
