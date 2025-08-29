@@ -6,7 +6,7 @@
 
 ## Why Boxarr?
 
-> *"I run a Jellyfin server for my extended family and always got complaints about missing mainstream movies. I have Jackett to allow them to request movies, but they don't bother - they just complain. I also have Radarr, but searching manually for movies is time-consuming. So I created Boxarr, and now I have all the mainstream movies fetched automatically. I use the option to fetch them in 1080p to save space and upgrade the ones I want to watch to UHD directly from the Boxarr UI. It runs automatically every Tuesday at 11 PM."*
+> *"I run a Jellyfin server for my extended family and kept getting complaints about missing mainstream movies. I set up a request system to let them request movies, but they don't bother - they just complain. While I have Radarr, manually searching for trending movies is time-consuming. So I created Boxarr, which automatically fetches all the mainstream box office hits. I configure it to grab movies in 1080p to save space, then upgrade the ones I personally want to watch to UHD directly from the Boxarr UI. It runs automatically every Tuesday at 11 PM, ensuring my library always has what people actually want to watch."*
 
 **Boxarr solves the problem of keeping your media library current with popular movies without manual intervention.** It automatically tracks what's trending at the box office and ensures your Radarr library has the movies people actually want to watch.
 
