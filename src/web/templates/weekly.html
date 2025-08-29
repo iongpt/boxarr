@@ -151,6 +151,10 @@
             overflow: hidden;
             transition: all 0.3s;
             position: relative;
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            min-height: 500px;
         }
 
         .movie-card:hover {
@@ -193,16 +197,20 @@
 
         .movie-info {
             padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            flex-grow: 1;
+            justify-content: space-between;
         }
 
         .movie-title {
-            font-size: 1rem;
+            font-size: clamp(0.75rem, calc(0.8rem + 0.3rem * (1 - var(--title-length, 0) / 40)), 1.1rem);
             font-weight: bold;
             margin-bottom: 0.5rem;
-            display: -webkit-box;
-            -webkit-line-clamp: 2;
-            -webkit-box-orient: vertical;
+            white-space: nowrap;
             overflow: hidden;
+            text-overflow: ellipsis;
+            line-height: 1.2;
         }
 
         .movie-year {
@@ -219,6 +227,13 @@
             -webkit-line-clamp: 1;
             -webkit-box-orient: vertical;
             overflow: hidden;
+        }
+
+        .movie-details {
+            flex-grow: 1;
+            min-height: 80px;
+            display: flex;
+            flex-direction: column;
         }
 
         .movie-overview {
@@ -252,11 +267,13 @@
         }
 
         .quality-badge {
-            background: rgba(255, 255, 255, 0.15);
-            padding: 0.25rem 0.5rem;
+            background: rgba(255, 255, 255, 0.2);
+            padding: 0.3rem 0.6rem;
             border-radius: 6px;
             font-size: 0.7rem;
             font-weight: 600;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            backdrop-filter: blur(5px);
         }
 
         .upgrade-btn, .add-btn {
@@ -291,14 +308,38 @@
             color: rgba(255, 255, 255, 0.9);
             text-decoration: none;
             font-size: 0.75rem;
-            padding: 0.25rem 0.5rem;
-            background: rgba(255, 255, 255, 0.1);
+            padding: 0.3rem 0.6rem;
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.3), rgba(118, 75, 162, 0.3));
+            border: 1px solid rgba(255, 255, 255, 0.2);
             border-radius: 6px;
+            transition: all 0.3s;
+            position: relative;
+            overflow: hidden;
+            flex: 1;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+
+        .movie-link:before {
+            content: '→';
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            opacity: 0;
             transition: all 0.3s;
         }
 
         .movie-link:hover {
-            background: rgba(255, 255, 255, 0.2);
+            background: linear-gradient(135deg, rgba(102, 126, 234, 0.5), rgba(118, 75, 162, 0.5));
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+            padding-right: 1.5rem;
+        }
+
+        .movie-link:hover:before {
+            opacity: 1;
+            right: 10px;
         }
 
         .notification {
@@ -400,19 +441,21 @@
                 {% endif %}
                 
                 <div class="movie-info">
-                    <div class="movie-title">{{ movie.title }}</div>
+                    <div class="movie-title" style="--title-length: {{ movie.title|length }}">{{ movie.title }}</div>
                     
-                    {% if movie.year %}
-                    <div class="movie-year">{{ movie.year }}</div>
-                    {% endif %}
-                    
-                    {% if movie.genres %}
-                    <div class="movie-genres">{{ movie.genres }}</div>
-                    {% endif %}
-                    
-                    {% if movie.overview %}
-                    <div class="movie-overview">{{ movie.overview }}</div>
-                    {% endif %}
+                    <div class="movie-details">
+                        {% if movie.year %}
+                        <div class="movie-year">{{ movie.year }}</div>
+                        {% endif %}
+                        
+                        {% if movie.genres %}
+                        <div class="movie-genres">{{ movie.genres }}</div>
+                        {% endif %}
+                        
+                        {% if movie.overview %}
+                        <div class="movie-overview">{{ movie.overview }}</div>
+                        {% endif %}
+                    </div>
                     
                     <div class="movie-status" style="color: {{ movie.status_color }}">
                         {{ movie.status_icon }} {{ movie.status }}
