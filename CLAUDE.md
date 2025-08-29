@@ -1,166 +1,142 @@
 # Boxarr - Developer Documentation
 
-## What Boxarr Actually Does
-
-Boxarr is a web application that:
-1. **Fetches weekly box office data** from Box Office Mojo (top 10 movies)
-2. **Auto-adds missing movies** to Radarr with default quality profile
-3. **Renders dynamic web pages** using Jinja2 templates with real-time data
-4. **Updates status dynamically** via JavaScript polling (only Radarr status/quality changes)
-5. **Provides UI-first configuration** - no environment variables required
-
-This transforms a working local script into a shareable, dockerized application.
-
 ## Architecture Overview
 
+Boxarr is a FastAPI-based web application that bridges box office data with Radarr movie management. It uses server-side rendering with Jinja2 templates and minimal JavaScript for dynamic updates.
+
+### High-Level Architecture
+
 ```
-Weekly Scheduler (Tuesday 11 PM)
+Box Office Mojo (Web Scraping)
     ↓
-Fetch Box Office Top 10
+Movie Matching Algorithm
     ↓
-Match with Radarr Library
+Radarr Integration (API)
     ↓
-Auto-add Missing Movies
+JSON Data Generation + TMDB Enrichment
     ↓
-Generate JSON Data File (YYYY/WW.json)
+Jinja2 Template Rendering (Server-side)
     ↓
-Jinja2 templates render pages on-demand
-    ↓
-JavaScript polls /api/movies/status for dynamic updates
+JavaScript Polling (Client-side updates)
 ```
 
+### Core Components
 
-## Open Source Development Standards
+#### Business Logic (`src/core/`)
+- **boxoffice.py**: BeautifulSoup-based scraper for Box Office Mojo
+- **radarr.py**: Complete Radarr v3+ API client
+- **matcher.py**: Sophisticated movie title matching algorithm
+- **scheduler.py**: APScheduler for weekly automation
+- **json_generator.py**: Metadata generation with TMDB enrichment
+- **exceptions.py**: Custom exception hierarchy
 
-### Development Environment Setup
+#### Web Application (`src/api/`)
+- **app.py**: FastAPI application setup
+- **routes/web.py**: Server-side rendering with Jinja2
+- **routes/config.py**: Configuration management endpoints
+- **routes/boxoffice.py**: Box office data endpoints
+- **routes/movies.py**: Movie management endpoints
+- **routes/scheduler.py**: Scheduler control endpoints
 
-#### Prerequisites
-- Python 3.10+ (3.11 recommended)
-- Docker and Docker Compose
-- Git with configured SSH key for GitHub
+#### Configuration (`src/utils/`)
+- **config.py**: Pydantic settings with YAML/env support
+- **logger.py**: Rotating file logger configuration
 
-#### Local Development Setup
+#### Templates (`src/web/templates/`)
+- Server-rendered HTML with embedded JavaScript
+- Responsive CSS with purple gradient theme
+- Real-time status updates via polling
+
+## Technology Stack
+
+### Backend
+- **Python 3.10+**: Core language (3.11 recommended)
+- **FastAPI**: Modern async web framework
+- **Pydantic**: Data validation and settings management
+- **BeautifulSoup4**: HTML parsing for web scraping
+- **APScheduler**: Cron-based task scheduling
+- **Jinja2**: Server-side template rendering
+- **httpx**: Async HTTP client for API calls
+
+### Frontend
+- **HTML5/CSS3**: Semantic markup with modern CSS
+- **Vanilla JavaScript**: Minimal JS for dynamic updates
+- **CSS Grid/Flexbox**: Responsive layout system
+- **No build tools**: Direct serving of static assets
+
+### Infrastructure
+- **Docker**: Multi-architecture containerization
+- **GitHub Actions**: CI/CD pipeline
+- **pytest**: Testing framework
+- **Black/isort**: Code formatting
+- **MyPy**: Static type checking
+- **Flake8**: Style enforcement
+- **Bandit**: Security scanning
+
+## Code Quality Standards
+
+### Development Setup
+
 ```bash
-# Clone the repository
-git clone git@github.com:iongpt/boxarr.git
-cd boxarr
-
 # Create virtual environment
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+source venv/bin/activate
 
-# Install development dependencies
-pip install -e .[dev,docs]
+# Install with development dependencies
+pip install -e ".[dev,docs]"
 
-# Install pre-commit hooks (if available)
+# Install pre-commit hooks
 pre-commit install
 ```
 
-### Code Quality Standards
-
-This project maintains **professional open source standards** with comprehensive tooling:
-
-#### Automated Code Formatting
-- **Black** (88 character line length)
-- **isort** for import sorting
-- All configured in `pyproject.toml`
+### Code Formatting
 
 ```bash
-# Format all code
+# Format code with Black (88 char line length)
 black src/ tests/
+
+# Sort imports with isort
 isort src/ tests/
 
-# Check formatting without changes
+# Check without modifying
 black --check --diff src/ tests/
 isort --check-only --diff src/ tests/
 ```
 
-#### Static Analysis
-- **MyPy** for type checking
-- **Flake8** for style guide enforcement
-- **Bandit** for security analysis
+### Static Analysis
 
 ```bash
-# Type checking
+# Type checking with MyPy
 mypy src/ --ignore-missing-imports --no-strict-optional
 
-# Style guide
+# Style checking with Flake8
 flake8 src/ tests/ --max-line-length=88 --max-complexity=10
 
-# Security analysis
+# Security scanning with Bandit
 bandit -r src/ --severity-level medium --skip B104,B608
 ```
 
-#### Dependency Security
-- **Safety** for vulnerability scanning
+### Running Tests
 
 ```bash
-# Check for known vulnerabilities
-safety scan
-```
-
-### Testing Standards
-
-#### Test Structure
-```
-tests/
-├── unit/           # Fast unit tests
-├── integration/    # Integration tests with external services
-└── fixtures/       # Test data and fixtures
-```
-
-#### Running Tests
-```bash
-# Run all tests with coverage
+# All tests with coverage
 pytest -v --cov=src --cov-report=term-missing --cov-report=html
 
-# Run specific test categories
-pytest tests/unit/ -v                    # Unit tests only
-pytest tests/integration/ -v             # Integration tests only
-pytest -m "not slow" -v                  # Skip slow tests
+# Unit tests only
+pytest tests/unit/ -v
 
-# Run tests for specific Python versions (using tox, if configured)
-tox -e py310,py311,py312
+# Integration tests
+pytest tests/integration/ -v
+
+# Skip slow tests
+pytest -m "not slow" -v
 ```
 
-#### Test Coverage Requirements
-- There is not minimum coverage
-- This is a tool that will run on localhost in private networks. We need tests that are checking critical functionality, not tests to have coverage
-- WRITE A TEST ONLY IF IT IS MEANINGFUL and it is covering some real functionality or edge case
-- DO NOT WRITE TESTS THAT ARE TESTING Python FUNCTIONALITY
-
-### Continuous Integration
-
-#### GitHub Actions Workflows
-The project uses comprehensive CI/CD:
-
-1. **CI Pipeline** (`.github/workflows/ci.yml`):
-   - Code quality checks (Black, Flake8, MyPy, isort)
-   - Unit tests across Python 3.10, 3.11, 3.12
-   - Integration tests with mock services
-   - Security scanning (Bandit, Safety)
-   - **All checks must pass before merge**
-
-2. **CD Pipeline** (`.github/workflows/cd.yml`):
-   - Multi-architecture Docker builds (AMD64, ARM64)
-   - GitHub Container Registry publishing
-   - Automatic GitHub releases
-   - Public package visibility
-
-#### Quality Gates
-- **All CI checks must pass** before merging
-- **No failing tests** allowed in main branch
-- **Security vulnerabilities** must be addressed
-
-### Development Workflow
-
-#### Before Committing
-**ALWAYS run the full quality check suite:**
+### Pre-commit Checklist
 
 ```bash
-# Complete quality check (run this before every commit)
+# Run full quality check suite
 make quality-check || {
-    # If make targets not available, run manually:
     black --check --diff src/ tests/ &&
     isort --check-only --diff src/ tests/ &&
     flake8 src/ tests/ --max-line-length=88 --max-complexity=10 &&
@@ -170,466 +146,307 @@ make quality-check || {
 }
 ```
 
-#### Git Commit Standards
-- **Conventional Commits** format preferred
-- Clear, descriptive commit messages
-- Each commit should be atomic and functional
+## Repository Structure
 
-```bash
-# Good commit messages
-feat: add TMDB data enrichment for unmatched movies
-fix: handle missing poster URLs in HTML generation
-docs: update API documentation for movie endpoints
-test: add integration tests for Radarr API client
 ```
-
-#### Pull Request Requirements
-1. **All CI checks passing** ✅
-2. **Code review from maintainer** ✅
-3. **Tests added for new features** ✅
-4. **Documentation updated** if needed ✅
-5. **Security considerations addressed** ✅
-
-### Docker Development
-
-#### Building and Testing
-```bash
-# Build development image
-docker build -t boxarr:dev .
-
-# Run with development config
-docker run -p 8888:8888 -v ./config:/config boxarr:dev
-
-# Multi-architecture build (for releases)
-docker buildx build --platform linux/amd64,linux/arm64 -t boxarr:latest .
-```
-
-#### Image Standards
-- **Multi-architecture support** (AMD64, ARM64)
-- **Minimal base images** (python:3.11-slim)
-- **Security scanning** with container scanners
-- **Semantic versioning** for releases
-
-### Security Standards
-
-#### Code Security
-- **Input validation** on all user inputs
-- **XSS prevention** in HTML generation
-- **API key protection** in configuration
-
-#### Security Scanning
-- **Bandit** for code security issues
-- **Safety** for dependency vulnerabilities
-
-```bash
-# Run security audit
-bandit -r src/ -f json -o security-report.json
-safety scan --json --output safety-report.json
-```
-
-### Release Process
-
-#### Versioning Strategy
-- **Semantic Versioning** (MAJOR.MINOR.PATCH)
-- **Git tags** trigger automated releases
-- **GitHub Releases** with changelog generation
-
-#### Release Checklist
-1. **All tests passing** ✅
-2. **Version bumped** in `pyproject.toml` ✅
-3. **Changelog updated** (auto-generated) ✅
-4. **Docker images built** for all architectures ✅
-5. **GitHub release created** with notes ✅
-
-```bash
-# Create release
-git tag -a v0.3.0 -m "Release version 0.3.0"
-git push origin v0.3.0
-# CI/CD automatically handles the rest
-```
-
-### Contributing Guidelines
-
-#### For Contributors
-1. **Fork the repository** and create feature branch
-2. **Follow code quality standards** (run pre-commit checks)
-3. **Add tests** for new functionality
-4. **Update documentation** as needed
-5. **Submit PR** with clear description
-
-#### Code Review Standards
-- **Functionality correctness**
-- **Code style compliance** (automated checks)
-- **Test coverage adequacy**
-- **Security considerations**
-- **Performance impact**
-- **Breaking change assessment**
-
-### Documentation Standards
-
-#### Code Documentation
-- **Docstrings** for all public functions/classes
-- **Type hints** for all function signatures
-- **Inline comments** for complex logic
-- **README** kept current with features
-
-#### API Documentation
-- **OpenAPI/Swagger** auto-generated from FastAPI
-- **Endpoint descriptions** and examples
-- **Error response documentation**
-
-### Performance Standards
-
-#### Code Performance
-- **Sub-second response times** for API endpoints
-- **Memory usage monitoring** in Docker containers
-
-### Open Source Best Practices
-
-#### Monitoring Commands
-```bash
-# Check all quality metrics
-pytest --cov=src --cov-report=term | grep TOTAL
-mypy src/ --ignore-missing-imports | grep -E "(error|note)"
-bandit -r src/ --severity-level medium | grep "Issue"
-docker images boxarr --format "table {{.Size}}"
-```
-
-**IMPORTANT**: This project maintains **production-grade open source standards**. All contributions must meet these quality requirements. The automated CI/CD pipeline enforces these standards - there are no exceptions.
-
-## Current Implementation
-
-### Core Modules (`src/core/`)
-- `boxoffice.py` - Box Office Mojo scraper with BeautifulSoup
-- `radarr.py` - Complete Radarr API client
-- `matcher.py` - Smart movie matching algorithm (handles sequels, colons, etc.)
-- `scheduler.py` - APScheduler that triggers weekly updates
-- `json_generator.py` - Generates JSON data files with movie metadata
-- `exceptions.py` - Custom exception hierarchy
-
-### API (`src/api/`)
-- `app.py` - FastAPI application with web UI routes
-- `routes/web.py` - Jinja2 template rendering for dynamic web pages
-
-### Utilities (`src/utils/`)
-- `config.py` - Pydantic settings management (env vars + YAML)
-- `logger.py` - Logging with rotation
-
-### Templates (`src/web/templates/`)
-- `weekly.html` - Weekly box office page with movie cards
-- `dashboard.html` - Browse all weeks with management features
-- `setup.html` - Initial configuration wizard
-- `settings.html` - Settings management interface
-- `base.html` - Base template with common layout
-
-### Main Entry Point
-- `src/main.py` - Application startup with CLI/API modes
-
-## How It Works
-
-### 1. First Run (Setup Wizard)
-```bash
-docker run -p 8888:8888 -v ./config:/config boxarr
-```
-- Visit http://localhost:8888 → redirects to `/setup`
-- Enter Radarr URL and API key
-- Click "Test Connection" - fetches quality profiles dynamically
-- Select options and save → stored in `/config/local.yaml`
-
-### 2. Weekly Update Process
-- Scheduler runs (or manual trigger)
-- Fetches current box office from Box Office Mojo
-- Matches movies with Radarr library
-- Auto-adds unmatched movies with default profile
-- Generates JSON data at `/config/weekly_pages/YYYYWW.json`
-- Web pages rendered on-demand using Jinja2 templates
-
-### 3. Dynamic Updates
-- Jinja2 templates render pages with current data
-- JavaScript polls `/api/movies/status` every 30 seconds
-- Updates only: status (Downloaded/Missing/In Cinemas) and quality profiles
-- Server-side rendering ensures fresh data on page load
-
-### 4. Quality Upgrades
-- "Upgrade to Ultra-HD" button on each movie card
-- Calls `/api/movies/{id}/upgrade`
-- Updates quality profile in Radarr
-
-## API Endpoints
-
-### Configuration
-- `POST /api/config/test` - Test Radarr connection and fetch profiles
-- `POST /api/config/save` - Save configuration
-
-### Box Office
-- `GET /api/boxoffice/current` - Current week with Radarr matching
-- `GET /api/boxoffice/history/{year}/W{week}` - Historical data
-
-### Movies
-- `GET /api/movies/{id}` - Movie details
-- `POST /api/movies/{id}/upgrade` - Upgrade quality profile
-- `POST /api/movies/status` - Batch status check (for JS polling, filters null IDs)
-- `POST /api/movies/add` - Manually add a movie to Radarr (with automatic regeneration)
-
-### Weekly Pages Management
-- `GET /api/weeks` - Get list of all available weeks with metadata
-- `DELETE /api/weeks/{year}/W{week}/delete` - Delete specific week's data files
-- `POST /api/update-week` - Update box office for specific historical week
-
-### Web UI
-- `GET /` - Current week or redirect to setup
-- `GET /setup` - Configuration wizard (with Back to Dashboard button)
-- `GET /dashboard` - Browse all weeks (paginated display with delete functionality)
-- `GET /{year}W{week}` - Specific week's page (dynamically rendered)
-
-### Utility
-- `GET /api/health` - Health check
-- `POST /api/trigger-update` - Manual update trigger
-
-## Configuration
-
-### No Environment Variables Required!
-Start container without any configuration:
-```bash
-docker run -p 8888:8888 -v ./config:/config boxarr
-```
-
-### Configuration File (`/config/local.yaml`)
-Generated by setup wizard:
-```yaml
-radarr:
-  url: http://localhost:7878
-  api_key: your-key
-  root_folder: /movies
-  quality_profile_default: HD-1080p
-  quality_profile_upgrade: Ultra-HD
-
-boxarr:
-  scheduler:
-    enabled: true
-    cron: "0 23 * * 2"  # Tuesday 11 PM
-  features:
-    auto_add: true
-    quality_upgrade: true
-```
-
-### Optional Environment Variables
-Can override config file:
-- `RADARR_URL`
-- `RADARR_API_KEY`
-- `BOXARR_DATA_DIRECTORY` (default: `/config`)
-
-## File Structure
-
-### Generated Files
-```
-/config/
-├── local.yaml              # Configuration (created by setup wizard)
-├── weekly_pages/
-│   └── 2024W48.json       # Metadata with full movie data for week 48
-├── history/                # Historical update results
-│   └── YYYYWWW_*.json     # Update history with timestamps
-└── logs/                   # Application logs
-```
-
-### Metadata JSON Structure
-Each week's JSON file contains:
-- Basic metadata (year, week, dates)
-- Quality profiles from Radarr
-- **Full movie data array** including:
-  - Box office info (rank, title, gross)
-  - Radarr info (if matched)
-  - TMDB data (poster, overview, genres)
-  - Status and display properties
-- This enables regeneration without re-fetching external data
-
-### Source Code
-```
-src/
-├── core/                   # Business logic
-├── api/                    # FastAPI application
-├── utils/                  # Configuration and logging
-├── web/                    # Templates and static files
-└── main.py                # Entry point
-```
-
-## Testing
-
-### Unit Tests
-```bash
-pytest tests/unit/test_matcher.py -v
-```
-
-### Manual Testing
-```bash
-# Without Docker
-python src/main.py
-
-# With Docker
-docker build -t boxarr .
-docker run -p 8888:8888 -v ./config:/config boxarr
-```
-
-### Test Radarr Connection
-```bash
-curl -X POST http://localhost:8888/api/config/test \
-  -H "Content-Type: application/json" \
-  -d '{"url":"http://localhost:7878","api_key":"your-key"}'
+boxarr/
+├── src/
+│   ├── core/               # Business logic
+│   │   ├── boxoffice.py   # Box Office Mojo scraper
+│   │   ├── radarr.py      # Radarr API client
+│   │   ├── matcher.py     # Movie matching algorithm
+│   │   ├── scheduler.py   # Task scheduling
+│   │   └── json_generator.py # Data generation
+│   ├── api/               # Web application
+│   │   ├── app.py        # FastAPI setup
+│   │   └── routes/       # API endpoints
+│   ├── utils/            # Utilities
+│   │   ├── config.py     # Configuration management
+│   │   └── logger.py     # Logging setup
+│   ├── web/              # Frontend assets
+│   │   ├── templates/    # Jinja2 templates
+│   │   └── static/       # CSS/JS files
+│   └── main.py           # Entry point
+├── tests/
+│   ├── unit/            # Unit tests
+│   ├── integration/     # Integration tests
+│   └── fixtures/        # Test data
+├── scripts/             # Utility scripts
+├── .github/
+│   └── workflows/       # CI/CD pipelines
+├── config/              # Runtime configuration
+│   ├── default.yaml     # Default settings
+│   └── (local.yaml)     # User settings (gitignored)
+├── Dockerfile           # Container definition
+├── docker-compose.yml   # Docker Compose setup
+├── pyproject.toml       # Project metadata
+├── requirements.txt     # Production dependencies
+└── requirements-prod.txt # Minimal prod deps
 ```
 
 ## Key Implementation Details
 
 ### Movie Matching Algorithm
-- Normalizes titles (removes punctuation, handles "The")
-- Handles sequels (Roman numerals, numbers)
-- Special case for "Movie: Subtitle" vs "Movie Subtitle"
-- Year matching for disambiguation
-- Confidence scoring with configurable threshold
 
-### Template-Based Rendering
-- **Jinja2 templates** for dynamic page generation
-- **Server-side rendering** with real-time Radarr data
-- **Compact header design** with integrated navigation and connection status
-- **Dynamic navigation** that loads available weeks via API
-  - Shows 4 most recent weeks as quick links
-  - Comprehensive dropdown menu grouped by year
-  - Scales efficiently for 100+ weeks
-- Beautiful responsive cards (5 per row on 4K)
-- Purple gradient theme with dynamic font sizing
-- Movie posters with rank badges
-- Status indicators with real-time updates
-- Quality profile display with upgrade buttons
-- Visually distinct external link buttons (IMDb/Wikipedia)
-- JavaScript for polling updates without full page refresh
+The matcher (`src/core/matcher.py`) handles complex real-world scenarios:
 
-### Dashboard Features
-- **Paginated display** - Shows first 24 weeks (6 months)
-- **Delete functionality** - Remove individual weeks with confirmation
-- **Dropdown navigation** for older weeks beyond the first 24
-- **Empty state handling** - Graceful message when no weeks exist
+1. **Normalization Pipeline**:
+   - Remove punctuation and special characters
+   - Handle articles ("The", "A", "An")
+   - Convert Roman numerals to numbers
+   - Normalize subtitles and colons
 
-### Auto-Add Logic (When Enabled)
-1. Check `settings.boxarr_features_auto_add` setting
-2. If enabled:
-   - Find unmatched box office movies
-   - Search TMDB via Radarr API
-   - Add with default quality profile
-   - Set as monitored
-   - Trigger search
-3. If disabled:
-   - Log count of unmatched movies
-   - Display "Add to Radarr" button in UI
-   - Wait for manual user action
+2. **Matching Strategies**:
+   - Exact match (highest confidence)
+   - Normalized match (high confidence)
+   - Special cases (medium confidence)
+   - Fuzzy matching with threshold (low confidence)
 
-### Manual Movie Addition
-1. User clicks "Add to Radarr" button
-2. Frontend calls `/api/movies/add` endpoint
-3. Backend searches TMDB for movie
-4. Adds movie with default quality profile
-5. Triggers `regenerate_weeks_with_movie()`:
-   - Searches all metadata JSON files
-   - Finds weeks containing the movie
-   - Re-matches with updated Radarr library
-   - Regenerates HTML for affected weeks
-6. Frontend reloads to show updated status
+3. **Year Disambiguation**:
+   - Prioritizes movies from current/recent years
+   - Falls back to title-only matching
+
+Example transformations:
+```python
+"Spider-Man: No Way Home" → "Spider-Man No Way Home"
+"Fast & Furious Presents: Hobbs & Shaw" → "Fast and Furious Presents Hobbs and Shaw"
+"Frozen II" → "Frozen 2"
+"The Batman" → "Batman"
+```
+
+### Data Persistence Strategy
+
+1. **JSON Metadata Files** (`/config/weekly_pages/YYYYWW.json`):
+   - Complete movie data including TMDB info
+   - Enables offline rendering
+   - Preserves historical data
+
+2. **Server-Side Rendering**:
+   - Jinja2 templates read JSON files
+   - Real-time Radarr status injection
+   - No client-side state management
+
+3. **Dynamic Updates**:
+   - JavaScript polls `/api/movies/status`
+   - Updates only status and quality fields
+   - Minimal network overhead
 
 ### TMDB Data Enrichment
-For movies NOT in Radarr:
-1. Search TMDB via Radarr's search endpoint
-2. Extract from first result:
-   - Poster URL (`remotePoster`)
-   - Year
-   - Overview (truncated to 150 chars)
-   - Genres (first 2)
-   - IMDB ID
-3. Store full data in JSON metadata file
-4. Template renders movie cards with same layout as Radarr movies
 
-## Docker Deployment
+For movies not in Radarr:
+1. Search via Radarr's TMDB lookup endpoint
+2. Extract poster, overview, genres, year
+3. Store in JSON for future rendering
+4. Display with "Add to Radarr" button
 
-### Simple Dockerfile
-```dockerfile
-FROM python:3.11-slim
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-COPY src/ /app/src/
-VOLUME ["/config"]
-EXPOSE 8888
-CMD ["python", "-m", "src.main"]
-```
+### Scheduling System
 
-### Docker Commands for Development
+Uses APScheduler with ThreadPoolExecutor:
+- Default: Tuesday 11 PM (`0 23 * * 2`)
+- Configurable via web UI
+- Background execution
+- Error recovery and logging
+
+## Testing Strategy
+
+### Unit Tests Focus
+- Movie matching edge cases
+- Box office HTML parsing
+- Configuration validation
+- Data transformation logic
+
+### Integration Tests
+- Radarr API interactions
+- End-to-end workflows
+- Template rendering
+- Scheduler operations
+
+### Test Philosophy
+- Test critical functionality, not coverage metrics
+- Focus on real-world scenarios
+- No tests for Python built-ins
+- Meaningful assertions only
+
+## Docker & Deployment
+
+### Multi-Architecture Build
+
 ```bash
-# Stop existing container
-docker stop boxarr
-
-# Remove container
-docker rm boxarr
-
-# Build new image
-docker build -t boxarr:test .
-
-# Run container
-docker run -d \
-    --name boxarr \
-    -p 8888:8888 \
-    -v $(pwd)/config:/config \
-    boxarr:test
-
-# View logs
-docker logs -f boxarr
+# Build for multiple platforms
+docker buildx create --use
+docker buildx build \
+  --platform linux/amd64,linux/arm64 \
+  -t ghcr.io/iongpt/boxarr:latest \
+  --push .
 ```
 
-### Docker Compose
-```yaml
-version: '3.8'
-services:
-  boxarr:
-    build: .
-    ports:
-      - "8888:8888"
-    volumes:
-      - ./config:/config
-    restart: unless-stopped
+### Production Optimization
+- Python slim base image
+- Multi-stage builds (if needed)
+- Volume mounting for persistence
+- Health check endpoints
+- Graceful shutdown handling
+
+## CI/CD Pipeline
+
+### GitHub Actions Workflows
+
+1. **CI Pipeline** (`.github/workflows/ci.yml`):
+   ```yaml
+   - Code quality (Black, Flake8, MyPy, isort)
+   - Unit tests (Python 3.10, 3.11, 3.12)
+   - Integration tests
+   - Security scanning (Bandit, Safety)
+   - Coverage reporting
+   ```
+
+2. **CD Pipeline** (`.github/workflows/cd.yml`):
+   ```yaml
+   - Multi-arch Docker builds
+   - GitHub Container Registry push
+   - Automatic releases on tags
+   - Changelog generation
+   ```
+
+### Release Process
+
+1. Update version in `pyproject.toml`
+2. Create git tag: `git tag -a v0.3.0 -m "Release v0.3.0"`
+3. Push tag: `git push origin v0.3.0`
+4. CI/CD handles the rest
+
+## Performance Considerations
+
+### Optimization Strategies
+- Static HTML generation for fast page loads
+- Efficient movie index building for batch matching
+- Minimal JavaScript for reduced client overhead
+- Server-side caching of quality profiles
+- Lazy loading of configuration
+
+### Scalability
+- Handles 100+ weeks of data efficiently
+- Paginated dashboard display
+- Dropdown navigation for older weeks
+- JSON files enable horizontal scaling
+
+## Security Considerations
+
+### Input Validation
+- Pydantic models for all API inputs
+- URL validation for Radarr connection
+- API key protection in configuration
+- XSS prevention in templates
+
+### Best Practices
+- No hardcoded credentials
+- Environment variable support
+- Secure defaults
+- Regular dependency updates
+- Security scanning in CI
+
+## Development Workflow
+
+### Branch Strategy
+- `main`: Production-ready code
+- `develop`: Integration branch
+- `feature/*`: New features
+- `fix/*`: Bug fixes
+- `maintenance/*`: Refactoring/cleanup
+
+### Commit Standards
+```bash
+feat: Add TMDB data enrichment
+fix: Handle missing poster URLs
+docs: Update API documentation
+test: Add matcher edge cases
+refactor: Simplify scheduler logic
+chore: Update dependencies
 ```
 
+### Pull Request Template
+```markdown
+## Description
+Brief description of changes
 
-## GitHub Repository
+## Type of Change
+- [ ] Bug fix
+- [ ] New feature
+- [ ] Breaking change
+- [ ] Documentation update
 
-- **Repository**: https://github.com/iongpt/boxarr
-- **Branch**: feature/core-implementation
-- **SSH Config**: Uses `github.com-iongpt` host alias with specific key
+## Testing
+- [ ] Unit tests pass
+- [ ] Integration tests pass
+- [ ] Manual testing completed
+
+## Checklist
+- [ ] Code follows style guidelines
+- [ ] Self-review completed
+- [ ] Documentation updated
+- [ ] No new warnings
+```
+
+## Troubleshooting Development
+
+### Common Issues
+
+**ModuleNotFoundError**
+```bash
+# Ensure development install
+pip install -e .
+```
+
+**Type checking errors**
+```bash
+# Install type stubs
+pip install types-requests types-beautifulsoup4
+```
+
+**Test failures**
+```bash
+# Run with verbose output
+pytest -vvs tests/failing_test.py
+```
+
+**Docker build issues**
+```bash
+# Clear cache and rebuild
+docker system prune -a
+docker build --no-cache -t boxarr .
+```
+
+## Contributing Guidelines
+
+### Code Contributions
+1. Fork the repository
+2. Create feature branch
+3. Write tests for new code
+4. Ensure all checks pass
+5. Submit pull request
+
+### Review Criteria
+- Functionality correctness
+- Code style compliance
+- Test coverage
+- Performance impact
+- Security implications
+- Documentation completeness
+
+### Community Standards
+- Be respectful and constructive
+- Follow the code of conduct
+- Help others learn
+- Share knowledge
+- Report issues clearly
 
 ## License
 
 GNU General Public License v3.0 (GPLv3)
 
-
-## Known Behaviors & Design Decisions
-
-### Auto-Add Setting
-- When **enabled**: Movies are automatically added during scheduled updates
-- When **disabled**: Movies show "Add to Radarr" button for manual control
-- Setting can be changed at any time via Settings page
-- Changes take effect on next update cycle
-
-### Movie Data Persistence
-- All movie metadata stored in JSON files
-- Templates read JSON data for rendering
-- Preserves historical data even if movie removed from Radarr
-- TMDB data cached at generation time
-- Server-side rendering ensures fresh Radarr status
-
-### Data Regeneration
-- JSON files regenerated when movie added to Radarr
-- Affects all weeks containing that movie
-- Preserves week's original box office rankings
-- Templates always render with latest Radarr status
-
-### Navigation Scalability
-- Recent 4 weeks shown as quick links
-- Dropdown menu groups weeks by year
-- Dashboard shows 24 most recent weeks
-- Older weeks accessible via dropdown
-- Handles 100+ weeks efficiently
+This means:
+- Free to use, modify, and distribute
+- Must disclose source
+- Must include license
+- State changes made
+- Same license for derivatives

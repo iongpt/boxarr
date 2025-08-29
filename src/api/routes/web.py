@@ -404,7 +404,7 @@ async def get_available_weeks() -> List[WeekInfo]:
             matched_count = sum(1 for m in movies if m.get("radarr_id"))
 
             # Get timestamp
-            timestamp_str = metadata.get("generated", "Unknown")
+            timestamp_str = metadata.get("generated_at", "Unknown")
             if timestamp_str != "Unknown":
                 try:
                     # Parse and format the timestamp
