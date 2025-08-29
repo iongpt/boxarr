@@ -11,6 +11,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from ... import __version__
+from ...core.models import MovieStatus
 from ...utils.config import settings
 from ...utils.logger import get_logger
 
@@ -197,13 +198,13 @@ async def serve_weekly_page(request: Request, year: int, week: int):
                             movie["status_color"] = "#48bb78"
                             movie["status_icon"] = "✅"
                         elif (
-                            radarr_movie.status == "released"
+                            radarr_movie.status == MovieStatus.RELEASED
                             and radarr_movie.isAvailable
                         ):
                             movie["status"] = "Missing"
                             movie["status_color"] = "#f56565"
                             movie["status_icon"] = "❌"
-                        elif radarr_movie.status == "inCinemas":
+                        elif radarr_movie.status == MovieStatus.IN_CINEMAS:
                             movie["status"] = "In Cinemas"
                             movie["status_color"] = "#f6ad55"
                             movie["status_icon"] = "🎬"

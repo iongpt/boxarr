@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from ...core.json_generator import WeeklyDataGenerator
+from ...core.models import MovieStatus
 from ...core.radarr import RadarrService
 from ...utils.config import settings
 from ...utils.logger import get_logger
@@ -89,7 +90,7 @@ async def get_movies_status(request: MovieStatusRequest):
     """Get status for multiple movies (for dynamic updates)."""
     try:
         if not settings.radarr_api_key:
-            return []
+            return {"statuses": {}}
 
         radarr_service = RadarrService()
         all_movies = radarr_service.get_all_movies()
@@ -106,7 +107,7 @@ async def get_movies_status(request: MovieStatusRequest):
         movie_dict = {movie.id: movie for movie in all_movies}
 
         # Get status for requested movies (filtering out None values)
-        results = []
+        statuses = {}
         for movie_id in request.movie_ids:
             if movie_id and movie_id in movie_dict:
                 movie = movie_dict[movie_id]
@@ -117,13 +118,13 @@ async def get_movies_status(request: MovieStatusRequest):
                     display_status = "Downloaded"
                     status_color = "#48bb78"
                     status_icon = "✅"
-                elif getattr(movie, "status", None) == "released" and getattr(
+                elif movie.status == MovieStatus.RELEASED and getattr(
                     movie, "isAvailable", False
                 ):
                     display_status = "Missing"
                     status_color = "#f56565"
                     status_icon = "❌"
-                elif getattr(movie, "status", None) == "inCinemas":
+                elif movie.status == MovieStatus.IN_CINEMAS:
                     display_status = "In Cinemas"
                     status_color = "#f6ad55"
                     status_icon = "🎬"
@@ -139,22 +140,20 @@ async def get_movies_status(request: MovieStatusRequest):
                     and movie.qualityProfileId != upgrade_profile_id
                 )
 
-                results.append(
-                    MovieStatusResponse(
-                        id=movie.id,
-                        status=display_status,
-                        has_file=movie.hasFile,
-                        quality_profile=profile_name,
-                        status_icon=status_icon,
-                        status_color=status_color,
-                        can_upgrade=can_upgrade,
-                    )
-                )
+                statuses[str(movie_id)] = {
+                    "id": movie.id,
+                    "status": display_status,
+                    "has_file": movie.hasFile,
+                    "quality_profile_name": profile_name,  # Changed from quality_profile
+                    "status_icon": status_icon,
+                    "status_color": status_color,
+                    "can_upgrade": can_upgrade,
+                }
 
-        return results
+        return {"statuses": statuses}
     except Exception as e:
         logger.error(f"Error getting movie statuses: {e}")
-        return []
+        return {"statuses": {}}
 
 
 @router.post("/{movie_id}/upgrade", response_model=UpgradeResponse)
