@@ -4,20 +4,46 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Docker](https://img.shields.io/badge/docker-ready-brightgreen.svg)](https://www.docker.com/)
 
-Boxarr is a companion application for Radarr that tracks weekly box office performance and automatically adds trending movies to your collection.
+## Why Boxarr?
 
-## What It Does
+> *"I run a Jellyfin server for my extended family and always got complaints about missing mainstream movies. I have Jackett to allow them to request movies, but they don't bother - they just complain. I also have Radarr, but searching manually for movies is time-consuming. So I created Boxarr, and now I have all the mainstream movies fetched automatically. I use the option to fetch them in 1080p to save space and upgrade the ones I want to watch to UHD directly from the Boxarr UI. It runs automatically every Tuesday at 11 PM."*
 
-Boxarr connects to Box Office Mojo to fetch the top 10 movies each week, checks if they're in your Radarr library, and can automatically add missing titles. Perfect for keeping your movie collection current with what's popular in theaters.
+**Boxarr solves the problem of keeping your media library current with popular movies without manual intervention.** It automatically tracks what's trending at the box office and ensures your Radarr library has the movies people actually want to watch.
+
+## Screenshots
+
+### Dashboard View
+![Boxarr Dashboard](docs/dashboard.png)
+
+Track all your weekly box office reports in one place. See at a glance which movies are matched with your Radarr library and when the next automatic update will run.
+
+### Weekly Box Office View
+![Boxarr Week View](docs/week-view.png)
+
+Beautiful movie cards showing current box office rankings, download status, quality profiles, and quick action buttons. Upgrade quality or add missing movies with a single click.
+
+## Requirements
+
+**Boxarr requires a working Radarr installation.** It's designed as a companion tool that extends Radarr's functionality by automatically adding trending movies from the box office.
+
+### Prerequisites
+- **Radarr** v3.0+ installed and configured
+- **Docker** (recommended) or Python 3.10+
+- Network access to Box Office Mojo for data fetching
+
+## What is Boxarr?
+
+Boxarr monitors the weekly box office top 10 and integrates with your Radarr instance to automatically add trending movies to your collection. It provides a beautiful web interface to view current and historical box office data while managing your movie library.
 
 ### Key Features
 
-- **📊 Weekly Box Office Tracking** - Fetches top 10 movies from Box Office Mojo
-- **🔄 Radarr Integration** - Checks which movies you already have
-- **➕ Auto-Add Movies** - Optionally adds missing movies to Radarr
-- **📅 Scheduled Updates** - Runs weekly on your schedule
-- **🎨 Beautiful Web Interface** - Clean, responsive design for viewing results
-- **🏠 Local First** - Designed for home networks, no cloud dependencies
+- **📊 Weekly Box Office Tracking** - Automatically fetches top 10 movies from Box Office Mojo
+- **🔄 Radarr Integration** - Seamlessly checks and adds movies to your library
+- **🎯 Smart Matching** - Intelligently matches box office titles with Radarr entries
+- **⚡ Auto-Add Movies** - Optionally adds missing movies automatically
+- **📅 Scheduled Updates** - Runs weekly on your preferred schedule
+- **🎨 Beautiful Web UI** - Clean, responsive interface for all devices
+- **🚀 Easy Setup** - No configuration files needed - just a simple web wizard
 
 ## Quick Start
 
@@ -31,78 +57,7 @@ docker run -d \
   ghcr.io/iongpt/boxarr:latest
 ```
 
-Visit `http://localhost:8888` to complete the setup wizard.
-
-### Manual Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/iongpt/boxarr.git
-cd boxarr
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Run the application
-python -m src.main
-```
-
-## Configuration
-
-No configuration files needed! On first run, visit the web interface at `http://localhost:8888` and you'll be guided through:
-
-1. **Radarr Connection** - Enter your Radarr URL and API key
-2. **Quality Settings** - Choose default quality profiles
-3. **Automation** - Enable/disable auto-add and scheduling
-
-All settings can be changed later through the web interface.
-
-## How It Works
-
-```mermaid
-graph LR
-    A[Box Office Mojo] -->|Weekly Top 10| B[Boxarr]
-    B -->|Check Library| C[Radarr]
-    B -->|Generate| D[Static HTML]
-    D -->|Display| E[Web Interface]
-    C -->|Status Updates| E
-```
-
-1. **Data Collection**: Fetches current box office rankings every week
-2. **Library Matching**: Intelligently matches movies with your Radarr library
-3. **Auto-Management**: Optionally adds missing movies with your preferred quality
-4. **Static Generation**: Creates fast, efficient HTML pages for each week
-5. **Dynamic Updates**: JavaScript polls for Radarr status changes
-
-## Web Interface
-
-### Dashboard
-View all tracked weeks at a glance, with quick access to recent data and historical trends.
-
-### Weekly Pages
-Each week gets its own page showing:
-- Movie rankings and box office earnings
-- Poster artwork and descriptions
-- Radarr status (Downloaded, Missing, In Cinemas)
-- Quick actions (Add to Radarr, Upgrade Quality)
-
-### Settings
-Configure all aspects of Boxarr without editing files:
-- Radarr connection details
-- Quality profiles
-- Scheduling options
-- Auto-add preferences
-
-## Architecture
-
-Boxarr is built with simplicity and efficiency in mind:
-
-- **FastAPI** backend for speed and modern Python features
-- **Static HTML generation** for fast page loads
-- **Minimal JavaScript** for dynamic status updates
-- **No external dependencies** beyond Radarr
-
-## Docker Deployment
+Visit `http://localhost:8888` and follow the setup wizard.
 
 ### Docker Compose
 
@@ -122,89 +77,110 @@ services:
       - TZ=America/New_York  # Optional: Set your timezone
 ```
 
-### Building from Source
+### Manual Installation
 
 ```bash
-docker build -t boxarr .
-docker run -d -p 8888:8888 -v ./config:/config boxarr
-```
-
-## API Documentation
-
-Boxarr provides a REST API for integration:
-
-- **API Docs**: `http://localhost:8888/api/docs`
-- **OpenAPI Schema**: `http://localhost:8888/api/openapi.json`
-
-### Key Endpoints
-
-- `GET /api/boxoffice/current` - Current week's box office
-- `GET /api/movies/{id}` - Movie details
-- `POST /api/movies/add` - Add movie to Radarr
-- `POST /api/scheduler/trigger` - Manual update trigger
-
-## Development
-
-### Prerequisites
-
-- Python 3.10+
-- Node.js 16+ (for frontend development)
-
-### Setup Development Environment
-
-```bash
-# Clone repository
+# Clone the repository
 git clone https://github.com/iongpt/boxarr.git
 cd boxarr
 
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
 # Install dependencies
 pip install -r requirements.txt
-pip install -e ".[dev]"
 
-# Run tests
-pytest tests/
-
-# Run with hot reload
-python -m src.main --reload
+# Run the application
+python -m src.main
 ```
 
-### Running Tests
+## First-Time Setup
 
-```bash
-# Unit tests
-pytest tests/unit/
+1. **Open your browser** to `http://localhost:8888`
+2. **Enter Radarr details** in the setup wizard:
+   - Radarr URL (e.g., `http://localhost:7878`)
+   - API Key (found in Radarr → Settings → General → Security)
+3. **Test the connection** to fetch quality profiles
+4. **Configure your preferences**:
+   - Default quality profile for new movies (e.g., HD-1080p to save space)
+   - Ultra-HD upgrade profile for selective upgrades
+   - Auto-add movies toggle
+   - Update schedule (e.g., Tuesday at 11 PM)
+5. **Save and start tracking!**
 
-# Integration tests
-pytest tests/integration/
+## Using Boxarr
 
-# Coverage report
-pytest --cov=src tests/
-```
+### Dashboard
+The main dashboard shows all tracked weeks with the ability to:
+- Browse historical box office data
+- Delete old weeks to save space
+- Navigate quickly to recent weeks
+- Access settings and configuration
+
+### Weekly View
+Each week displays:
+- Movie posters with box office rankings
+- Current Radarr status (Downloaded, Missing, In Cinemas)
+- Box office earnings and theater counts
+- Quick actions to add movies or upgrade quality
+
+### Settings
+All configuration can be managed through the web interface:
+- Update Radarr connection details
+- Change quality profiles
+- Toggle auto-add functionality
+- Modify update schedule
+- Test connections
+
+## Configuration Options
+
+### Scheduling
+By default, Boxarr updates every Tuesday at 11 PM. You can customize this in Settings using cron expressions:
+- `0 23 * * 2` - Tuesday at 11 PM (default)
+- `0 20 * * 5` - Friday at 8 PM
+- `0 10 * * 1` - Monday at 10 AM
+
+### Quality Profiles
+Select from your existing Radarr quality profiles:
+- **Default Profile**: Used when adding new movies (e.g., HD-1080p to save storage)
+- **Upgrade Profile**: Available for one-click quality upgrades (e.g., Ultra-HD for favorites)
+
+### Auto-Add Movies
+When enabled, Boxarr will automatically:
+1. Search for unmatched movies in TMDB
+2. Add them to Radarr with your default profile
+3. Mark them as monitored
+4. Trigger automatic search
+
+## API Endpoints
+
+Boxarr provides a REST API for integration:
+
+- **API Documentation**: `http://localhost:8888/api/docs`
+- **Current Box Office**: `GET /api/boxoffice/current`
+- **Add Movie**: `POST /api/movies/add`
+- **Trigger Update**: `POST /api/trigger-update`
 
 ## Troubleshooting
 
-### Common Issues
-
-**Can't connect to Radarr**
+### Cannot Connect to Radarr
 - Verify Radarr is running and accessible
-- Check API key is correct
-- Ensure network connectivity between Boxarr and Radarr
+- Check the API key is correct
+- Ensure Boxarr can reach Radarr's network
 
-**Movies not being matched**
-- Check movie titles in Radarr match Box Office Mojo listings
-- Review matching confidence in logs
-- Titles with special characters may need manual matching
+### Movies Not Matching
+- Movie titles may differ between Box Office Mojo and Radarr
+- Check the logs at `/config/logs/boxarr.log`
+- Use the "Add to Radarr" button for manual addition
 
-**Scheduler not running**
-- Verify scheduler is enabled in settings
-- Check system time and timezone settings
-- Review logs for scheduler errors
+### Scheduler Not Running
+- Verify scheduler is enabled in Settings
+- Check timezone configuration
+- Review logs for any scheduler errors
 
-### Getting Help
+### Web Interface Not Loading
+- Ensure port 8888 is not in use
+- Check Docker container is running: `docker ps`
+- View logs: `docker logs boxarr`
+
+## Support
 
 - **Issues**: [GitHub Issues](https://github.com/iongpt/boxarr/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/iongpt/boxarr/discussions)
@@ -212,26 +188,21 @@ pytest --cov=src tests/
 
 ## Contributing
 
-Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) for details on:
-
-- Code of Conduct
-- Development process
-- How to submit pull requests
-- Coding standards
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## License
 
-This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details.
+GNU General Public License v3.0 - see [LICENSE](LICENSE) for details.
 
 ## Acknowledgments
 
 - [Radarr](https://radarr.video/) for the excellent movie management platform
 - [Box Office Mojo](https://www.boxofficemojo.com/) for box office data
-- The home media server community for inspiration
+- The self-hosting community for inspiration and feedback
 
 ## Disclaimer
 
-This project is not affiliated with Box Office Mojo, IMDb, or Radarr. It's an independent tool created for personal media management in home networks.
+This project is not affiliated with Box Office Mojo, IMDb, or Radarr. It's an independent tool created for personal media management.
 
 ---
 

@@ -213,6 +213,10 @@ __marimo__/
 # Internal planning and documentation
 /internal/
 
+# Local development documentation
+CLAUDE.md
+TEST_LOCALLY.md
+
 # Configuration with sensitive data
 config/local.yaml
 config/*.local.yaml
@@ -221,6 +225,7 @@ config/*.local.yaml
 
 # Generated content
 config/weekly_pages/
+config/history/
 config/boxarr.db
 
 # Docker volumes
