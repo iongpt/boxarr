@@ -333,6 +333,7 @@ class BoxOfficeService:
         """
         # Get previous week's data (most recent complete week)
         from datetime import datetime, timedelta
+
         last_week = datetime.now() - timedelta(weeks=1)
         _, _, year, week = self.get_weekend_dates(last_week)
         return self.fetch_weekend_box_office(year, week)
