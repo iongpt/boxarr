@@ -312,7 +312,7 @@ class RadarrService:
             Updated movie
         """
         # Use the raw data if available, otherwise construct minimal object
-        if hasattr(movie, '_raw_data') and movie._raw_data:
+        if hasattr(movie, "_raw_data") and movie._raw_data:
             movie_dict = movie._raw_data.copy()
             # Update the changed fields
             movie_dict["qualityProfileId"] = movie.qualityProfileId
@@ -321,7 +321,7 @@ class RadarrService:
         else:
             # Fallback: Get the full movie data first
             current_movie = self.get_movie(movie.id)
-            if hasattr(current_movie, '_raw_data') and current_movie._raw_data:
+            if hasattr(current_movie, "_raw_data") and current_movie._raw_data:
                 movie_dict = current_movie._raw_data.copy()
                 movie_dict["qualityProfileId"] = movie.qualityProfileId
             else:

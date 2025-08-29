@@ -229,10 +229,10 @@ async def serve_weekly_page(request: Request, year: int, week: int):
         except Exception as e:
             logger.warning(f"Could not fetch current Radarr status: {e}")
 
-    # Calculate counts
-    matched_count = sum(1 for m in movies if m.get("radarr_id"))
-    downloaded_count = sum(1 for m in movies if m.get("status") == "Downloaded")
-    missing_count = sum(1 for m in movies if m.get("status") == "Missing")
+    # Calculate counts (for future use/debugging)
+    # matched_count = sum(1 for m in movies if m.get("radarr_id"))
+    # downloaded_count = sum(1 for m in movies if m.get("status") == "Downloaded")
+    # missing_count = sum(1 for m in movies if m.get("status") == "Missing")
 
     # Calculate week dates
     monday = date.fromisocalendar(year, week, 1)
