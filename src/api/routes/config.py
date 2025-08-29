@@ -38,7 +38,7 @@ class SaveConfigRequest(BaseModel):
     radarr_api_key: str
     radarr_root_folder: str = "/movies"
     radarr_quality_profile_default: str = "HD-1080p"
-    radarr_quality_profile_upgrade: str = "Ultra-HD"
+    radarr_quality_profile_upgrade: str = ""  # Optional, empty string means no upgrade
     boxarr_scheduler_enabled: bool = True
     boxarr_scheduler_cron: str = "0 23 * * 2"
     boxarr_features_auto_add: bool = True
@@ -74,12 +74,21 @@ async def test_configuration(config: TestConfigRequest):
         profiles = test_service.get_quality_profiles()
         folders = test_service.get_root_folders()
 
+        # Get Radarr version
+        try:
+            status = test_service.get_system_status()
+            version = status.get("version", "Unknown")
+        except Exception:
+            version = "Unknown"
+
         return {
             "success": True,
             "message": "Connected successfully!",
+            "version": version,
             "profiles": [{"id": p.id, "name": p.name} for p in profiles],
-            "folders": [
-                {"path": f["path"], "freeSpace": f["freeSpace"]} for f in folders
+            "root_folders": [
+                {"path": f.get("path", ""), "freeSpace": f.get("freeSpace", 0)}
+                for f in folders
             ],
         }
     except Exception as e:
@@ -103,14 +112,21 @@ async def save_configuration(config: SaveConfigRequest):
             }
 
         # Build config dict
+        radarr_config = {
+            "url": config.radarr_url,
+            "api_key": config.radarr_api_key,
+            "root_folder": config.radarr_root_folder,
+            "quality_profile_default": config.radarr_quality_profile_default,
+        }
+
+        # Only include upgrade profile if specified
+        if config.radarr_quality_profile_upgrade:
+            radarr_config["quality_profile_upgrade"] = (
+                config.radarr_quality_profile_upgrade
+            )
+
         config_data = {
-            "radarr": {
-                "url": config.radarr_url,
-                "api_key": config.radarr_api_key,
-                "root_folder": config.radarr_root_folder,
-                "quality_profile_default": config.radarr_quality_profile_default,
-                "quality_profile_upgrade": config.radarr_quality_profile_upgrade,
-            },
+            "radarr": radarr_config,
             "boxarr": {
                 "scheduler": {
                     "enabled": config.boxarr_scheduler_enabled,

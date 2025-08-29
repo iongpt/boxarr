@@ -52,6 +52,38 @@ class MovieMatcher:
         "X": 10,
     }
 
+    # Number to word mappings for common cases (only cardinal numbers, not ordinals)
+    NUMBER_WORDS = {
+        "1": "one",
+        "2": "two",
+        "3": "three",
+        "4": "four",
+        "5": "five",
+        "6": "six",
+        "7": "seven",
+        "8": "eight",
+        "9": "nine",
+        "10": "ten",
+        "11": "eleven",
+        "12": "twelve",
+    }
+
+    # Reverse mapping: word to number (only cardinal numbers)
+    WORD_TO_NUMBER = {
+        "one": "1",
+        "two": "2",
+        "three": "3",
+        "four": "4",
+        "five": "5",
+        "six": "6",
+        "seven": "7",
+        "eight": "8",
+        "nine": "9",
+        "ten": "10",
+        "eleven": "11",
+        "twelve": "12",
+    }
+
     def __init__(self, min_confidence: float = 0.95):
         """
         Initialize movie matcher.
@@ -73,10 +105,14 @@ class MovieMatcher:
 
         def _is_sequel(title: str) -> bool:
             # Has trailing number or roman numeral
-            if re.search(r"\s+\d+$", title):
+            has_number = re.search(r"\s+\d+$", title) is not None
+            if has_number:
                 return True
+            # Check for Roman numerals at the end
             words = title.strip().split()
-            return bool(words and words[-1].upper() in self.ROMAN_NUMERALS)
+            if words and words[-1].upper() in self.ROMAN_NUMERALS:
+                return True
+            return False
 
         for movie in movies:
             # Index by exact title
@@ -189,6 +225,52 @@ class MovieMatcher:
         """
         return SequenceMatcher(None, str1.lower(), str2.lower()).ratio()
 
+    def convert_numbers_to_words(self, title: str) -> str:
+        """
+        Convert numbers in title to word equivalents.
+
+        Args:
+            title: Movie title
+
+        Returns:
+            Title with numbers converted to words
+        """
+        import re
+
+        result = title
+
+        # Convert standalone numbers to words
+        for num, word in self.NUMBER_WORDS.items():
+            # Match number as a whole word (with word boundaries)
+            pattern = r"\b" + re.escape(num) + r"\b"
+            if re.search(pattern, result):
+                result = re.sub(pattern, word, result, flags=re.IGNORECASE)
+
+        return result
+
+    def convert_words_to_numbers(self, title: str) -> str:
+        """
+        Convert number words in title to digit equivalents.
+
+        Args:
+            title: Movie title
+
+        Returns:
+            Title with words converted to numbers
+        """
+        import re
+
+        result = title
+
+        # Convert word numbers to digits
+        for word, num in self.WORD_TO_NUMBER.items():
+            # Match word as a whole word (with word boundaries)
+            pattern = r"\b" + re.escape(word) + r"\b"
+            if re.search(pattern, result, re.IGNORECASE):
+                result = re.sub(pattern, num, result, flags=re.IGNORECASE)
+
+        return result
+
     def match_single(
         self, box_office_title: str, radarr_movies: List[RadarrMovie]
     ) -> MatchResult:
@@ -229,7 +311,7 @@ class MovieMatcher:
                 match_method="special",
             )
 
-        # Try normalized match
+        # Try normalized match (including number conversions)
         result = self._try_normalized_match(box_office_title)
         if result:
             return MatchResult(
@@ -278,7 +360,12 @@ class MovieMatcher:
         title_upper = title.upper()
         for numeral in sorted(self.ROMAN_NUMERALS.keys(), key=len, reverse=True):
             if title_upper.endswith(f" {numeral}"):
-                replaced = re.sub(rf"\b{numeral}\b", str(self.ROMAN_NUMERALS[numeral]), title_upper, flags=re.IGNORECASE)
+                replaced = re.sub(
+                    rf"\b{numeral}\b",
+                    str(self.ROMAN_NUMERALS[numeral]),
+                    title_upper,
+                    flags=re.IGNORECASE,
+                )
                 alt_norm = self.normalize_title(replaced)
                 if alt_norm in self._movie_cache:
                     return self._movie_cache[alt_norm]
@@ -287,6 +374,30 @@ class MovieMatcher:
         base_title = self.get_base_title(title)
         if base_title.lower() in self._movie_cache:
             return self._movie_cache[base_title.lower()]
+
+        # Try converting numbers to words and vice versa
+        # This handles cases like "The Fantastic Four" vs "The Fantastic 4"
+        title_with_numbers = self.convert_words_to_numbers(title)
+        if title_with_numbers != title:
+            # Try exact match with converted title
+            if title_with_numbers.lower() in self._movie_cache:
+                return self._movie_cache[title_with_numbers.lower()]
+
+            # Try normalized match with converted title
+            normalized_numbers = self.normalize_title(title_with_numbers)
+            if normalized_numbers in self._movie_cache:
+                return self._movie_cache[normalized_numbers]
+
+        title_with_words = self.convert_numbers_to_words(title)
+        if title_with_words != title:
+            # Try exact match with converted title
+            if title_with_words.lower() in self._movie_cache:
+                return self._movie_cache[title_with_words.lower()]
+
+            # Try normalized match with converted title
+            normalized_words = self.normalize_title(title_with_words)
+            if normalized_words in self._movie_cache:
+                return self._movie_cache[normalized_words]
 
         return None
 
