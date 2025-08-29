@@ -148,7 +148,7 @@ async def setup_page(request: Request):
 @router.get("/{year}W{week}", response_class=HTMLResponse)
 async def serve_weekly_page(request: Request, year: int, week: int):
     """Serve a specific week's page using template with dynamic data."""
-    from datetime import date, timedelta
+    from datetime import date, datetime, timedelta
 
     from ...core.radarr import RadarrService
 
@@ -277,6 +277,15 @@ async def serve_weekly_page(request: Request, year: int, week: int):
     if next_json.exists():
         next_week = {"year": next_year, "week": next_week_num}
 
+    # Convert generated_at string to datetime if present
+    generated_at = None
+    if metadata.get("generated_at"):
+        try:
+            generated_at = datetime.fromisoformat(metadata.get("generated_at"))
+        except (ValueError, TypeError):
+            # If parsing fails, leave as None
+            pass
+
     return templates.TemplateResponse(
         "weekly.html",
         {
@@ -284,16 +293,13 @@ async def serve_weekly_page(request: Request, year: int, week: int):
             "week_data": {
                 "year": year,
                 "week": week,
-                "friday": friday.strftime("%b %d"),
-                "sunday": sunday.strftime("%b %d"),
+                "friday": friday,
+                "sunday": sunday,
+                "movies": movies,
+                "generated_at": generated_at,
             },
-            "movies": movies,
-            "matched_count": matched_count,
-            "downloaded_count": downloaded_count,
-            "missing_count": missing_count,
-            "prev_week": prev_week,
-            "next_week": next_week,
-            "generated_at": metadata.get("generated_at", "Unknown"),
+            "previous_week": f"{prev_year}W{prev_week_num:02d}" if prev_week else None,
+            "next_week": f"{next_year}W{next_week_num:02d}" if next_week else None,
         },
     )
 

@@ -428,7 +428,7 @@
                         Add to Radarr
                     </button>
                     {% elif movie.can_upgrade_quality %}
-                    <button class="action-btn upgrade" onclick="upgradeQuality({{ movie.radarr_id }})">
+                    <button class="action-btn upgrade" onclick="upgradeQuality({{ movie.radarr_id }}, this)">
                         Upgrade to Ultra-HD
                     </button>
                     {% endif %}

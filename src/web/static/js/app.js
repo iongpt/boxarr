@@ -9,6 +9,7 @@
     // Global state
     let statusCheckInterval = null;
     let isModalOpen = false;
+    let connectionTested = false;
 
     // ==========================================
     // Core Functions
@@ -136,7 +137,7 @@
             progressTitle.textContent = `Updating Week ${week}, ${year}`;
         }
         
-        fetch('/api/update-week', {
+        fetch('/api/scheduler/update-week', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ year: parseInt(year), week: parseInt(week) })
@@ -265,8 +266,14 @@
         }
     };
 
-    window.upgradeQuality = function(movieId) {
+    window.upgradeQuality = function(movieId, buttonElement) {
         if (confirm('Upgrade this movie to Ultra-HD quality?')) {
+            // Disable button immediately to prevent double-clicks
+            if (buttonElement) {
+                buttonElement.disabled = true;
+                buttonElement.textContent = 'Processing...';
+            }
+            
             fetch(`/api/movies/${movieId}/upgrade`, {
                 method: 'POST'
             })
@@ -274,13 +281,33 @@
             .then(data => {
                 if (data.success) {
                     showMessage('Quality profile upgraded successfully!', 'success');
+                    
+                    // Replace button with "Upgrading" label
+                    if (buttonElement) {
+                        const upgradingLabel = document.createElement('span');
+                        upgradingLabel.className = 'upgrade-status';
+                        upgradingLabel.style.cssText = 'color: #667eea; font-weight: 600; padding: 0.5rem;';
+                        upgradingLabel.textContent = '⚡ Upgrading...';
+                        buttonElement.parentNode.replaceChild(upgradingLabel, buttonElement);
+                    }
+                    
                     updateMovieStatuses();
                 } else {
                     showMessage('Failed to upgrade: ' + (data.error || 'Unknown error'), 'error');
+                    // Re-enable button on failure
+                    if (buttonElement) {
+                        buttonElement.disabled = false;
+                        buttonElement.textContent = 'Upgrade to Ultra-HD';
+                    }
                 }
             })
             .catch(error => {
                 showMessage('Error upgrading quality: ' + error.message, 'error');
+                // Re-enable button on error
+                if (buttonElement) {
+                    buttonElement.disabled = false;
+                    buttonElement.textContent = 'Upgrade to Ultra-HD';
+                }
             });
         }
     };
@@ -316,6 +343,10 @@
             if (testSpinner) testSpinner.style.display = 'none';
             
             if (data.success) {
+                connectionTested = true;
+                const saveBtn = document.getElementById('saveBtn');
+                if (saveBtn) saveBtn.disabled = false;
+                
                 if (testResults) {
                     testResults.innerHTML = '<div class="success-message">✓ Connected successfully!</div>';
                     testResults.classList.add('success');
@@ -325,28 +356,34 @@
                 if (data.root_folders) {
                     const rootFolder = document.getElementById('rootFolder');
                     if (rootFolder) {
+                        const currentValue = rootFolder.value; // Preserve current selection
                         rootFolder.innerHTML = '<option value="">Select root folder...</option>';
                         data.root_folders.forEach(folder => {
-                            rootFolder.innerHTML += `<option value="${folder.path}">${folder.path}</option>`;
+                            const selected = folder.path === currentValue ? ' selected' : '';
+                            rootFolder.innerHTML += `<option value="${folder.path}"${selected}>${folder.path}</option>`;
                         });
                     }
                 }
                 
-                if (data.quality_profiles) {
+                if (data.profiles) {
                     const defaultProfile = document.getElementById('defaultProfile');
                     const upgradeProfile = document.getElementById('upgradeProfile');
                     
                     if (defaultProfile) {
+                        const currentValue = defaultProfile.value; // Preserve current selection
                         defaultProfile.innerHTML = '<option value="">Select default quality...</option>';
-                        data.quality_profiles.forEach(profile => {
-                            defaultProfile.innerHTML += `<option value="${profile.name}">${profile.name}</option>`;
+                        data.profiles.forEach(profile => {
+                            const selected = profile.name === currentValue ? ' selected' : '';
+                            defaultProfile.innerHTML += `<option value="${profile.name}"${selected}>${profile.name}</option>`;
                         });
                     }
                     
                     if (upgradeProfile) {
+                        const currentValue = upgradeProfile.value; // Preserve current selection
                         upgradeProfile.innerHTML = '<option value="">Select upgrade quality...</option>';
-                        data.quality_profiles.forEach(profile => {
-                            upgradeProfile.innerHTML += `<option value="${profile.name}">${profile.name}</option>`;
+                        data.profiles.forEach(profile => {
+                            const selected = profile.name === currentValue ? ' selected' : '';
+                            upgradeProfile.innerHTML += `<option value="${profile.name}"${selected}>${profile.name}</option>`;
                         });
                     }
                 }
@@ -355,6 +392,10 @@
                 const qualitySection = document.getElementById('qualitySection');
                 if (qualitySection) qualitySection.classList.add('show');
             } else {
+                connectionTested = false;
+                const saveBtn = document.getElementById('saveBtn');
+                if (saveBtn) saveBtn.disabled = true;
+                
                 if (testResults) {
                     testResults.innerHTML = `<div class="error-message">✗ ${data.error || 'Connection failed'}</div>`;
                     testResults.classList.add('error');
@@ -372,6 +413,15 @@
     };
 
     window.saveConfiguration = function() {
+        // Don't require connection test if we already have valid credentials
+        const radarrUrl = document.getElementById('radarrUrl');
+        const radarrApiKey = document.getElementById('radarrApiKey');
+        
+        if (!radarrUrl.value || !radarrApiKey.value) {
+            showMessage('Please enter Radarr URL and API Key', 'error');
+            return;
+        }
+        
         const form = document.getElementById('setupForm');
         if (!form.checkValidity()) {
             form.reportValidity();
@@ -381,12 +431,31 @@
         const formData = new FormData(form);
         const config = {};
         
+        // Get scheduler settings from the dropdowns
+        const schedulerDay = document.getElementById('schedulerDay');
+        const schedulerTime = document.getElementById('schedulerTime');
+        
+        // Handle checkboxes explicitly (unchecked ones don't appear in FormData)
+        config.boxarr_scheduler_enabled = document.getElementById('schedulerEnabled')?.checked || false;
+        config.boxarr_features_auto_add = document.getElementById('autoAdd')?.checked || false;
+        config.boxarr_features_quality_upgrade = document.getElementById('qualityUpgrade')?.checked || false;
+        
+        // Handle other form fields
         for (let [key, value] of formData.entries()) {
-            if (key === 'boxarr_scheduler_enabled' || key === 'boxarr_features_auto_add' || key === 'boxarr_features_quality_upgrade') {
-                config[key] = value === 'on';
-            } else {
+            if (key !== 'boxarr_scheduler_enabled' && key !== 'boxarr_features_auto_add' && key !== 'boxarr_features_quality_upgrade') {
                 config[key] = value;
             }
+        }
+        
+        // Convert scheduler day and time to cron format
+        if (schedulerDay && schedulerTime) {
+            // Cron format: minute hour * * day_of_week
+            // Day of week: 0=Sunday, 1=Monday, ..., 6=Saturday
+            const cronString = `0 ${schedulerTime.value} * * ${schedulerDay.value}`;
+            config.boxarr_scheduler_cron = cronString;
+        } else {
+            // Default: Tuesday at 11 PM
+            config.boxarr_scheduler_cron = "0 23 * * 2";
         }
         
         showMessage('Saving configuration...', 'info');
@@ -421,6 +490,20 @@
     };
 
     // ==========================================
+    // Setup Page Helper Functions
+    // ==========================================
+    
+    function resetConnectionTest() {
+        connectionTested = false;
+        const saveBtn = document.getElementById('saveBtn');
+        if (saveBtn) saveBtn.disabled = true;
+        const qualitySection = document.getElementById('qualitySection');
+        if (qualitySection) qualitySection.classList.remove('show');
+        const testResults = document.getElementById('testResults');
+        if (testResults) testResults.classList.remove('show');
+    }
+
+    // ==========================================
     // Initialize on DOM Load
     // ==========================================
 
@@ -436,6 +519,47 @@
             // Weekly page - start status updates
             updateMovieStatuses();
             statusCheckInterval = setInterval(updateMovieStatuses, 30000);
+        }
+        
+        // Setup page specific initialization
+        if (path === '/setup') {
+            const radarrUrl = document.getElementById('radarrUrl');
+            const radarrApiKey = document.getElementById('radarrApiKey');
+            const saveBtn = document.getElementById('saveBtn');
+            const setupForm = document.getElementById('setupForm');
+            
+            // Add form submit handler
+            if (setupForm) {
+                setupForm.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    saveConfiguration();
+                });
+            }
+            
+            // Add listeners to reset connection test when credentials change
+            if (radarrUrl) radarrUrl.addEventListener('input', resetConnectionTest);
+            if (radarrApiKey) radarrApiKey.addEventListener('input', resetConnectionTest);
+            
+            // Check if already configured and auto-test
+            if (radarrUrl && radarrApiKey && saveBtn) {
+                const url = radarrUrl.value;
+                const apiKey = radarrApiKey.value;
+                
+                // If we have credentials, check if it's a pre-configured setup
+                if (url && apiKey && apiKey.trim().length > 10) {
+                    // For editing existing config, enable save button but still test to get profiles
+                    connectionTested = true;
+                    saveBtn.disabled = false;
+                    
+                    // Auto-test to refresh quality profiles
+                    setTimeout(() => {
+                        window.testConnection();
+                    }, 500);
+                } else {
+                    // New setup - disable save button until tested
+                    saveBtn.disabled = true;
+                }
+            }
         }
         
         // Add CSS animations if not present
