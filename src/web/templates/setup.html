@@ -1,264 +1,207 @@
-{% extends "base.html" %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Boxarr Setup{% endblock %}</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+</head>
+<body class="setup-page">
+    <div class="setup-container">
+        <div class="setup-header">
+            <h1 class="setup-title">🎬 Welcome to Boxarr!</h1>
+            <p class="setup-subtitle">Let's get you set up with your Radarr connection.</p>
+        </div>
+        
 
-{% block title %}Boxarr Setup{% endblock %}
+        <form id="setupForm">
+            <!-- Radarr Connection Section -->
+            <div class="form-section">
+                <h2 class="section-title">Radarr Connection</h2>
+                
+                <div class="form-row two-col">
+                    <div class="form-group">
+                        <label for="radarrUrl" class="form-label">Radarr URL</label>
+                        <input type="url" id="radarrUrl" name="radarr_url" class="form-input"
+                               value="{{ radarr_url }}" 
+                               placeholder="http://localhost:7878" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="radarrApiKey" class="form-label">Radarr API Key</label>
+                        <input type="text" id="radarrApiKey" name="radarr_api_key" class="form-input"
+                               value="{{ radarr_api_key }}" 
+                               placeholder="Your Radarr API key" required>
+                        <small class="text-muted">Found in Radarr → Settings → General → Security</small>
+                    </div>
+                </div>
+                
+                <button type="button" class="btn btn-success btn-full" onclick="testConnection()">
+                    <span id="testButtonText">Test Connection</span>
+                    <span id="testButtonSpinner" class="loading-spinner" style="display: none;"></span>
+                </button>
+                
+                <div id="testResults" class="test-results"></div>
+            </div>
 
-{% block content %}
-<style>
-    body {
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        min-height: 100vh;
-        margin: 0;
-    }
-    .setup-container {
-        background: white;
-        border-radius: 10px;
-        padding: 40px;
-        box-shadow: 0 10px 40px rgba(0,0,0,0.1);
-        max-width: 600px;
-        width: 100%;
-    }
-    h1 {
-        color: #667eea;
-        margin: 0 0 10px 0;
-        display: flex;
-        align-items: center;
-        gap: 10px;
-    }
-    .subtitle {
-        color: #718096;
-        margin-bottom: 30px;
-    }
-    .nav-buttons {
-        margin-bottom: 20px;
-    }
-    .nav-btn {
-        background: #e2e8f0;
-        color: #4a5568;
-        padding: 10px 20px;
-        border: none;
-        border-radius: 5px;
-        cursor: pointer;
-        text-decoration: none;
-        display: inline-block;
-        margin-right: 10px;
-    }
-    .nav-btn:hover {
-        background: #cbd5e0;
-    }
-    .form-group {
-        margin-bottom: 20px;
-    }
-    label {
-        display: block;
-        margin-bottom: 5px;
-        color: #4a5568;
-        font-weight: 500;
-    }
-    input, select {
-        width: 100%;
-        padding: 10px;
-        border: 1px solid #e2e8f0;
-        border-radius: 5px;
-        font-size: 16px;
-        box-sizing: border-box;
-    }
-    input:focus, select:focus {
-        outline: none;
-        border-color: #667eea;
-        box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-    }
-    .checkbox-group {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        margin: 15px 0;
-    }
-    input[type="checkbox"] {
-        width: auto;
-    }
-    .btn {
-        background: #667eea;
-        color: white;
-        padding: 12px 24px;
-        border: none;
-        border-radius: 5px;
-        cursor: pointer;
-        font-size: 16px;
-        width: 100%;
-        margin-top: 10px;
-    }
-    .btn:hover:not(:disabled) {
-        background: #5a67d8;
-    }
-    .btn:disabled {
-        opacity: 0.5;
-        cursor: not-allowed;
-    }
-    .btn-test {
-        background: #48bb78;
-    }
-    .btn-test:hover:not(:disabled) {
-        background: #38a169;
-    }
-    .success {
-        color: #48bb78;
-        margin-top: 10px;
-    }
-    .error {
-        color: #f56565;
-        margin-top: 10px;
-    }
-    .info {
-        background: #edf2f7;
-        border-left: 4px solid #667eea;
-        padding: 15px;
-        margin: 20px 0;
-        border-radius: 5px;
-    }
-    .loading {
-        display: inline-block;
-        width: 20px;
-        height: 20px;
-        border: 3px solid #f3f3f3;
-        border-top: 3px solid #667eea;
-        border-radius: 50%;
-        animation: spin 1s linear infinite;
-        margin-left: 10px;
-    }
-    @keyframes spin {
-        0% { transform: rotate(0deg); }
-        100% { transform: rotate(360deg); }
-    }
-    #testResults {
-        margin-top: 15px;
-        padding: 15px;
-        background: #f7fafc;
-        border-radius: 5px;
-        display: none;
-    }
-    #qualityProfiles {
-        display: none;
-        margin-top: 20px;
-    }
-</style>
+            <!-- Quality Settings Section -->
+            <div id="qualitySection" class="form-section quality-section {% if is_configured %}show{% endif %}">
+                <h2 class="section-title">Quality Settings</h2>
+                
+                <div class="form-group">
+                    <label for="rootFolder" class="form-label">Root Folder</label>
+                    <select id="rootFolder" name="radarr_root_folder" class="form-select" required>
+                        <option value="">Select root folder...</option>
+                        {% if is_configured and root_folder %}
+                        <option value="{{ root_folder }}" selected>{{ root_folder }}</option>
+                        {% endif %}
+                    </select>
+                </div>
+                
+                <div class="form-row two-col">
+                    <div class="form-group">
+                        <label for="defaultProfile" class="form-label">Default Quality Profile</label>
+                        <select id="defaultProfile" name="radarr_quality_profile_default" class="form-select" required>
+                            <option value="">Select default quality...</option>
+                            {% if is_configured and quality_profile_default %}
+                            <option value="{{ quality_profile_default }}" selected>{{ quality_profile_default }}</option>
+                            {% endif %}
+                        </select>
+                        <small class="text-muted">Quality used when automatically adding new movies</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="upgradeProfile" class="form-label">Upgrade Quality Profile (Optional)</label>
+                        <select id="upgradeProfile" name="radarr_quality_profile_upgrade" class="form-select">
+                            <option value="">Select upgrade quality...</option>
+                            {% if is_configured and quality_profile_upgrade %}
+                            <option value="{{ quality_profile_upgrade }}" selected>{{ quality_profile_upgrade }}</option>
+                            {% endif %}
+                        </select>
+                        <small class="text-muted">Higher quality option for manual upgrades</small>
+                    </div>
+                </div>
+            </div>
 
-<div class="setup-container">
-    <h1>⚙️ Boxarr Setup</h1>
-    <p class="subtitle">Configure your Radarr connection and preferences</p>
-    
-    <div class="nav-buttons">
-        {% if is_configured %}
-        <a href="/dashboard" class="nav-btn">← Back to Dashboard</a>
-        {% endif %}
+            <!-- Automation Settings Section -->
+            <div class="form-section">
+                <h2 class="section-title">Automation Settings</h2>
+                
+                <div class="scheduler-group">
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="schedulerEnabled" name="boxarr_scheduler_enabled" class="checkbox-input"
+                               {% if scheduler_enabled %}checked{% endif %} onchange="toggleScheduler()">
+                        <div>
+                            <label for="schedulerEnabled" class="checkbox-label main">Enable Automatic Updates</label>
+                            <div class="checkbox-label description">Automatically fetch new box office data</div>
+                        </div>
+                    </div>
+                    
+                    <div id="schedulerControls" class="scheduler-controls {% if scheduler_enabled %}active{% endif %}">
+                        <div class="form-group">
+                            <label for="schedulerDay" class="form-label">Update Day</label>
+                            <select id="schedulerDay" class="form-select">
+                                <option value="1" {% if scheduler_day == 1 %}selected{% endif %}>Monday</option>
+                                <option value="2" {% if scheduler_day == 2 %}selected{% endif %}>Tuesday</option>
+                                <option value="3" {% if scheduler_day == 3 %}selected{% endif %}>Wednesday</option>
+                                <option value="4" {% if scheduler_day == 4 %}selected{% endif %}>Thursday</option>
+                                <option value="5" {% if scheduler_day == 5 %}selected{% endif %}>Friday</option>
+                                <option value="6" {% if scheduler_day == 6 %}selected{% endif %}>Saturday</option>
+                                <option value="0" {% if scheduler_day == 0 %}selected{% endif %}>Sunday</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="schedulerTime" class="form-label">Update Time</label>
+                            <select id="schedulerTime" class="form-select">
+                                <option value="22" {% if scheduler_time == 22 %}selected{% endif %}>10:00 PM</option>
+                                <option value="23" {% if scheduler_time == 23 %}selected{% endif %}>11:00 PM</option>
+                                <option value="0" {% if scheduler_time == 0 %}selected{% endif %}>12:00 AM</option>
+                                <option value="1" {% if scheduler_time == 1 %}selected{% endif %}>1:00 AM</option>
+                                <option value="2" {% if scheduler_time == 2 %}selected{% endif %}>2:00 AM</option>
+                                <option value="3" {% if scheduler_time == 3 %}selected{% endif %}>3:00 AM</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="checkbox-group">
+                    <input type="checkbox" id="autoAdd" name="boxarr_features_auto_add" class="checkbox-input"
+                           {% if auto_add %}checked{% endif %}>
+                    <div>
+                        <label for="autoAdd" class="checkbox-label main">Auto-Add Missing Movies</label>
+                        <div class="checkbox-label description">Automatically add unmatched movies to Radarr</div>
+                    </div>
+                </div>
+                
+                <div class="checkbox-group">
+                    <input type="checkbox" id="qualityUpgrade" name="boxarr_features_quality_upgrade" class="checkbox-input"
+                           {% if quality_upgrade %}checked{% endif %}>
+                    <div>
+                        <label for="qualityUpgrade" class="checkbox-label main">Quality Upgrade Buttons</label>
+                        <div class="checkbox-label description">Show buttons to upgrade movie quality profiles</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="button-row">
+                {% if is_configured %}
+                <a href="/" class="btn btn-secondary">← Back to Dashboard</a>
+                {% else %}
+                <div id="navigationSection" style="display: none;">
+                    <a href="/" class="btn btn-secondary">← Back to Dashboard</a>
+                </div>
+                {% endif %}
+                
+                <button type="submit" class="btn btn-primary btn-lg" id="saveBtn" disabled>
+                    <span id="saveButtonText">Save Configuration</span>
+                    <span id="saveButtonSpinner" class="loading-spinner" style="display: none;"></span>
+                </button>
+            </div>
+            
+            <div id="saveMessage"></div>
+        </form>
     </div>
-
-    <form id="setupForm">
-        <div class="info">
-            <strong>🔒 Local Application</strong><br>
-            This application runs entirely on your local network. No authentication required.
-        </div>
-
-        <h3>Radarr Connection</h3>
-        <div class="form-group">
-            <label for="radarrUrl">Radarr URL</label>
-            <input type="url" id="radarrUrl" name="radarr_url" 
-                   value="{{ radarr_url }}" 
-                   placeholder="http://localhost:7878" required>
-        </div>
-        
-        <div class="form-group">
-            <label for="radarrApiKey">Radarr API Key</label>
-            <input type="text" id="radarrApiKey" name="radarr_api_key" 
-                   value="{{ radarr_api_key }}" 
-                   placeholder="Your Radarr API key" required>
-        </div>
-        
-        <button type="button" class="btn btn-test" onclick="testConnection()">
-            Test Connection
-        </button>
-        
-        <div id="testResults"></div>
-        
-        <div id="qualityProfiles" style="display: none;">
-            <h3>Quality Settings</h3>
-            <div class="form-group">
-                <label for="rootFolder">Root Folder</label>
-                <select id="rootFolder" name="radarr_root_folder" required>
-                    <option value="">Select root folder...</option>
-                </select>
-            </div>
-            
-            <div class="form-group">
-                <label for="defaultProfile">Default Quality Profile</label>
-                <select id="defaultProfile" name="radarr_quality_profile_default" required>
-                    <option value="">Select quality profile...</option>
-                </select>
-            </div>
-            
-            <div class="form-group">
-                <label for="upgradeProfile">Upgrade Quality Profile (Ultra-HD)</label>
-                <select id="upgradeProfile" name="radarr_quality_profile_upgrade" required>
-                    <option value="">Select upgrade profile...</option>
-                </select>
-            </div>
-        </div>
-
-        <h3>Boxarr Settings</h3>
-        <div class="checkbox-group">
-            <input type="checkbox" id="schedulerEnabled" name="boxarr_scheduler_enabled" 
-                   {% if scheduler_enabled %}checked{% endif %}>
-            <label for="schedulerEnabled">Enable automatic weekly updates (Tuesday 11 PM)</label>
-        </div>
-        
-        <div class="checkbox-group">
-            <input type="checkbox" id="autoAdd" name="boxarr_features_auto_add" 
-                   {% if auto_add %}checked{% endif %}>
-            <label for="autoAdd">Automatically add missing movies to Radarr</label>
-        </div>
-        
-        <div class="checkbox-group">
-            <input type="checkbox" id="qualityUpgrade" name="boxarr_features_quality_upgrade" 
-                   {% if quality_upgrade %}checked{% endif %}>
-            <label for="qualityUpgrade">Enable quality upgrade buttons</label>
-        </div>
-
-        <div class="form-group">
-            <label for="schedulerCron">Update Schedule (Cron Expression)</label>
-            <input type="text" id="schedulerCron" name="boxarr_scheduler_cron" 
-                   value="{{ scheduler_cron }}" 
-                   placeholder="0 23 * * 2">
-        </div>
-
-        <button type="submit" class="btn" id="saveBtn" disabled>
-            Save Configuration
-        </button>
-        
-        <div id="saveMessage"></div>
-    </form>
-</div>
 
 <script>
 let connectionTested = false;
+
+function toggleScheduler() {
+    const checkbox = document.getElementById('schedulerEnabled');
+    const controls = document.getElementById('schedulerControls');
+    
+    if (checkbox.checked) {
+        controls.classList.add('active');
+    } else {
+        controls.classList.remove('active');
+    }
+}
+
+function dayTimeToCron() {
+    const day = document.getElementById('schedulerDay').value;
+    const time = document.getElementById('schedulerTime').value;
+    return `0 ${time} * * ${day}`;
+}
 
 async function testConnection() {
     const url = document.getElementById('radarrUrl').value;
     const apiKey = document.getElementById('radarrApiKey').value;
     
     if (!url || !apiKey) {
-        alert('Please enter Radarr URL and API key');
+        showMessage('Please enter Radarr URL and API key', 'error');
         return;
     }
     
-    const testBtn = event.target;
+    const testBtn = document.querySelector('.btn-success');
+    const textSpan = document.getElementById('testButtonText');
+    const spinnerSpan = document.getElementById('testButtonSpinner');
     const resultsDiv = document.getElementById('testResults');
     
     testBtn.disabled = true;
-    testBtn.innerHTML = 'Testing... <span class="loading"></span>';
-    resultsDiv.style.display = 'none';
+    textSpan.textContent = 'Testing Connection...';
+    spinnerSpan.style.display = 'inline-block';
+    resultsDiv.classList.remove('show');
     
     try {
         const response = await fetch('/api/config/test', {
@@ -274,35 +217,54 @@ async function testConnection() {
             document.getElementById('saveBtn').disabled = false;
             
             resultsDiv.innerHTML = `
-                <div class="success">
-                    ✓ Connection successful!<br>
-                    Radarr Version: ${data.version}<br>
-                    Available Profiles: ${data.profiles.length}
+                <div class="status-message status-success">
+                    <strong>✓ Connection Successful!</strong>
                 </div>
             `;
-            resultsDiv.style.display = 'block';
+            resultsDiv.classList.add('show');
+            
+            // Show navigation section after successful connection
+            const navSection = document.getElementById('navigationSection');
+            if (navSection) navSection.style.display = 'block';
             
             // Populate quality profiles
-            populateQualityProfiles(data.profiles, data.root_folders);
-            document.getElementById('qualityProfiles').style.display = 'block';
+            if (data.profiles && data.root_folders) {
+                populateQualityProfiles(data.profiles, data.root_folders);
+                document.getElementById('qualitySection').classList.add('show');
+            }
         } else {
+            connectionTested = false;
+            document.getElementById('saveBtn').disabled = true;
+            const navSection = document.getElementById('navigationSection');
+            if (navSection) navSection.style.display = 'none';
+            document.getElementById('qualitySection').classList.remove('show');
+            
             resultsDiv.innerHTML = `
-                <div class="error">
-                    ✗ Connection failed: ${data.message || 'Unknown error'}
+                <div class="status-message status-error">
+                    <strong>✗ Connection Failed</strong><br>
+                    ${data.message || 'Unknown error occurred'}
                 </div>
             `;
-            resultsDiv.style.display = 'block';
+            resultsDiv.classList.add('show');
         }
     } catch (error) {
+        connectionTested = false;
+        document.getElementById('saveBtn').disabled = true;
+        const navSection = document.getElementById('navigationSection');
+        if (navSection) navSection.style.display = 'none';
+        document.getElementById('qualitySection').classList.remove('show');
+        
         resultsDiv.innerHTML = `
-            <div class="error">
-                ✗ Connection error: ${error.message}
+            <div class="status-message status-error">
+                <strong>✗ Connection Error</strong><br>
+                ${error.message}
             </div>
         `;
-        resultsDiv.style.display = 'block';
+        resultsDiv.classList.add('show');
     } finally {
         testBtn.disabled = false;
-        testBtn.textContent = 'Test Connection';
+        textSpan.textContent = 'Test Connection';
+        spinnerSpan.style.display = 'none';
     }
 }
 
@@ -311,44 +273,85 @@ function populateQualityProfiles(profiles, rootFolders) {
     const upgradeSelect = document.getElementById('upgradeProfile');
     const rootSelect = document.getElementById('rootFolder');
     
-    // Clear existing options
-    defaultSelect.innerHTML = '<option value="">Select quality profile...</option>';
-    upgradeSelect.innerHTML = '<option value="">Select upgrade profile...</option>';
+    const currentDefaultProfile = '{{ quality_profile_default }}';
+    const currentUpgradeProfile = '{{ quality_profile_upgrade }}';
+    const currentRootFolder = '{{ root_folder }}';
+    
+    // Store current selections before clearing
+    const tempDefaultValue = defaultSelect.value || currentDefaultProfile;
+    const tempUpgradeValue = upgradeSelect.value || currentUpgradeProfile;
+    const tempRootValue = rootSelect.value || currentRootFolder;
+    
+    // Clear and rebuild options
+    defaultSelect.innerHTML = '<option value="">Select default quality...</option>';
+    upgradeSelect.innerHTML = '<option value="">No upgrade (optional)</option>';
     rootSelect.innerHTML = '<option value="">Select root folder...</option>';
     
-    // Add quality profiles
-    profiles.forEach(profile => {
-        const option1 = new Option(profile.name, profile.name);
-        const option2 = new Option(profile.name, profile.name);
-        defaultSelect.add(option1);
-        upgradeSelect.add(option2);
-        
-        // Pre-select if matches current value
-        if (profile.name === '{{ quality_profile_default }}') {
-            defaultSelect.value = profile.name;
-        }
-        if (profile.name === '{{ quality_profile_upgrade }}') {
-            upgradeSelect.value = profile.name;
-        }
-    });
+    // Add all quality profiles from Radarr
+    if (profiles && profiles.length > 0) {
+        profiles.forEach(profile => {
+            // Add to default quality dropdown
+            const defaultOption = new Option(profile.name, profile.name);
+            if (profile.name === tempDefaultValue) {
+                defaultOption.selected = true;
+            }
+            defaultSelect.add(defaultOption);
+            
+            // Add to upgrade quality dropdown
+            const upgradeOption = new Option(profile.name, profile.name);
+            if (profile.name === tempUpgradeValue) {
+                upgradeOption.selected = true;
+            }
+            upgradeSelect.add(upgradeOption);
+        });
+    }
     
-    // Add root folders
-    rootFolders.forEach(folder => {
-        const option = new Option(`${folder.path} (${Math.round(folder.freeSpace / 1073741824)} GB free)`, folder.path);
-        rootSelect.add(option);
-        
-        // Pre-select if matches current value
-        if (folder.path === '{{ root_folder }}') {
-            rootSelect.value = folder.path;
-        }
-    });
+    // Add all root folders
+    if (rootFolders && rootFolders.length > 0) {
+        rootFolders.forEach(folder => {
+            const freeSpaceGB = folder.freeSpace ? Math.round(folder.freeSpace / 1073741824 * 10) / 10 : 0;
+            const displayText = freeSpaceGB > 0 
+                ? `${folder.path} (${freeSpaceGB} GB free)`
+                : folder.path;
+            
+            const option = new Option(displayText, folder.path);
+            
+            // Pre-select current root folder
+            if (folder.path === tempRootValue) {
+                option.selected = true;
+            }
+            
+            rootSelect.add(option);
+        });
+    }
+}
+
+function showMessage(message, type) {
+    const messageDiv = document.getElementById('saveMessage');
+    messageDiv.innerHTML = `<div class="status-message status-${type}">${message}</div>`;
 }
 
 document.getElementById('setupForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     
     if (!connectionTested) {
-        alert('Please test the connection first');
+        showMessage('Please test the Radarr connection before saving configuration.', 'error');
+        return;
+    }
+    
+    // Additional validation for required fields
+    const url = document.getElementById('radarrUrl').value;
+    const apiKey = document.getElementById('radarrApiKey').value;
+    const rootFolder = document.getElementById('rootFolder').value;
+    const defaultProfile = document.getElementById('defaultProfile').value;
+    
+    if (!url || !apiKey) {
+        showMessage('Radarr URL and API Key are required.', 'error');
+        return;
+    }
+    
+    if (!rootFolder || !defaultProfile) {
+        showMessage('Please select root folder and default quality profile.', 'error');
         return;
     }
     
@@ -357,11 +360,7 @@ document.getElementById('setupForm').addEventListener('submit', async (e) => {
     
     // Convert form data to object
     for (let [key, value] of formData.entries()) {
-        if (key.includes('checkbox')) {
-            config[key] = document.getElementById(key.replace('_', '')).checked;
-        } else {
-            config[key] = value;
-        }
+        config[key] = value;
     }
     
     // Add checkboxes (they don't appear in FormData if unchecked)
@@ -369,11 +368,18 @@ document.getElementById('setupForm').addEventListener('submit', async (e) => {
     config.boxarr_features_auto_add = document.getElementById('autoAdd').checked;
     config.boxarr_features_quality_upgrade = document.getElementById('qualityUpgrade').checked;
     
+    // Convert day/time to cron if scheduler is enabled
+    if (config.boxarr_scheduler_enabled) {
+        config.boxarr_scheduler_cron = dayTimeToCron();
+    }
+    
     const saveBtn = document.getElementById('saveBtn');
-    const messageDiv = document.getElementById('saveMessage');
+    const textSpan = document.getElementById('saveButtonText');
+    const spinnerSpan = document.getElementById('saveButtonSpinner');
     
     saveBtn.disabled = true;
-    saveBtn.textContent = 'Saving...';
+    textSpan.textContent = 'Saving Configuration...';
+    spinnerSpan.style.display = 'inline-block';
     
     try {
         const response = await fetch('/api/config/save', {
@@ -385,30 +391,60 @@ document.getElementById('setupForm').addEventListener('submit', async (e) => {
         const data = await response.json();
         
         if (data.success) {
-            messageDiv.innerHTML = '<div class="success">✓ Configuration saved successfully! Redirecting...</div>';
+            showMessage('✓ Configuration saved successfully! Redirecting...', 'success');
             setTimeout(() => {
-                window.location.href = '/dashboard';
+                window.location.href = '/';
             }, 1500);
         } else {
-            messageDiv.innerHTML = `<div class="error">✗ Save failed: ${data.message}</div>`;
+            showMessage(`✗ Save failed: ${data.message}`, 'error');
             saveBtn.disabled = false;
+            textSpan.textContent = 'Save Configuration';
+            spinnerSpan.style.display = 'none';
         }
     } catch (error) {
-        messageDiv.innerHTML = `<div class="error">✗ Error: ${error.message}</div>`;
+        showMessage(`✗ Error: ${error.message}`, 'error');
         saveBtn.disabled = false;
-    } finally {
-        saveBtn.textContent = 'Save Configuration';
+        textSpan.textContent = 'Save Configuration';
+        spinnerSpan.style.display = 'none';
     }
 });
 
-// Test connection on load if we have credentials
+// Reset connection test when credentials change
+function resetConnectionTest() {
+    connectionTested = false;
+    document.getElementById('saveBtn').disabled = true;
+    const navSection = document.getElementById('navigationSection');
+    if (navSection) navSection.style.display = 'none';
+    document.getElementById('qualitySection').classList.remove('show');
+    document.getElementById('testResults').classList.remove('show');
+}
+
+// Initialize on load
 window.addEventListener('load', () => {
+    // Add input listeners to reset connection test when credentials change
+    document.getElementById('radarrUrl').addEventListener('input', resetConnectionTest);
+    document.getElementById('radarrApiKey').addEventListener('input', resetConnectionTest);
+    
+    // Check if we have existing valid credentials and auto-test connection
     const url = document.getElementById('radarrUrl').value;
     const apiKey = document.getElementById('radarrApiKey').value;
+    const isConfigured = {{ 'true' if is_configured else 'false' }};
     
-    if (url && apiKey && url !== 'http://localhost:7878') {
-        testConnection();
+    // If app is already configured and has credentials, auto-test connection
+    if (isConfigured && url && apiKey && apiKey.trim().length > 10) {
+        // Mark as already tested since we're configured
+        connectionTested = true;
+        document.getElementById('saveBtn').disabled = false;
+        
+        // Auto-test to refresh quality profiles and root folders
+        setTimeout(() => {
+            testConnection();
+        }, 500);  // Small delay to let page finish loading
+    } else if (!isConfigured) {
+        // For first-time setup, ensure save button is disabled until connection tested
+        document.getElementById('saveBtn').disabled = true;
     }
 });
 </script>
-{% endblock %}
+</body>
+</html>

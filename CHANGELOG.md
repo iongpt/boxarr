@@ -8,39 +8,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Web UI configuration wizard for first-time setup
-- Settings page that pre-populates with current configuration
-- Custom scheduling with day and hour selection
-- Historical week update capability
-- Improved week navigation with dropdown for older weeks
-- "Back to Dashboard" button on all weekly pages
-- Visual separation between header, navigation, and content areas
-- Support for updating last completed week instead of current week
-- Immutable past weeks (won't re-update automatically)
+- **Dynamic Jinja2 Templates**: Complete refactor from static HTML generation to server-side rendering with Jinja2 templates
+- **Enhanced Movie Matching**: Number-to-word conversion algorithm for better title matching (e.g., "Fantastic 4" matches "Fantastic Four")
+- **Weekly Template System**: New `weekly.html` template with real-time data rendering
+- **JSON Metadata Storage**: Replaced HTML generation with JSON data files containing full movie metadata
+- **Improved Dashboard UX**: Better visual feedback, empty states, and navigation improvements
 
 ### Changed
-- Navigation shows "Recent Weeks" instead of "Navigate Weeks"
-- Dashboard button now says "View Last Week" instead of "View Current Week"
-- Week navigation maintains fixed order (newest to oldest)
-- Only shows 8 most recent weeks inline, older weeks in dropdown
-- Box Office Mojo parser updated for current HTML structure
-- Configuration loading prioritizes /config/local.yaml for Docker volumes
-- Settings page shows current configuration instead of defaults
+- **Template-Based Architecture**: Migrated from `html_generator.py` to `json_generator.py` with Jinja2 templates
+- **Dashboard Improvements**: Enhanced visual design with better spacing, typography, and responsive layout
+- **Movie Card Design**: Improved UI cosmetics with better poster display, status indicators, and action buttons
+- **Data Persistence**: JSON files now store complete movie data including TMDB information for offline rendering
 
 ### Fixed
-- Box Office Mojo HTML parsing for new table structure
-- JavaScript escaping in f-strings for proper rendering
-- Scheduler initialization after configuration save
-- Dashboard sorting to show newest weeks first
-- Navigation persistence across all weekly pages
-- Error handling for missing configuration
-- timedelta import for last week calculation
+- **Radarr Service Integration**: Fixed missing radarr_service parameter in update-week endpoint
+- **Movie Title Matching**: Improved matching algorithm to handle number variations in titles
+- **UI Responsiveness**: Better handling of long movie titles and descriptions
+- **Template Rendering**: Proper escaping and formatting in Jinja2 templates
+
+### Removed
+- **Static HTML Generation**: Removed `html_generator.py` in favor of dynamic template rendering
+- **Redundant HTML Files**: No longer generates static HTML files for each week
 
 ### Technical
-- Updated cell indices for Box Office Mojo scraping (title in cell[2], gross in cell[3])
-- Added proper error handling for scheduler updates
-- Improved configuration validation and error messages
-- Enhanced HTML generation with better structure separation
+- Added comprehensive test suite for number-word conversion in movie matcher
+- Improved separation of concerns between data generation and presentation
+- Enhanced error handling in template rendering
+- Better caching strategy with JSON metadata files
 
 ## [0.1.0] - Initial Release
 
