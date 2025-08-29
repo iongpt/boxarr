@@ -425,7 +425,7 @@ body {
   border-radius: 12px;
   padding: 2.5rem;
   box-shadow: var(--shadow-md);
-  max-width: 600px;
+  max-width: 900px;
   width: 100%;
   border: 1px solid var(--border-color);
 }

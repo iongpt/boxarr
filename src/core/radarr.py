@@ -56,6 +56,7 @@ class RadarrMovie:
     images: List[Dict] = field(default_factory=list)
     genres: List[str] = field(default_factory=list)
     runtime: Optional[int] = None
+    _raw_data: Optional[Dict] = field(default=None, repr=False)
 
     @property
     def poster_url(self) -> Optional[str]:
@@ -310,14 +311,29 @@ class RadarrService:
         Returns:
             Updated movie
         """
-        movie_dict = {
-            "id": movie.id,
-            "title": movie.title,
-            "tmdbId": movie.tmdbId,
-            "qualityProfileId": movie.qualityProfileId,
-            "monitored": movie.monitored,
-            "rootFolderPath": movie.rootFolderPath,
-        }
+        # Use the raw data if available, otherwise construct minimal object
+        if hasattr(movie, "_raw_data") and movie._raw_data:
+            movie_dict = movie._raw_data.copy()
+            # Update the changed fields
+            movie_dict["qualityProfileId"] = movie.qualityProfileId
+            movie_dict["monitored"] = movie.monitored
+            movie_dict["rootFolderPath"] = movie.rootFolderPath
+        else:
+            # Fallback: Get the full movie data first
+            current_movie = self.get_movie(movie.id)
+            if hasattr(current_movie, "_raw_data") and current_movie._raw_data:
+                movie_dict = current_movie._raw_data.copy()
+                movie_dict["qualityProfileId"] = movie.qualityProfileId
+            else:
+                # Last resort: construct minimal object
+                movie_dict = {
+                    "id": movie.id,
+                    "title": movie.title,
+                    "tmdbId": movie.tmdbId,
+                    "qualityProfileId": movie.qualityProfileId,
+                    "monitored": movie.monitored,
+                    "rootFolderPath": movie.rootFolderPath,
+                }
 
         response = self._make_request(
             "PUT", f"/api/v3/movie/{movie.id}", json=movie_dict
@@ -452,6 +468,7 @@ class RadarrService:
             images=data.get("images", []),
             genres=data.get("genres", []),
             runtime=data.get("runtime"),
+            _raw_data=data,  # Store the complete raw data
         )
 
     def get_system_status(self) -> Dict[str, Any]:
