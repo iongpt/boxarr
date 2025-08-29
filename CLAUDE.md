@@ -5,7 +5,7 @@
 Boxarr is a web application that:
 1. **Fetches weekly box office data** from Box Office Mojo (top 10 movies)
 2. **Auto-adds missing movies** to Radarr with default quality profile
-3. **Generates static HTML pages** for each week with beautiful movie cards
+3. **Renders dynamic web pages** using Jinja2 templates with real-time data
 4. **Updates status dynamically** via JavaScript polling (only Radarr status/quality changes)
 5. **Provides UI-first configuration** - no environment variables required
 
@@ -22,7 +22,9 @@ Match with Radarr Library
     ↓
 Auto-add Missing Movies
     ↓
-Generate Static HTML Page (YYYY/WW.html)
+Generate JSON Data File (YYYY/WW.json)
+    ↓
+Jinja2 templates render pages on-demand
     ↓
 JavaScript polls /api/movies/status for dynamic updates
 ```
@@ -302,15 +304,23 @@ docker images boxarr --format "table {{.Size}}"
 - `radarr.py` - Complete Radarr API client
 - `matcher.py` - Smart movie matching algorithm (handles sequels, colons, etc.)
 - `scheduler.py` - APScheduler that triggers weekly updates
-- `html_generator.py` - Generates static HTML pages with compact header and dynamic navigation
+- `json_generator.py` - Generates JSON data files with movie metadata
 - `exceptions.py` - Custom exception hierarchy
 
 ### API (`src/api/`)
 - `app.py` - FastAPI application with web UI routes
+- `routes/web.py` - Jinja2 template rendering for dynamic web pages
 
 ### Utilities (`src/utils/`)
 - `config.py` - Pydantic settings management (env vars + YAML)
 - `logger.py` - Logging with rotation
+
+### Templates (`src/web/templates/`)
+- `weekly.html` - Weekly box office page with movie cards
+- `dashboard.html` - Browse all weeks with management features
+- `setup.html` - Initial configuration wizard
+- `settings.html` - Settings management interface
+- `base.html` - Base template with common layout
 
 ### Main Entry Point
 - `src/main.py` - Application startup with CLI/API modes
@@ -331,14 +341,14 @@ docker run -p 8888:8888 -v ./config:/config boxarr
 - Fetches current box office from Box Office Mojo
 - Matches movies with Radarr library
 - Auto-adds unmatched movies with default profile
-- Generates static HTML at `/config/weekly_pages/YYYYWWW.html`
-- Updates `/config/weekly_pages/current.html` symlink
+- Generates JSON data at `/config/weekly_pages/YYYYWW.json`
+- Web pages rendered on-demand using Jinja2 templates
 
 ### 3. Dynamic Updates
-- Static HTML includes JavaScript
-- JS polls `/api/movies/status` every 30 seconds
+- Jinja2 templates render pages with current data
+- JavaScript polls `/api/movies/status` every 30 seconds
 - Updates only: status (Downloaded/Missing/In Cinemas) and quality profiles
-- Everything else stays static (posters, titles, descriptions)
+- Server-side rendering ensures fresh data on page load
 
 ### 4. Quality Upgrades
 - "Upgrade to Ultra-HD" button on each movie card
@@ -370,7 +380,7 @@ docker run -p 8888:8888 -v ./config:/config boxarr
 - `GET /` - Current week or redirect to setup
 - `GET /setup` - Configuration wizard (with Back to Dashboard button)
 - `GET /dashboard` - Browse all weeks (paginated display with delete functionality)
-- `GET /{year}W{week}.html` - Specific week's static page
+- `GET /{year}W{week}` - Specific week's page (dynamically rendered)
 
 ### Utility
 - `GET /api/health` - Health check
@@ -416,9 +426,7 @@ Can override config file:
 /config/
 ├── local.yaml              # Configuration (created by setup wizard)
 ├── weekly_pages/
-│   ├── 2024W48.html       # Static page for week 48
-│   ├── 2024W48.json       # Metadata with full movie data
-│   └── current.html       # Current week page
+│   └── 2024W48.json       # Metadata with full movie data for week 48
 ├── history/                # Historical update results
 │   └── YYYYWWW_*.json     # Update history with timestamps
 └── logs/                   # Application logs
@@ -478,19 +486,21 @@ curl -X POST http://localhost:8888/api/config/test \
 - Year matching for disambiguation
 - Confidence scoring with configurable threshold
 
-### Static HTML Generation
+### Template-Based Rendering
+- **Jinja2 templates** for dynamic page generation
+- **Server-side rendering** with real-time Radarr data
 - **Compact header design** with integrated navigation and connection status
 - **Dynamic navigation** that loads available weeks via API
   - Shows 4 most recent weeks as quick links
   - Comprehensive dropdown menu grouped by year
   - Scales efficiently for 100+ weeks
 - Beautiful responsive cards (5 per row on 4K)
-- Purple gradient theme
+- Purple gradient theme with dynamic font sizing
 - Movie posters with rank badges
-- Status indicators with colors
-- Quality profile display
-- IMDb and Wikipedia links
-- JavaScript for dynamic updates
+- Status indicators with real-time updates
+- Quality profile display with upgrade buttons
+- Visually distinct external link buttons (IMDb/Wikipedia)
+- JavaScript for polling updates without full page refresh
 
 ### Dashboard Features
 - **Paginated display** - Shows first 24 weeks (6 months)
@@ -532,8 +542,8 @@ For movies NOT in Radarr:
    - Overview (truncated to 150 chars)
    - Genres (first 2)
    - IMDB ID
-3. Store full data in metadata JSON
-4. Display in movie cards with same layout as Radarr movies
+3. Store full data in JSON metadata file
+4. Template renders movie cards with same layout as Radarr movies
 
 ## Docker Deployment
 
@@ -606,15 +616,16 @@ GNU General Public License v3.0 (GPLv3)
 
 ### Movie Data Persistence
 - All movie metadata stored in JSON files
-- Enables regeneration without external API calls
+- Templates read JSON data for rendering
 - Preserves historical data even if movie removed from Radarr
 - TMDB data cached at generation time
+- Server-side rendering ensures fresh Radarr status
 
-### Page Regeneration
-- Automatic when movie added to Radarr
+### Data Regeneration
+- JSON files regenerated when movie added to Radarr
 - Affects all weeks containing that movie
 - Preserves week's original box office rankings
-- Updates only the Radarr status and quality info
+- Templates always render with latest Radarr status
 
 ### Navigation Scalability
 - Recent 4 weeks shown as quick links
