@@ -188,7 +188,9 @@ async def update_specific_week(request: UpdateWeekRequest):  # noqa: C901
             ]
 
         # Generate data file
-        generator = WeeklyDataGenerator()
+        generator = WeeklyDataGenerator(
+            radarr_service=radarr_service if settings.radarr_api_key else None
+        )
         generator.generate_weekly_data(
             match_results,
             year,
