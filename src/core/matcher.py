@@ -51,11 +51,11 @@ class MovieMatcher:
         "IX": 9,
         "X": 10,
     }
-    
+
     # Number to word mappings for common cases (only cardinal numbers, not ordinals)
     NUMBER_WORDS = {
         "1": "one",
-        "2": "two", 
+        "2": "two",
         "3": "three",
         "4": "four",
         "5": "five",
@@ -67,7 +67,7 @@ class MovieMatcher:
         "11": "eleven",
         "12": "twelve",
     }
-    
+
     # Reverse mapping: word to number (only cardinal numbers)
     WORD_TO_NUMBER = {
         "one": "1",
@@ -220,49 +220,51 @@ class MovieMatcher:
             Similarity score between 0 and 1
         """
         return SequenceMatcher(None, str1.lower(), str2.lower()).ratio()
-    
+
     def convert_numbers_to_words(self, title: str) -> str:
         """
         Convert numbers in title to word equivalents.
-        
+
         Args:
             title: Movie title
-            
+
         Returns:
             Title with numbers converted to words
         """
         import re
+
         result = title
-        
+
         # Convert standalone numbers to words
         for num, word in self.NUMBER_WORDS.items():
             # Match number as a whole word (with word boundaries)
-            pattern = r'\b' + re.escape(num) + r'\b'
+            pattern = r"\b" + re.escape(num) + r"\b"
             if re.search(pattern, result):
                 result = re.sub(pattern, word, result, flags=re.IGNORECASE)
-        
+
         return result
-    
+
     def convert_words_to_numbers(self, title: str) -> str:
         """
         Convert number words in title to digit equivalents.
-        
+
         Args:
             title: Movie title
-            
+
         Returns:
             Title with words converted to numbers
         """
         import re
+
         result = title
-        
+
         # Convert word numbers to digits
         for word, num in self.WORD_TO_NUMBER.items():
             # Match word as a whole word (with word boundaries)
-            pattern = r'\b' + re.escape(word) + r'\b'
+            pattern = r"\b" + re.escape(word) + r"\b"
             if re.search(pattern, result, re.IGNORECASE):
                 result = re.sub(pattern, num, result, flags=re.IGNORECASE)
-        
+
         return result
 
     def match_single(
@@ -354,7 +356,12 @@ class MovieMatcher:
         title_upper = title.upper()
         for numeral in sorted(self.ROMAN_NUMERALS.keys(), key=len, reverse=True):
             if title_upper.endswith(f" {numeral}"):
-                replaced = re.sub(rf"\b{numeral}\b", str(self.ROMAN_NUMERALS[numeral]), title_upper, flags=re.IGNORECASE)
+                replaced = re.sub(
+                    rf"\b{numeral}\b",
+                    str(self.ROMAN_NUMERALS[numeral]),
+                    title_upper,
+                    flags=re.IGNORECASE,
+                )
                 alt_norm = self.normalize_title(replaced)
                 if alt_norm in self._movie_cache:
                     return self._movie_cache[alt_norm]
@@ -363,7 +370,7 @@ class MovieMatcher:
         base_title = self.get_base_title(title)
         if base_title.lower() in self._movie_cache:
             return self._movie_cache[base_title.lower()]
-        
+
         # Try converting numbers to words and vice versa
         # This handles cases like "The Fantastic Four" vs "The Fantastic 4"
         title_with_numbers = self.convert_words_to_numbers(title)
@@ -371,18 +378,18 @@ class MovieMatcher:
             # Try exact match with converted title
             if title_with_numbers.lower() in self._movie_cache:
                 return self._movie_cache[title_with_numbers.lower()]
-            
+
             # Try normalized match with converted title
             normalized_numbers = self.normalize_title(title_with_numbers)
             if normalized_numbers in self._movie_cache:
                 return self._movie_cache[normalized_numbers]
-        
+
         title_with_words = self.convert_numbers_to_words(title)
         if title_with_words != title:
             # Try exact match with converted title
             if title_with_words.lower() in self._movie_cache:
                 return self._movie_cache[title_with_words.lower()]
-            
+
             # Try normalized match with converted title
             normalized_words = self.normalize_title(title_with_words)
             if normalized_words in self._movie_cache:

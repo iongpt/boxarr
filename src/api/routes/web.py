@@ -10,9 +10,9 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
+from ... import __version__
 from ...utils.config import settings
 from ...utils.logger import get_logger
-from ... import __version__
 
 logger = get_logger(__name__)
 router = APIRouter(tags=["web"])
@@ -52,16 +52,17 @@ async def home_page(request: Request):
     # Check for most recent week data
     weekly_pages_dir = Path(settings.boxarr_data_directory) / "weekly_pages"
     json_files = sorted(weekly_pages_dir.glob("*.json"), reverse=True)
-    
+
     if json_files:
         # Parse the filename to get year and week
         import re
+
         match = re.match(r"(\d{4})W(\d{2})\.json", json_files[0].name)
         if match:
             year = match.group(1)
             week = match.group(2)
             return RedirectResponse(url=f"/{year}W{week}")
-    
+
     # No data, redirect to dashboard
     return RedirectResponse(url="/dashboard")
 
@@ -72,25 +73,37 @@ async def dashboard_page(request: Request):
     # Check if configured - if not, redirect to setup
     if not settings.is_configured:
         return RedirectResponse(url="/setup")
-    
+
     # Get all available weeks
     weeks = await get_available_weeks()
 
     # Separate into recent (first 24) and older
     recent_weeks = weeks[:24]
     older_weeks = weeks[24:] if len(weeks) > 24 else []
-    
+
     # Calculate next scheduled update
     from datetime import datetime
+
     next_update = "Not scheduled"
     if settings.boxarr_scheduler_enabled:
         # Parse cron to get next run time (simplified display)
         import re
-        cron_match = re.match(r"(\d+) (\d+) \* \* (\d+)", settings.boxarr_scheduler_cron)
+
+        cron_match = re.match(
+            r"(\d+) (\d+) \* \* (\d+)", settings.boxarr_scheduler_cron
+        )
         if cron_match:
             hour = int(cron_match.group(2))
             day = int(cron_match.group(3))
-            days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+            days = [
+                "Sunday",
+                "Monday",
+                "Tuesday",
+                "Wednesday",
+                "Thursday",
+                "Friday",
+                "Saturday",
+            ]
             next_update = f"{days[day]} at {hour}:00"
 
     return templates.TemplateResponse(
@@ -119,11 +132,11 @@ async def setup_page(request: Request):
     import re
 
     cron_match = re.match(r"(\d+) (\d+) \* \* (\d+)", cron)
-    
+
     # Extract current cron settings
     current_day = int(cron_match.group(3)) if cron_match else 2
     current_time = int(cron_match.group(2)) if cron_match else 23
-    
+
     return templates.TemplateResponse(
         "setup.html",
         {
@@ -185,24 +198,25 @@ async def settings_page(request: Request):
 async def serve_weekly_page(request: Request, year: int, week: int):
     """Serve a specific week's page using template with dynamic data."""
     from datetime import date, timedelta
+
     from ...core.radarr import RadarrService
-    
+
     # Check for JSON data file
     json_file = (
         Path(settings.boxarr_data_directory)
         / "weekly_pages"
         / f"{year}W{week:02d}.json"
     )
-    
+
     if not json_file.exists():
         raise HTTPException(status_code=404, detail="Week not found")
-    
+
     # Load week data
     with open(json_file) as f:
         metadata = json.load(f)
-    
+
     movies = metadata.get("movies", [])
-    
+
     # Get current Radarr status for all movies if configured
     if settings.radarr_api_key:
         try:
@@ -210,17 +224,17 @@ async def serve_weekly_page(request: Request, year: int, week: int):
             all_radarr_movies = radarr_service.get_all_movies()
             profiles = radarr_service.get_quality_profiles()
             profiles_by_id = {p.id: p.name for p in profiles}
-            
+
             # Find upgrade profile ID
             upgrade_profile_id = None
             for p in profiles:
                 if p.name == settings.radarr_quality_profile_upgrade:
                     upgrade_profile_id = p.id
                     break
-            
+
             # Create lookup dict
             movie_dict = {movie.id: movie for movie in all_radarr_movies}
-            
+
             # Update movie statuses dynamically
             for movie in movies:
                 if movie.get("radarr_id"):
@@ -231,7 +245,10 @@ async def serve_weekly_page(request: Request, year: int, week: int):
                             movie["status"] = "Downloaded"
                             movie["status_color"] = "#48bb78"
                             movie["status_icon"] = "✅"
-                        elif radarr_movie.status == "released" and radarr_movie.isAvailable:
+                        elif (
+                            radarr_movie.status == "released"
+                            and radarr_movie.isAvailable
+                        ):
                             movie["status"] = "Missing"
                             movie["status_color"] = "#f56565"
                             movie["status_icon"] = "❌"
@@ -243,14 +260,14 @@ async def serve_weekly_page(request: Request, year: int, week: int):
                             movie["status"] = "Pending"
                             movie["status_color"] = "#ed8936"
                             movie["status_icon"] = "⏳"
-                        
+
                         # Update quality profile
                         movie["quality_profile_name"] = profiles_by_id.get(
                             radarr_movie.qualityProfileId, "Unknown"
                         )
                         movie["quality_profile_id"] = radarr_movie.qualityProfileId
                         movie["has_file"] = radarr_movie.hasFile
-                        
+
                         # Check if can upgrade
                         movie["can_upgrade_quality"] = bool(
                             settings.boxarr_features_quality_upgrade
@@ -260,21 +277,21 @@ async def serve_weekly_page(request: Request, year: int, week: int):
                         )
         except Exception as e:
             logger.warning(f"Could not fetch current Radarr status: {e}")
-    
+
     # Calculate counts
     matched_count = sum(1 for m in movies if m.get("radarr_id"))
     downloaded_count = sum(1 for m in movies if m.get("status") == "Downloaded")
     missing_count = sum(1 for m in movies if m.get("status") == "Missing")
-    
+
     # Calculate week dates
     monday = date.fromisocalendar(year, week, 1)
     friday = monday + timedelta(days=4)
     sunday = monday + timedelta(days=6)
-    
+
     # Determine prev/next weeks
     prev_week = None
     next_week = None
-    
+
     # Check for previous week
     prev_week_num = week - 1
     prev_year = year
@@ -283,7 +300,7 @@ async def serve_weekly_page(request: Request, year: int, week: int):
         # Get last week of previous year
         last_day = date(prev_year, 12, 31)
         prev_week_num = last_day.isocalendar()[1]
-    
+
     prev_json = (
         Path(settings.boxarr_data_directory)
         / "weekly_pages"
@@ -291,7 +308,7 @@ async def serve_weekly_page(request: Request, year: int, week: int):
     )
     if prev_json.exists():
         prev_week = {"year": prev_year, "week": prev_week_num}
-    
+
     # Check for next week
     next_week_num = week + 1
     next_year = year
@@ -300,7 +317,7 @@ async def serve_weekly_page(request: Request, year: int, week: int):
     if next_week_num > last_week_of_year:
         next_year = year + 1
         next_week_num = 1
-    
+
     next_json = (
         Path(settings.boxarr_data_directory)
         / "weekly_pages"
@@ -308,7 +325,7 @@ async def serve_weekly_page(request: Request, year: int, week: int):
     )
     if next_json.exists():
         next_week = {"year": next_year, "week": next_week_num}
-    
+
     return templates.TemplateResponse(
         "weekly.html",
         {
@@ -423,19 +440,19 @@ async def get_available_weeks() -> List[WeekInfo]:
             date_range = (
                 f"{week_start.strftime('%b %d')} - {week_end.strftime('%b %d, %Y')}"
             )
-            
+
             # Count matched movies
             movies = metadata.get("movies", [])
             matched_count = sum(1 for m in movies if m.get("radarr_id"))
-            
+
             # Get timestamp
             timestamp_str = metadata.get("generated", "Unknown")
             if timestamp_str != "Unknown":
                 try:
                     # Parse and format the timestamp
-                    ts = datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
+                    ts = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
                     timestamp_str = ts.strftime("%Y-%m-%d %H:%M")
-                except:
+                except (ValueError, AttributeError):
                     pass
 
             weeks.append(
@@ -485,5 +502,3 @@ async def get_widget_data() -> WidgetData:
             for m in metadata.get("movies", [])[:10]
         ],
     )
-
-

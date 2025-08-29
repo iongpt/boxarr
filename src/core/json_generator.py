@@ -54,7 +54,7 @@ class WeeklyDataGenerator:
         # Calculate Friday (4 days after Monday) and Sunday (6 days after Monday)
         friday = datetime.combine(monday + timedelta(days=4), datetime.min.time())
         sunday = datetime.combine(monday + timedelta(days=6), datetime.min.time())
-        
+
         # Get quality profiles if available
         quality_profiles = {}
         ultra_hd_id = None

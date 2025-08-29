@@ -51,11 +51,13 @@ async def trigger_update():
         # Handle added_movies which is a list
         added_movies = result.get("added_movies", [])
         movies_added_count = len(added_movies) if isinstance(added_movies, list) else 0
-        
+
         return TriggerResponse(
             success=True,
             message="Box office update completed",
-            movies_found=result.get("total_count"),  # Fixed: was "total_movies" but scheduler returns "total_count"
+            movies_found=result.get(
+                "total_count"
+            ),  # Fixed: was "total_movies" but scheduler returns "total_count"
             movies_added=movies_added_count,
         )
     except Exception as e:
@@ -119,8 +121,10 @@ async def get_scheduler_history():
 
 class UpdateWeekRequest(BaseModel):
     """Request model for updating a specific week."""
+
     year: int
     week: int
+
 
 @router.post("/update-week")
 async def update_specific_week(request: UpdateWeekRequest):  # noqa: C901

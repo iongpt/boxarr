@@ -73,12 +73,12 @@ async def test_configuration(config: TestConfigRequest):
         # Get profiles and folders
         profiles = test_service.get_quality_profiles()
         folders = test_service.get_root_folders()
-        
+
         # Get Radarr version
         try:
             status = test_service.get_system_status()
             version = status.get("version", "Unknown")
-        except:
+        except Exception:
             version = "Unknown"
 
         return {
@@ -87,7 +87,7 @@ async def test_configuration(config: TestConfigRequest):
             "version": version,
             "profiles": [{"id": p.id, "name": p.name} for p in profiles],
             "root_folders": [
-                {"path": f.get("path", ""), "freeSpace": f.get("freeSpace", 0)} 
+                {"path": f.get("path", ""), "freeSpace": f.get("freeSpace", 0)}
                 for f in folders
             ],
         }
@@ -118,11 +118,13 @@ async def save_configuration(config: SaveConfigRequest):
             "root_folder": config.radarr_root_folder,
             "quality_profile_default": config.radarr_quality_profile_default,
         }
-        
+
         # Only include upgrade profile if specified
         if config.radarr_quality_profile_upgrade:
-            radarr_config["quality_profile_upgrade"] = config.radarr_quality_profile_upgrade
-        
+            radarr_config["quality_profile_upgrade"] = (
+                config.radarr_quality_profile_upgrade
+            )
+
         config_data = {
             "radarr": radarr_config,
             "boxarr": {

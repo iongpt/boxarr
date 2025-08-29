@@ -44,6 +44,7 @@ class UpgradeResponse(BaseModel):
 
 class AddMovieRequest(BaseModel):
     """Add movie request model."""
+
     # Support both `title` and `movie_title` from different clients
     title: Optional[str] = None
     movie_title: Optional[str] = None
