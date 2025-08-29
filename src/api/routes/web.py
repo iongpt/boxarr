@@ -44,26 +44,12 @@ class WidgetData(BaseModel):
 
 @router.get("/", response_class=HTMLResponse)
 async def home_page(request: Request):
-    """Serve the home page (current week or setup)."""
+    """Serve the home page (dashboard or setup)."""
     # Check if Radarr is configured
     if not settings.is_configured:
         return RedirectResponse(url="/setup")
-
-    # Check for most recent week data
-    weekly_pages_dir = Path(settings.boxarr_data_directory) / "weekly_pages"
-    json_files = sorted(weekly_pages_dir.glob("*.json"), reverse=True)
-
-    if json_files:
-        # Parse the filename to get year and week
-        import re
-
-        match = re.match(r"(\d{4})W(\d{2})\.json", json_files[0].name)
-        if match:
-            year = match.group(1)
-            week = match.group(2)
-            return RedirectResponse(url=f"/{year}W{week}")
-
-    # No data, redirect to dashboard
+    
+    # Always redirect to dashboard when configured
     return RedirectResponse(url="/dashboard")
 
 
@@ -158,40 +144,6 @@ async def setup_page(request: Request):
         },
     )
 
-
-@router.get("/settings", response_class=HTMLResponse)
-async def settings_page(request: Request):
-    """Serve the settings page."""
-    # Parse cron for display
-    cron = settings.boxarr_scheduler_cron
-    import re
-
-    cron_match = re.match(r"(\d+) (\d+) \* \* (\d+)", cron)
-
-    hour = int(cron_match.group(2)) if cron_match else 23
-    minute = int(cron_match.group(1)) if cron_match else 0
-    day = int(cron_match.group(3)) if cron_match else 2
-
-    return templates.TemplateResponse(
-        "settings.html",
-        {
-            "request": request,
-            "settings": {
-                "radarr_url": str(settings.radarr_url),
-                "radarr_api_key": "***" if settings.radarr_api_key else "",
-                "radarr_root_folder": str(settings.radarr_root_folder),
-                "radarr_quality_profile_default": settings.radarr_quality_profile_default,
-                "radarr_quality_profile_upgrade": settings.radarr_quality_profile_upgrade,
-                "scheduler_enabled": settings.boxarr_scheduler_enabled,
-                "scheduler_hour": hour,
-                "scheduler_minute": minute,
-                "scheduler_day": day,
-                "auto_add": settings.boxarr_features_auto_add,
-                "quality_upgrade": settings.boxarr_features_quality_upgrade,
-            },
-            "version": __version__,
-        },
-    )
 
 
 @router.get("/{year}W{week}", response_class=HTMLResponse)

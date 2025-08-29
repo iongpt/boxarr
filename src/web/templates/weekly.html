@@ -1,677 +1,460 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Box Office Week {{ week_data.year }}W{{ "%02d"|format(week_data.week) }} - Boxarr</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+{% extends "base.html" %}
 
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            color: white;
-        }
+{% block title %}Box Office Week {{ week_data.year }}W{{ "%02d"|format(week_data.week) }} - Boxarr{% endblock %}
 
-        .header {
-            background: rgba(0, 0, 0, 0.3);
-            backdrop-filter: blur(10px);
-            padding: 1rem 2rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 1rem;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-        }
+{% block styles %}
+<style>
+/* Weekly Page Specific Styles */
+.week-header {
+    background: var(--card-bg);
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+    border: 1px solid var(--border-color);
+    box-shadow: var(--shadow);
+}
 
-        .header-title {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-        }
+.week-title {
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
 
-        .header h1 {
-            font-size: 1.5rem;
-            font-weight: 600;
-        }
+.week-info {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+}
 
-        .week-info {
-            font-size: 0.9rem;
-            opacity: 0.9;
-        }
+.summary {
+    display: flex;
+    justify-content: space-around;
+    flex-wrap: wrap;
+    gap: 1rem;
+    padding: 1rem;
+    background: var(--bg-color);
+    border-radius: 8px;
+    margin-bottom: 1rem;
+}
 
-        .nav-controls {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-        }
+.summary-item {
+    text-align: center;
+    flex: 1;
+    min-width: 100px;
+}
 
-        .nav-btn {
-            background: rgba(255, 255, 255, 0.1);
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            color: white;
-            padding: 0.5rem 1rem;
-            border-radius: 8px;
-            cursor: pointer;
-            text-decoration: none;
-            transition: all 0.3s;
-        }
+.summary-value {
+    font-size: 2rem;
+    font-weight: bold;
+    color: var(--text-primary);
+    display: block;
+}
 
-        .nav-btn:hover {
-            background: rgba(255, 255, 255, 0.2);
-            transform: translateY(-2px);
-        }
+.summary-label {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
 
-        .connection-status {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 0.5rem 1rem;
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 8px;
-            font-size: 0.9rem;
-        }
+.nav-controls {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
 
-        .status-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: #48bb78;
-            animation: pulse 2s infinite;
-        }
+.nav-btn {
+    padding: 0.75rem 1.25rem;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-primary);
+    text-decoration: none;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
 
-        .status-dot.error {
-            background: #f56565;
-            animation: none;
-        }
+.nav-btn:hover {
+    background: var(--bg-color);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow);
+}
 
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
+.nav-btn.primary {
+    background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+    color: white;
+    border: none;
+}
 
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 2rem;
-        }
+/* Movies Grid */
+.movies-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 1.5rem;
+    margin-top: 2rem;
+}
 
-        .summary {
-            background: rgba(0, 0, 0, 0.2);
-            backdrop-filter: blur(10px);
-            border-radius: 16px;
-            padding: 1.5rem;
-            margin-bottom: 2rem;
-            display: flex;
-            justify-content: space-around;
-            flex-wrap: wrap;
-            gap: 1rem;
-        }
+@media (min-width: 768px) {
+    .movies-grid { 
+        grid-template-columns: repeat(3, 1fr); 
+    }
+}
 
-        .summary-item {
-            text-align: center;
-        }
+@media (min-width: 1200px) {
+    .movies-grid { 
+        grid-template-columns: repeat(5, 1fr); 
+    }
+}
 
-        .summary-value {
-            font-size: 2rem;
-            font-weight: bold;
-            margin-bottom: 0.5rem;
-        }
+.movie-card {
+    background: var(--card-bg);
+    border-radius: 12px;
+    overflow: hidden;
+    transition: all 0.3s;
+    box-shadow: var(--shadow);
+    border: 1px solid var(--border-color);
+    position: relative;
+}
 
-        .summary-label {
-            font-size: 0.9rem;
-            opacity: 0.8;
-        }
+.movie-card:hover {
+    transform: translateY(-8px);
+    box-shadow: var(--shadow-lg);
+}
 
-        .movies-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-            gap: 2rem;
-            margin-top: 2rem;
-        }
+.rank-badge {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+    color: white;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    font-size: 0.9rem;
+    z-index: 1;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
 
-        @media (min-width: 768px) {
-            .movies-grid { grid-template-columns: repeat(3, 1fr); }
-        }
+.poster-container {
+    position: relative;
+    aspect-ratio: 2/3;
+    background: linear-gradient(135deg, #e0e0e0, #f5f5f5);
+    overflow: hidden;
+}
 
-        @media (min-width: 1200px) {
-            .movies-grid { grid-template-columns: repeat(5, 1fr); }
-        }
+.poster-container img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
 
-        .movie-card {
-            background: rgba(255, 255, 255, 0.1);
-            backdrop-filter: blur(10px);
-            border-radius: 12px;
-            overflow: hidden;
-            transition: all 0.3s;
-            position: relative;
-            display: flex;
-            flex-direction: column;
-            height: 100%;
-            min-height: 500px;
-        }
+.no-poster {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    flex-direction: column;
+    gap: 0.5rem;
+}
 
-        .movie-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
-        }
+.no-poster-icon {
+    font-size: 2rem;
+    opacity: 0.5;
+}
 
-        .rank-badge {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            background: rgba(0, 0, 0, 0.8);
-            color: gold;
-            width: 35px;
-            height: 35px;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: bold;
-            z-index: 1;
-            font-size: 1.1rem;
-        }
+.no-poster-text {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    text-align: center;
+    padding: 0 1rem;
+}
 
-        .movie-poster {
-            width: 100%;
-            aspect-ratio: 2/3;
-            object-fit: cover;
-            background: linear-gradient(180deg, transparent, rgba(0, 0, 0, 0.4));
-        }
+.movie-info {
+    padding: 1rem;
+}
 
-        .movie-poster.placeholder {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 3rem;
-            opacity: 0.5;
-        }
+.movie-title {
+    font-size: 0.9rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    line-height: 1.3;
+    min-height: 2.6em;
+    color: var(--text-primary);
+}
 
-        .movie-info {
-            padding: 1rem;
-            display: flex;
-            flex-direction: column;
-            flex-grow: 1;
-            justify-content: space-between;
-        }
+.movie-meta {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.75rem;
+}
 
-        .movie-title {
-            font-size: clamp(0.75rem, calc(0.8rem + 0.3rem * (1 - var(--title-length, 0) / 40)), 1.1rem);
-            font-weight: bold;
-            margin-bottom: 0.5rem;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            line-height: 1.2;
-        }
+.movie-meta span {
+    display: block;
+    margin-bottom: 0.25rem;
+}
 
-        .movie-year {
-            font-size: 0.8rem;
-            opacity: 0.8;
-            margin-bottom: 0.5rem;
-        }
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.25rem 0.75rem;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    margin-bottom: 0.75rem;
+    width: 100%;
+    justify-content: center;
+    white-space: nowrap;
+}
 
-        .movie-genres {
-            font-size: 0.75rem;
-            opacity: 0.7;
-            margin-bottom: 0.5rem;
-            display: -webkit-box;
-            -webkit-line-clamp: 1;
-            -webkit-box-orient: vertical;
-            overflow: hidden;
-        }
+.status-badge.downloaded {
+    background: rgba(72, 187, 120, 0.1);
+    color: var(--success-color);
+}
 
-        .movie-details {
-            flex-grow: 1;
-            min-height: 80px;
-            display: flex;
-            flex-direction: column;
-        }
+.status-badge.missing {
+    background: rgba(245, 101, 101, 0.1);
+    color: var(--error-color);
+}
 
-        .movie-overview {
-            font-size: 0.8rem;
-            opacity: 0.9;
-            margin-bottom: 0.75rem;
-            line-height: 1.4;
-            display: -webkit-box;
-            -webkit-line-clamp: 3;
-            -webkit-box-orient: vertical;
-            overflow: hidden;
-        }
+.status-badge.in-cinemas {
+    background: rgba(237, 137, 54, 0.1);
+    color: var(--warning-color);
+}
 
-        .movie-status {
-            display: inline-block;
-            padding: 0.25rem 0.75rem;
-            border-radius: 20px;
-            font-size: 0.75rem;
-            font-weight: 600;
-            margin-bottom: 0.5rem;
-            background: rgba(0, 0, 0, 0.3);
-        }
+.status-badge.not-in-radarr {
+    background: rgba(113, 128, 150, 0.1);
+    color: var(--text-secondary);
+}
 
-        .quality-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-top: 0.5rem;
-            padding-top: 0.5rem;
-            border-top: 1px solid rgba(255, 255, 255, 0.1);
-        }
+.quality-info {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.75rem;
+    padding: 0.5rem;
+    background: var(--bg-color);
+    border-radius: 6px;
+}
 
-        .quality-badge {
-            background: rgba(255, 255, 255, 0.2);
-            padding: 0.3rem 0.6rem;
-            border-radius: 6px;
-            font-size: 0.7rem;
-            font-weight: 600;
-            border: 1px solid rgba(255, 255, 255, 0.3);
-            backdrop-filter: blur(5px);
-        }
+.quality-profile {
+    font-weight: 600;
+    color: var(--text-primary);
+}
 
-        .upgrade-btn, .add-btn {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border: none;
-            color: white;
-            padding: 0.25rem 0.75rem;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 0.75rem;
-            font-weight: 600;
-            transition: all 0.3s;
-        }
+.movie-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
 
-        .upgrade-btn:hover, .add-btn:hover {
-            opacity: 0.9;
-            transform: translateY(-1px);
-        }
+.action-btn {
+    padding: 0.5rem;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: 1px solid var(--border-color);
+    background: var(--card-bg);
+    color: var(--text-primary);
+    text-decoration: none;
+}
 
-        .upgrade-btn:disabled, .add-btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
+.action-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow);
+}
 
-        .movie-links {
-            display: flex;
-            gap: 0.5rem;
-            margin-top: 0.5rem;
-        }
+.action-btn.add-to-radarr {
+    background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+    color: white;
+    border: none;
+}
 
-        .movie-link {
-            color: rgba(255, 255, 255, 0.9);
-            text-decoration: none;
-            font-size: 0.75rem;
-            padding: 0.3rem 0.6rem;
-            background: linear-gradient(135deg, rgba(102, 126, 234, 0.3), rgba(118, 75, 162, 0.3));
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            border-radius: 6px;
-            transition: all 0.3s;
-            position: relative;
-            overflow: hidden;
-            flex: 1;
-            text-align: center;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-        }
+.action-btn.upgrade {
+    background: linear-gradient(135deg, #f59e0b, #d97706);
+    color: white;
+    border: none;
+}
 
-        .movie-link:before {
-            content: '→';
-            position: absolute;
-            right: 8px;
-            top: 50%;
-            transform: translateY(-50%);
-            opacity: 0;
-            transition: all 0.3s;
-        }
+.external-links {
+    display: flex;
+    gap: 0.5rem;
+}
 
-        .movie-link:hover {
-            background: linear-gradient(135deg, rgba(102, 126, 234, 0.5), rgba(118, 75, 162, 0.5));
-            transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
-            padding-right: 1.5rem;
-        }
+.external-links .action-btn {
+    flex: 1;
+    background: var(--bg-color);
+}
 
-        .movie-link:hover:before {
-            opacity: 1;
-            right: 10px;
-        }
+/* Footer */
+.week-footer {
+    margin-top: 3rem;
+    padding-top: 2rem;
+    border-top: 1px solid var(--border-color);
+    text-align: center;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
 
-        .notification {
-            position: fixed;
-            bottom: 2rem;
-            right: 2rem;
-            padding: 1rem 1.5rem;
-            background: rgba(0, 0, 0, 0.8);
-            color: white;
-            border-radius: 8px;
-            transform: translateY(100px);
-            opacity: 0;
-            transition: all 0.3s;
-            z-index: 1000;
-        }
+.week-footer a {
+    color: var(--primary-color);
+    text-decoration: none;
+}
 
-        .notification.show {
-            transform: translateY(0);
-            opacity: 1;
-        }
+.week-footer a:hover {
+    text-decoration: underline;
+}
+</style>
+{% endblock %}
 
-        .notification.success {
-            background: rgba(72, 187, 120, 0.9);
-        }
-
-        .notification.error {
-            background: rgba(245, 101, 101, 0.9);
-        }
-
-        .footer {
-            text-align: center;
-            padding: 2rem;
-            opacity: 0.8;
-            font-size: 0.9rem;
-        }
-    </style>
-</head>
-<body>
-    <!-- Header with Navigation -->
-    <div class="header">
-        <div class="header-title">
-            <h1>📊 Boxarr</h1>
-            <span class="week-info">
-                Week {{ week_data.year }}W{{ "%02d"|format(week_data.week) }} 
-                ({{ week_data.friday }} - {{ week_data.sunday }})
-            </span>
+{% block content %}
+<div class="container">
+    <!-- Week Header -->
+    <div class="week-header">
+        <h1 class="week-title">
+            <span>🎬</span>
+            Box Office Week {{ "%02d"|format(week_data.week) }}, {{ week_data.year }}
+        </h1>
+        <div class="week-info">
+            {{ week_data.friday.strftime('%B %d') }} - {{ week_data.sunday.strftime('%B %d, %Y') }}
         </div>
         
+        <!-- Summary Stats -->
+        <div class="summary">
+            <div class="summary-item">
+                <span class="summary-value">{{ week_data.movies|length }}</span>
+                <span class="summary-label">Total Movies</span>
+            </div>
+            <div class="summary-item">
+                <span class="summary-value">{{ week_data.movies|selectattr('radarr_id')|list|length }}</span>
+                <span class="summary-label">In Radarr</span>
+            </div>
+            <div class="summary-item">
+                <span class="summary-value">{{ week_data.movies|selectattr('has_file', 'equalto', true)|list|length }}</span>
+                <span class="summary-label">Downloaded</span>
+            </div>
+            <div class="summary-item">
+                <span class="summary-value">{{ week_data.movies|rejectattr('radarr_id')|list|length }}</span>
+                <span class="summary-label">Missing</span>
+            </div>
+        </div>
+        
+        <!-- Navigation Controls -->
         <div class="nav-controls">
-            {% if prev_week %}
-            <a href="/{{ prev_week.year }}W{{ "%02d"|format(prev_week.week) }}" class="nav-btn">← Previous</a>
+            {% if previous_week %}
+            <a href="/{{ previous_week }}" class="nav-btn">← Previous</a>
             {% endif %}
             
             <a href="/dashboard" class="nav-btn">📊 Dashboard</a>
             
             {% if next_week %}
-            <a href="/{{ next_week.year }}W{{ "%02d"|format(next_week.week) }}" class="nav-btn">Next →</a>
+            <a href="/{{ next_week }}" class="nav-btn">Next →</a>
             {% endif %}
-            
-            <div class="connection-status">
-                <span class="status-dot" id="connectionStatus"></span>
-                <span id="connectionText">Connecting...</span>
-            </div>
         </div>
     </div>
-
-    <!-- Main Container -->
-    <div class="container">
-        <!-- Summary Section -->
-        <div class="summary">
-            <div class="summary-item">
-                <div class="summary-value">{{ movies|length }}</div>
-                <div class="summary-label">Total Movies</div>
-            </div>
-            <div class="summary-item">
-                <div class="summary-value" id="matchedCount">{{ matched_count }}</div>
-                <div class="summary-label">In Radarr</div>
-            </div>
-            <div class="summary-item">
-                <div class="summary-value" id="downloadedCount">{{ downloaded_count }}</div>
-                <div class="summary-label">Downloaded</div>
-            </div>
-            <div class="summary-item">
-                <div class="summary-value" id="missingCount">{{ missing_count }}</div>
-                <div class="summary-label">Missing</div>
-            </div>
-        </div>
-
-        <!-- Movies Grid -->
-        <div class="movies-grid">
-            {% for movie in movies %}
-            <div class="movie-card" data-radarr-id="{{ movie.radarr_id or '' }}" data-rank="{{ movie.rank }}">
-                <div class="rank-badge">#{{ movie.rank }}</div>
-                
+    
+    <!-- Movies Grid -->
+    <div class="movies-grid">
+        {% for movie in week_data.movies %}
+        <div class="movie-card" data-movie-id="{{ movie.radarr_id or '' }}">
+            <div class="rank-badge">#{{ movie.rank }}</div>
+            
+            <div class="poster-container">
                 {% if movie.poster %}
-                <img src="{{ movie.poster }}" alt="{{ movie.title }}" class="movie-poster" loading="lazy">
+                <img src="{{ movie.poster }}" alt="{{ movie.title }}" loading="lazy">
                 {% else %}
-                <div class="movie-poster placeholder">🎬</div>
+                <div class="no-poster">
+                    <div class="no-poster-icon">🎬</div>
+                    <div class="no-poster-text">{{ movie.title }}</div>
+                </div>
                 {% endif %}
+            </div>
+            
+            <div class="movie-info">
+                <h3 class="movie-title">{{ movie.title }}</h3>
                 
-                <div class="movie-info">
-                    <div class="movie-title" style="--title-length: {{ movie.title|length }}">{{ movie.title }}</div>
-                    
-                    <div class="movie-details">
-                        {% if movie.year %}
-                        <div class="movie-year">{{ movie.year }}</div>
-                        {% endif %}
-                        
-                        {% if movie.genres %}
-                        <div class="movie-genres">{{ movie.genres }}</div>
-                        {% endif %}
-                        
-                        {% if movie.overview %}
-                        <div class="movie-overview">{{ movie.overview }}</div>
-                        {% endif %}
+                <div class="movie-meta">
+                    {% if movie.year %}<span>{{ movie.year }}</span>{% endif %}
+                    {% if movie.genres %}<span>{{ movie.genres }}</span>{% endif %}
+                    {% if movie.weekend_gross %}
+                    <span>Weekend: ${{ "{:,.0f}".format(movie.weekend_gross) }}</span>
+                    {% endif %}
+                </div>
+                
+                <!-- Status Badge -->
+                {% if movie.radarr_id %}
+                    {% if movie.has_file %}
+                    <div class="status-badge downloaded" data-status="downloaded">
+                        ✓ Downloaded
                     </div>
-                    
-                    <div class="movie-status" style="color: {{ movie.status_color }}">
-                        {{ movie.status_icon }} {{ movie.status }}
+                    {% elif movie.status == 'In Cinemas' %}
+                    <div class="status-badge in-cinemas" data-status="in-cinemas">
+                        🎬 In Cinemas
                     </div>
-                    
-                    {% if movie.radarr_id %}
-                    <div class="quality-row">
-                        <span class="quality-badge">{{ movie.quality_profile_name or 'Unknown' }}</span>
-                        {% if movie.can_upgrade_quality %}
-                        <button class="upgrade-btn" onclick="upgradeQuality({{ movie.radarr_id }})">⬆️ Upgrade</button>
-                        {% endif %}
-                    </div>
-                    {% elif movie.status == "Not in Radarr" %}
-                    <div class="quality-row">
-                        <button class="add-btn" data-movie-title="{{ movie.title }}" 
-                                {% if movie.tmdb_id %}data-tmdb-id="{{ movie.tmdb_id }}"{% endif %}
-                                onclick="addToRadarr(this)">➕ Add to Radarr</button>
+                    {% else %}
+                    <div class="status-badge missing" data-status="missing">
+                        ⬇ Missing
                     </div>
                     {% endif %}
+                {% else %}
+                <div class="status-badge not-in-radarr">
+                    ➕ Not in Radarr
+                </div>
+                {% endif %}
+                
+                <!-- Quality Info -->
+                {% if movie.quality_profile_name %}
+                <div class="quality-info">
+                    Quality: <span class="quality-profile">{{ movie.quality_profile_name }}</span>
+                </div>
+                {% endif %}
+                
+                <!-- Actions -->
+                <div class="movie-actions">
+                    {% if not movie.radarr_id %}
+                    <button class="action-btn add-to-radarr" onclick="addToRadarr('{{ movie.title }}', {{ movie.year or 'null' }})">
+                        Add to Radarr
+                    </button>
+                    {% elif movie.can_upgrade_quality %}
+                    <button class="action-btn upgrade" onclick="upgradeQuality({{ movie.radarr_id }})">
+                        Upgrade to Ultra-HD
+                    </button>
+                    {% endif %}
                     
-                    <div class="movie-links">
+                    {% if movie.imdb_id or movie.title %}
+                    <div class="external-links">
                         {% if movie.imdb_id %}
-                        <a href="https://www.imdb.com/title/{{ movie.imdb_id }}" target="_blank" class="movie-link">IMDb</a>
+                        <a href="https://www.imdb.com/title/{{ movie.imdb_id }}" target="_blank" class="action-btn">
+                            IMDb
+                        </a>
                         {% endif %}
-                        <a href="https://en.wikipedia.org/w/index.php?search={{ movie.title }}+movie+{{ movie.year or '' }}" target="_blank" class="movie-link">Wikipedia</a>
+                        <a href="https://en.wikipedia.org/wiki/{{ movie.title.replace(' ', '_') }}" target="_blank" class="action-btn">
+                            Wikipedia
+                        </a>
                     </div>
+                    {% endif %}
                 </div>
             </div>
-            {% endfor %}
         </div>
+        {% endfor %}
     </div>
-
+    
     <!-- Footer -->
-    <div class="footer">
+    <div class="week-footer">
         <p>Boxarr - Box Office Tracking for Radarr</p>
-        <p>Last updated: <span id="lastUpdate">{{ generated_at }}</span></p>
+        <p>Last updated: {{ week_data.generated_at.strftime('%B %d, %Y at %I:%M %p') if week_data.generated_at else 'Unknown' }}</p>
     </div>
-
-    <!-- Notification -->
-    <div id="notification" class="notification"></div>
-
-    <!-- JavaScript -->
-    <script>
-    // Notification system
-    function showNotification(message, type = 'info') {
-        const notification = document.getElementById('notification');
-        notification.textContent = message;
-        notification.className = `notification show ${type}`;
-        
-        setTimeout(() => {
-            notification.classList.remove('show');
-        }, 3000);
-    }
-
-    // Connection status
-    async function checkConnection() {
-        try {
-            const response = await fetch('/api/health');
-            const data = await response.json();
-            
-            const statusDot = document.getElementById('connectionStatus');
-            const statusText = document.getElementById('connectionText');
-            
-            if (data.radarr_connected) {
-                statusDot.classList.remove('error');
-                statusText.textContent = 'Connected';
-            } else if (data.radarr_configured) {
-                statusDot.classList.add('error');
-                statusText.textContent = 'Radarr Offline';
-            } else {
-                statusDot.classList.add('error');
-                statusText.textContent = 'Not Configured';
-            }
-        } catch (e) {
-            document.getElementById('connectionStatus').classList.add('error');
-            document.getElementById('connectionText').textContent = 'Connection Error';
-        }
-    }
-
-    // Dynamic status updates
-    async function updateMovieStatuses() {
-        const cards = document.querySelectorAll('.movie-card[data-radarr-id]');
-        const movieIds = Array.from(cards)
-            .map(card => card.dataset.radarrId)
-            .filter(id => id && id !== '');
-        
-        if (movieIds.length === 0) return;
-        
-        try {
-            const response = await fetch('/api/movies/status', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ movie_ids: movieIds.map(id => parseInt(id)) })
-            });
-            
-            const statuses = await response.json();
-            
-            // Update counts
-            let matched = 0, downloaded = 0, missing = 0;
-            
-            statuses.forEach(status => {
-                const card = document.querySelector(`.movie-card[data-radarr-id="${status.id}"]`);
-                if (!card) return;
-                
-                matched++;
-                
-                // Update status display
-                const statusElement = card.querySelector('.movie-status');
-                if (statusElement) {
-                    statusElement.textContent = `${status.status_icon} ${status.status}`;
-                    statusElement.style.color = status.status_color;
-                }
-                
-                // Update quality profile
-                const qualityBadge = card.querySelector('.quality-badge');
-                if (qualityBadge) {
-                    qualityBadge.textContent = status.quality_profile;
-                }
-                
-                // Update upgrade button visibility
-                const qualityRow = card.querySelector('.quality-row');
-                const upgradeBtn = card.querySelector('.upgrade-btn');
-                if (qualityRow && status.can_upgrade && !upgradeBtn) {
-                    const btn = document.createElement('button');
-                    btn.className = 'upgrade-btn';
-                    btn.textContent = '⬆️ Upgrade';
-                    btn.onclick = () => upgradeQuality(status.id);
-                    qualityRow.appendChild(btn);
-                } else if (upgradeBtn && !status.can_upgrade) {
-                    upgradeBtn.remove();
-                }
-                
-                // Count statuses
-                if (status.status === 'Downloaded') downloaded++;
-                else if (status.status === 'Missing') missing++;
-            });
-            
-            // Update summary counts
-            document.getElementById('matchedCount').textContent = matched;
-            document.getElementById('downloadedCount').textContent = downloaded;
-            document.getElementById('missingCount').textContent = missing;
-            
-        } catch (e) {
-            console.error('Error updating statuses:', e);
-        }
-    }
-
-    // Upgrade quality profile
-    async function upgradeQuality(movieId) {
-        if (!confirm('Upgrade this movie to Ultra-HD quality?')) return;
-        
-        try {
-            const response = await fetch(`/api/movies/${movieId}/upgrade`, {
-                method: 'POST'
-            });
-            
-            const result = await response.json();
-            
-            if (result.success) {
-                showNotification(result.message, 'success');
-                setTimeout(updateMovieStatuses, 1000);
-            } else {
-                showNotification(result.message || 'Upgrade failed', 'error');
-            }
-        } catch (e) {
-            showNotification('Connection error', 'error');
-        }
-    }
-
-    // Add movie to Radarr
-    async function addToRadarr(button) {
-        const movieTitle = button.dataset.movieTitle;
-        const tmdbId = button.dataset.tmdbId ? parseInt(button.dataset.tmdbId) : null;
-        
-        if (!confirm(`Add "${movieTitle}" to Radarr?`)) return;
-        
-        button.disabled = true;
-        button.textContent = 'Adding...';
-        
-        try {
-            const response = await fetch('/api/movies/add', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    title: movieTitle,
-                    tmdb_id: tmdbId
-                })
-            });
-            
-            const result = await response.json();
-            
-            if (result.success) {
-                showNotification(result.message, 'success');
-                // Reload page after successful add
-                setTimeout(() => window.location.reload(), 2000);
-            } else {
-                showNotification('Failed to add: ' + result.message, 'error');
-                button.textContent = '➕ Add to Radarr';
-                button.disabled = false;
-            }
-        } catch (e) {
-            showNotification('Connection error: ' + e, 'error');
-            button.textContent = '➕ Add to Radarr';
-            button.disabled = false;
-        }
-    }
-
-    // Initialize
-    document.addEventListener('DOMContentLoaded', () => {
-        checkConnection();
-        updateMovieStatuses();
-        
-        // Update every 30 seconds
-        setInterval(updateMovieStatuses, 30000);
-        setInterval(checkConnection, 60000);
-    });
-    </script>
-</body>
-</html>
+</div>
+{% endblock %}
