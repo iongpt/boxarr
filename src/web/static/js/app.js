@@ -81,7 +81,7 @@
             isModalOpen = true;
         }
         
-        fetch('/api/trigger-update', { method: 'POST' })
+        fetch('/api/scheduler/trigger', { method: 'POST' })
             .then(response => response.json())
             .then(data => {
                 const progressMessage = document.getElementById('progressMessage');
@@ -92,7 +92,7 @@
                     if (progressFooter) progressFooter.style.display = 'block';
                     setTimeout(() => window.location.reload(), 2000);
                 } else {
-                    if (progressMessage) progressMessage.textContent = 'Update failed: ' + (data.error || 'Unknown error');
+                    if (progressMessage) progressMessage.textContent = 'Update failed: ' + (data.message || 'Unknown error');
                     if (progressFooter) progressFooter.style.display = 'block';
                 }
             })
@@ -152,7 +152,7 @@
                 if (progressFooter) progressFooter.style.display = 'block';
                 setTimeout(() => window.location.reload(), 2000);
             } else {
-                if (progressMessage) progressMessage.textContent = 'Update failed: ' + (data.error || 'Unknown error');
+                if (progressMessage) progressMessage.textContent = 'Update failed: ' + (data.message || 'Unknown error');
                 if (progressFooter) progressFooter.style.display = 'block';
             }
         })
@@ -182,7 +182,7 @@
                         showMessage('Week deleted successfully', 'success');
                         setTimeout(() => window.location.reload(), 1000);
                     } else {
-                        showMessage('Failed to delete week: ' + data.error, 'error');
+                        showMessage('Failed to delete week: ' + (data.message || data.error || 'Unknown error'), 'error');
                     }
                 })
                 .catch(error => {

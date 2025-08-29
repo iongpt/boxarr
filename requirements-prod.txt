@@ -18,7 +18,3 @@ pyyaml>=6.0
 
 # Scheduling
 apscheduler>=3.10.0
-
-# Database
-sqlalchemy>=2.0.0
-alembic>=1.12.0
