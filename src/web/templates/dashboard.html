@@ -53,7 +53,7 @@
             </a>
             
             {% if recent_weeks %}
-            <a href="/{{ recent_weeks[0].filename }}" class="action-btn primary">
+            <a href="/{{ recent_weeks[0].year }}W{{ '%02d'|format(recent_weeks[0].week) }}" class="action-btn primary">
                 <span class="btn-icon">👁️</span> View Last Week
             </a>
             {% endif %}
@@ -90,7 +90,7 @@
                     </div>
                     
                     <div class="report-actions">
-                        <a href="/{{ week.filename }}" class="report-btn view">View</a>
+                        <a href="/{{ week.year }}W{{ '%02d'|format(week.week) }}" class="report-btn view">View</a>
                         <button class="report-btn delete" onclick="deleteWeek('{{ week.year }}', '{{ '%02d'|format(week.week) }}')">Delete</button>
                     </div>
                 </div>
@@ -103,7 +103,7 @@
                 <select class="week-selector" onchange="if(this.value) window.location.href=this.value">
                     <option value="">View older weeks...</option>
                     {% for week in older_weeks %}
-                    <option value="/{{ week.filename }}">Week {{ "%02d"|format(week.week) }}, {{ week.year }} - {{ week.date_range }}</option>
+                    <option value="/{{ week.year }}W{{ '%02d'|format(week.week) }}">Week {{ "%02d"|format(week.week) }}, {{ week.year }} - {{ week.date_range }}</option>
                     {% endfor %}
                 </select>
             </div>

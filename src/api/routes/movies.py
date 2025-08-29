@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from ...core.html_generator import WeeklyPageGenerator
+from ...core.json_generator import WeeklyDataGenerator
 from ...core.radarr import RadarrService
 from ...utils.config import settings
 from ...utils.logger import get_logger
@@ -270,7 +270,7 @@ async def add_movie_to_radarr(request: AddMovieRequest):
 def regenerate_weeks_with_movie(movie_title: str):
     """Find and regenerate all weeks containing a specific movie."""
     weekly_pages_dir = Path(settings.boxarr_data_directory) / "weekly_pages"
-    generator = WeeklyPageGenerator()
+    generator = WeeklyDataGenerator()
     radarr_service = RadarrService()
 
     # Get updated Radarr library
@@ -311,8 +311,8 @@ def regenerate_weeks_with_movie(movie_title: str):
                 matcher.build_movie_index(radarr_movies)
                 match_results = matcher.match_movies(box_office_movies, radarr_movies)
 
-                # Generate updated page
-                generator.generate_weekly_page(match_results, year, week, radarr_movies)
+                # Generate updated data file
+                generator.generate_weekly_data(match_results, year, week, radarr_movies)
         except Exception as e:
             logger.error(f"Error processing {json_file}: {e}")
             continue
