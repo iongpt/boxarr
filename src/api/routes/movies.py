@@ -270,8 +270,8 @@ async def add_movie_to_radarr(request: AddMovieRequest):
 def regenerate_weeks_with_movie(movie_title: str):
     """Find and regenerate all weeks containing a specific movie."""
     weekly_pages_dir = Path(settings.boxarr_data_directory) / "weekly_pages"
-    generator = WeeklyDataGenerator()
     radarr_service = RadarrService()
+    generator = WeeklyDataGenerator(radarr_service)
 
     # Get updated Radarr library
     radarr_movies = radarr_service.get_all_movies()
