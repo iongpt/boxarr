@@ -44,26 +44,12 @@ class WidgetData(BaseModel):
 
 @router.get("/", response_class=HTMLResponse)
 async def home_page(request: Request):
-    """Serve the home page (current week or setup)."""
+    """Serve the home page (dashboard or setup)."""
     # Check if Radarr is configured
     if not settings.is_configured:
         return RedirectResponse(url="/setup")
 
-    # Check for most recent week data
-    weekly_pages_dir = Path(settings.boxarr_data_directory) / "weekly_pages"
-    json_files = sorted(weekly_pages_dir.glob("*.json"), reverse=True)
-
-    if json_files:
-        # Parse the filename to get year and week
-        import re
-
-        match = re.match(r"(\d{4})W(\d{2})\.json", json_files[0].name)
-        if match:
-            year = match.group(1)
-            week = match.group(2)
-            return RedirectResponse(url=f"/{year}W{week}")
-
-    # No data, redirect to dashboard
+    # Always redirect to dashboard when configured
     return RedirectResponse(url="/dashboard")
 
 
@@ -159,45 +145,10 @@ async def setup_page(request: Request):
     )
 
 
-@router.get("/settings", response_class=HTMLResponse)
-async def settings_page(request: Request):
-    """Serve the settings page."""
-    # Parse cron for display
-    cron = settings.boxarr_scheduler_cron
-    import re
-
-    cron_match = re.match(r"(\d+) (\d+) \* \* (\d+)", cron)
-
-    hour = int(cron_match.group(2)) if cron_match else 23
-    minute = int(cron_match.group(1)) if cron_match else 0
-    day = int(cron_match.group(3)) if cron_match else 2
-
-    return templates.TemplateResponse(
-        "settings.html",
-        {
-            "request": request,
-            "settings": {
-                "radarr_url": str(settings.radarr_url),
-                "radarr_api_key": "***" if settings.radarr_api_key else "",
-                "radarr_root_folder": str(settings.radarr_root_folder),
-                "radarr_quality_profile_default": settings.radarr_quality_profile_default,
-                "radarr_quality_profile_upgrade": settings.radarr_quality_profile_upgrade,
-                "scheduler_enabled": settings.boxarr_scheduler_enabled,
-                "scheduler_hour": hour,
-                "scheduler_minute": minute,
-                "scheduler_day": day,
-                "auto_add": settings.boxarr_features_auto_add,
-                "quality_upgrade": settings.boxarr_features_quality_upgrade,
-            },
-            "version": __version__,
-        },
-    )
-
-
 @router.get("/{year}W{week}", response_class=HTMLResponse)
 async def serve_weekly_page(request: Request, year: int, week: int):
     """Serve a specific week's page using template with dynamic data."""
-    from datetime import date, timedelta
+    from datetime import date, datetime, timedelta
 
     from ...core.radarr import RadarrService
 
@@ -278,10 +229,10 @@ async def serve_weekly_page(request: Request, year: int, week: int):
         except Exception as e:
             logger.warning(f"Could not fetch current Radarr status: {e}")
 
-    # Calculate counts
-    matched_count = sum(1 for m in movies if m.get("radarr_id"))
-    downloaded_count = sum(1 for m in movies if m.get("status") == "Downloaded")
-    missing_count = sum(1 for m in movies if m.get("status") == "Missing")
+    # Calculate counts (for future use/debugging)
+    # matched_count = sum(1 for m in movies if m.get("radarr_id"))
+    # downloaded_count = sum(1 for m in movies if m.get("status") == "Downloaded")
+    # missing_count = sum(1 for m in movies if m.get("status") == "Missing")
 
     # Calculate week dates
     monday = date.fromisocalendar(year, week, 1)
@@ -326,6 +277,15 @@ async def serve_weekly_page(request: Request, year: int, week: int):
     if next_json.exists():
         next_week = {"year": next_year, "week": next_week_num}
 
+    # Convert generated_at string to datetime if present
+    generated_at = None
+    if metadata.get("generated_at"):
+        try:
+            generated_at = datetime.fromisoformat(metadata.get("generated_at"))
+        except (ValueError, TypeError):
+            # If parsing fails, leave as None
+            pass
+
     return templates.TemplateResponse(
         "weekly.html",
         {
@@ -333,16 +293,13 @@ async def serve_weekly_page(request: Request, year: int, week: int):
             "week_data": {
                 "year": year,
                 "week": week,
-                "friday": friday.strftime("%b %d"),
-                "sunday": sunday.strftime("%b %d"),
+                "friday": friday,
+                "sunday": sunday,
+                "movies": movies,
+                "generated_at": generated_at,
             },
-            "movies": movies,
-            "matched_count": matched_count,
-            "downloaded_count": downloaded_count,
-            "missing_count": missing_count,
-            "prev_week": prev_week,
-            "next_week": next_week,
-            "generated_at": metadata.get("generated_at", "Unknown"),
+            "previous_week": f"{prev_year}W{prev_week_num:02d}" if prev_week else None,
+            "next_week": f"{next_year}W{next_week_num:02d}" if next_week else None,
         },
     )
 

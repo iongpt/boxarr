@@ -1,450 +1,599 @@
 /**
  * Boxarr Frontend Application
+ * Unified JavaScript for all pages
  */
 
-// Configuration
-const API_BASE = window.location.origin;
-const UPDATE_INTERVAL = 30000; // 30 seconds
+(function() {
+    'use strict';
 
-// State management
-let updateTimer = null;
-let isUpdating = false;
+    // Global state
+    let statusCheckInterval = null;
+    let isModalOpen = false;
+    let connectionTested = false;
 
-/**
- * Initialize the application
- */
-document.addEventListener('DOMContentLoaded', () => {
-  console.log('Boxarr initialized');
-  
-  // Initialize dynamic features
-  initializeStatusUpdates();
-  initializeNavigation();
-  initializeFormHandlers();
-  
-  // Start periodic updates if on a weekly page
-  if (window.location.pathname.includes('W')) {
-    startStatusUpdates();
-  }
-});
+    // ==========================================
+    // Core Functions
+    // ==========================================
 
-/**
- * Initialize movie status updates
- */
-function initializeStatusUpdates() {
-  const statusElements = document.querySelectorAll('[data-movie-id]');
-  if (statusElements.length === 0) return;
-  
-  console.log(`Found ${statusElements.length} movies to track`);
-}
-
-/**
- * Start periodic status updates
- */
-function startStatusUpdates() {
-  // Initial update after 5 seconds
-  setTimeout(updateMovieStatuses, 5000);
-  
-  // Then update every 30 seconds
-  updateTimer = setInterval(updateMovieStatuses, UPDATE_INTERVAL);
-}
-
-/**
- * Stop status updates
- */
-function stopStatusUpdates() {
-  if (updateTimer) {
-    clearInterval(updateTimer);
-    updateTimer = null;
-  }
-}
-
-/**
- * Update movie statuses from API
- */
-async function updateMovieStatuses() {
-  if (isUpdating) return;
-  isUpdating = true;
-  
-  try {
-    // Collect movie IDs from the page
-    const movieElements = document.querySelectorAll('[data-movie-id]');
-    const movieIds = Array.from(movieElements)
-      .map(el => parseInt(el.dataset.movieId))
-      .filter(id => id && !isNaN(id));
-    
-    if (movieIds.length === 0) {
-      console.log('No movie IDs to update');
-      return;
+    /**
+     * Check connection status to API
+     */
+    function checkConnection() {
+        const statusDot = document.getElementById('statusDot');
+        const statusText = document.getElementById('statusText');
+        
+        fetch('/api/health')
+            .then(response => {
+                if (response.ok) {
+                    statusDot.classList.add('connected');
+                    statusDot.classList.remove('error');
+                    statusText.textContent = 'Connected';
+                } else {
+                    throw new Error('Connection failed');
+                }
+            })
+            .catch(error => {
+                statusDot.classList.add('error');
+                statusDot.classList.remove('connected');
+                statusText.textContent = 'Disconnected';
+            });
     }
-    
-    console.log(`Updating ${movieIds.length} movies`);
-    
-    // Fetch status updates
-    const response = await fetch(`${API_BASE}/api/movies/status`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ movie_ids: movieIds })
-    });
-    
-    if (!response.ok) {
-      throw new Error(`Status update failed: ${response.status}`);
+
+    /**
+     * Show a temporary message to the user
+     */
+    function showMessage(message, type = 'info') {
+        console.log(`[${type}] ${message}`);
+        
+        // Create toast notification
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type}`;
+        toast.textContent = message;
+        toast.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 1rem 1.5rem;
+            background: ${type === 'success' ? '#48bb78' : type === 'error' ? '#f56565' : '#667eea'};
+            color: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            z-index: 10000;
+            animation: slideIn 0.3s ease;
+        `;
+        
+        document.body.appendChild(toast);
+        
+        setTimeout(() => {
+            toast.style.animation = 'slideOut 0.3s ease';
+            setTimeout(() => toast.remove(), 300);
+        }, 3000);
     }
-    
-    const statuses = await response.json();
-    
-    // Update UI
-    statuses.forEach(status => {
-      updateMovieUI(status);
-    });
-    
-    updateConnectionStatus(true);
-    
-  } catch (error) {
-    console.error('Failed to update movie statuses:', error);
-    updateConnectionStatus(false);
-  } finally {
-    isUpdating = false;
-  }
-}
 
-/**
- * Update movie UI with new status
- */
-function updateMovieUI(status) {
-  const element = document.querySelector(`[data-movie-id="${status.id}"]`);
-  if (!element) return;
-  
-  // Update status badge
-  const statusBadge = element.querySelector('.movie-status');
-  if (statusBadge) {
-    statusBadge.className = `movie-status status-${status.status.toLowerCase().replace(/\s+/g, '-')}`;
-    statusBadge.textContent = formatStatus(status.status);
-  }
-  
-  // Update quality profile
-  const qualityElement = element.querySelector('.quality-profile');
-  if (qualityElement) {
-    qualityElement.textContent = status.quality_profile;
-  }
-  
-  // Update file status
-  if (status.has_file) {
-    element.classList.add('has-file');
-    element.classList.remove('no-file');
-  } else {
-    element.classList.add('no-file');
-    element.classList.remove('has-file');
-  }
-}
+    // ==========================================
+    // Dashboard Functions
+    // ==========================================
 
-/**
- * Format status for display
- */
-function formatStatus(status) {
-  const statusMap = {
-    'downloaded': 'Downloaded',
-    'missing': 'Missing',
-    'inCinemas': 'In Cinemas',
-    'released': 'Released',
-    'announced': 'Announced',
-    'tba': 'TBA'
-  };
-  return statusMap[status] || status;
-}
+    window.updateCurrentWeek = function() {
+        const modal = document.getElementById('progressModal');
+        if (modal) {
+            modal.classList.add('show');
+            isModalOpen = true;
+        }
+        
+        fetch('/api/trigger-update', { method: 'POST' })
+            .then(response => response.json())
+            .then(data => {
+                const progressMessage = document.getElementById('progressMessage');
+                const progressFooter = document.getElementById('progressFooter');
+                
+                if (data.success) {
+                    if (progressMessage) progressMessage.textContent = 'Update completed successfully!';
+                    if (progressFooter) progressFooter.style.display = 'block';
+                    setTimeout(() => window.location.reload(), 2000);
+                } else {
+                    if (progressMessage) progressMessage.textContent = 'Update failed: ' + (data.error || 'Unknown error');
+                    if (progressFooter) progressFooter.style.display = 'block';
+                }
+            })
+            .catch(error => {
+                const progressMessage = document.getElementById('progressMessage');
+                const progressFooter = document.getElementById('progressFooter');
+                if (progressMessage) progressMessage.textContent = 'Error: ' + error.message;
+                if (progressFooter) progressFooter.style.display = 'block';
+            });
+    };
 
-/**
- * Update connection status indicator
- */
-function updateConnectionStatus(isConnected) {
-  const statusDot = document.querySelector('.status-dot');
-  const statusText = document.querySelector('.connection-status span');
-  
-  if (statusDot) {
-    if (isConnected) {
-      statusDot.classList.remove('error');
-      if (statusText) statusText.textContent = 'Connected';
-    } else {
-      statusDot.classList.add('error');
-      if (statusText) statusText.textContent = 'Disconnected';
+    window.showHistoricalUpdate = function() {
+        const modal = document.getElementById('historicalModal');
+        if (modal) {
+            modal.classList.add('show');
+            isModalOpen = true;
+        }
+    };
+
+    window.closeHistoricalUpdate = function() {
+        const modal = document.getElementById('historicalModal');
+        if (modal) {
+            modal.classList.remove('show');
+            isModalOpen = false;
+        }
+    };
+
+    window.updateHistoricalWeek = function() {
+        const year = document.getElementById('historicalYear').value;
+        const week = document.getElementById('historicalWeek').value;
+        
+        closeHistoricalUpdate();
+        
+        const modal = document.getElementById('progressModal');
+        const progressTitle = document.getElementById('progressTitle');
+        
+        if (modal) {
+            modal.classList.add('show');
+            isModalOpen = true;
+        }
+        if (progressTitle) {
+            progressTitle.textContent = `Updating Week ${week}, ${year}`;
+        }
+        
+        fetch('/api/scheduler/update-week', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ year: parseInt(year), week: parseInt(week) })
+        })
+        .then(response => response.json())
+        .then(data => {
+            const progressMessage = document.getElementById('progressMessage');
+            const progressFooter = document.getElementById('progressFooter');
+            
+            if (data.success) {
+                if (progressMessage) progressMessage.textContent = 'Historical week updated successfully!';
+                if (progressFooter) progressFooter.style.display = 'block';
+                setTimeout(() => window.location.reload(), 2000);
+            } else {
+                if (progressMessage) progressMessage.textContent = 'Update failed: ' + (data.error || 'Unknown error');
+                if (progressFooter) progressFooter.style.display = 'block';
+            }
+        })
+        .catch(error => {
+            const progressMessage = document.getElementById('progressMessage');
+            const progressFooter = document.getElementById('progressFooter');
+            if (progressMessage) progressMessage.textContent = 'Error: ' + error.message;
+            if (progressFooter) progressFooter.style.display = 'block';
+        });
+    };
+
+    window.closeProgressModal = function() {
+        const modal = document.getElementById('progressModal');
+        if (modal) {
+            modal.classList.remove('show');
+            isModalOpen = false;
+        }
+        window.location.reload();
+    };
+
+    window.deleteWeek = function(year, week) {
+        if (confirm(`Are you sure you want to delete Week ${week}, ${year}?`)) {
+            fetch(`/api/weeks/${year}/W${week}/delete`, { method: 'DELETE' })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showMessage('Week deleted successfully', 'success');
+                        setTimeout(() => window.location.reload(), 1000);
+                    } else {
+                        showMessage('Failed to delete week: ' + data.error, 'error');
+                    }
+                })
+                .catch(error => {
+                    showMessage('Error deleting week: ' + error.message, 'error');
+                });
+        }
+    };
+
+    // ==========================================
+    // Weekly Page Functions
+    // ==========================================
+
+    function updateMovieStatuses() {
+        const movieCards = document.querySelectorAll('.movie-card[data-movie-id]');
+        const movieIds = Array.from(movieCards)
+            .map(card => card.dataset.movieId)
+            .filter(id => id && id !== '');
+        
+        if (movieIds.length === 0) return;
+        
+        fetch('/api/movies/status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ movie_ids: movieIds })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.statuses) {
+                Object.entries(data.statuses).forEach(([movieId, status]) => {
+                    const card = document.querySelector(`.movie-card[data-movie-id="${movieId}"]`);
+                    if (card) {
+                        const statusBadge = card.querySelector('.status-badge');
+                        if (statusBadge) {
+                            // Update status based on response
+                            statusBadge.className = 'status-badge';
+                            if (status.has_file) {
+                                statusBadge.classList.add('downloaded');
+                                statusBadge.innerHTML = '✓ Downloaded';
+                            } else if (status.status === 'In Cinemas') {
+                                statusBadge.classList.add('in-cinemas');
+                                statusBadge.innerHTML = '🎬 In Cinemas';
+                            } else {
+                                statusBadge.classList.add('missing');
+                                statusBadge.innerHTML = '⬇ Missing';
+                            }
+                        }
+                        
+                        // Update quality profile if changed
+                        const qualityInfo = card.querySelector('.quality-profile');
+                        if (qualityInfo && status.quality_profile_name) {
+                            qualityInfo.textContent = status.quality_profile_name;
+                        }
+                    }
+                });
+            }
+        })
+        .catch(error => {
+            console.error('Error updating statuses:', error);
+        });
     }
-  }
-}
 
-/**
- * Initialize navigation handlers
- */
-function initializeNavigation() {
-  // Week selector
-  const weekSelector = document.querySelector('#week-selector');
-  if (weekSelector) {
-    weekSelector.addEventListener('change', (e) => {
-      if (e.target.value) {
-        window.location.href = `/${e.target.value}.html`;
-      }
-    });
-  }
-  
-  // Mobile menu toggle
-  const menuToggle = document.querySelector('.menu-toggle');
-  const navMenu = document.querySelector('.nav-menu');
-  if (menuToggle && navMenu) {
-    menuToggle.addEventListener('click', () => {
-      navMenu.classList.toggle('active');
-    });
-  }
-}
+    window.addToRadarr = function(title, year) {
+        if (confirm(`Add "${title}" to Radarr?`)) {
+            fetch('/api/movies/add', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ title, year })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showMessage('Movie added successfully!', 'success');
+                    setTimeout(() => window.location.reload(), 1500);
+                } else {
+                    showMessage('Failed to add movie: ' + (data.error || 'Unknown error'), 'error');
+                }
+            })
+            .catch(error => {
+                showMessage('Error adding movie: ' + error.message, 'error');
+            });
+        }
+    };
 
-/**
- * Initialize form handlers
- */
-function initializeFormHandlers() {
-  // Setup form
-  const setupForm = document.querySelector('#setup-form');
-  if (setupForm) {
-    setupForm.addEventListener('submit', handleSetupSubmit);
-  }
-  
-  // Settings form
-  const settingsForm = document.querySelector('#settings-form');
-  if (settingsForm) {
-    settingsForm.addEventListener('submit', handleSettingsSubmit);
-  }
-  
-  // Test connection button
-  const testButton = document.querySelector('#test-connection');
-  if (testButton) {
-    testButton.addEventListener('click', handleTestConnection);
-  }
-}
+    window.upgradeQuality = function(movieId, buttonElement) {
+        if (confirm('Upgrade this movie to Ultra-HD quality?')) {
+            // Disable button immediately to prevent double-clicks
+            if (buttonElement) {
+                buttonElement.disabled = true;
+                buttonElement.textContent = 'Processing...';
+            }
+            
+            fetch(`/api/movies/${movieId}/upgrade`, {
+                method: 'POST'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showMessage('Quality profile upgraded successfully!', 'success');
+                    
+                    // Replace button with "Upgrading" label
+                    if (buttonElement) {
+                        const upgradingLabel = document.createElement('span');
+                        upgradingLabel.className = 'upgrade-status';
+                        upgradingLabel.style.cssText = 'color: #667eea; font-weight: 600; padding: 0.5rem;';
+                        upgradingLabel.textContent = '⚡ Upgrading...';
+                        buttonElement.parentNode.replaceChild(upgradingLabel, buttonElement);
+                    }
+                    
+                    updateMovieStatuses();
+                } else {
+                    showMessage('Failed to upgrade: ' + (data.error || 'Unknown error'), 'error');
+                    // Re-enable button on failure
+                    if (buttonElement) {
+                        buttonElement.disabled = false;
+                        buttonElement.textContent = 'Upgrade to Ultra-HD';
+                    }
+                }
+            })
+            .catch(error => {
+                showMessage('Error upgrading quality: ' + error.message, 'error');
+                // Re-enable button on error
+                if (buttonElement) {
+                    buttonElement.disabled = false;
+                    buttonElement.textContent = 'Upgrade to Ultra-HD';
+                }
+            });
+        }
+    };
 
-/**
- * Handle setup form submission
- */
-async function handleSetupSubmit(e) {
-  e.preventDefault();
-  
-  const formData = new FormData(e.target);
-  const data = Object.fromEntries(formData);
-  
-  try {
-    const response = await fetch(`${API_BASE}/api/config/save`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(data)
-    });
+    // ==========================================
+    // Setup Page Functions
+    // ==========================================
+
+    window.testConnection = function() {
+        const url = document.getElementById('radarrUrl').value;
+        const apiKey = document.getElementById('radarrApiKey').value;
+        
+        if (!url || !apiKey) {
+            showMessage('Please enter Radarr URL and API Key', 'error');
+            return;
+        }
+        
+        const testButton = document.getElementById('testButtonText');
+        const testSpinner = document.getElementById('testButtonSpinner');
+        const testResults = document.getElementById('testResults');
+        
+        if (testButton) testButton.textContent = 'Testing...';
+        if (testSpinner) testSpinner.style.display = 'inline-block';
+        
+        fetch('/api/config/test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url, api_key: apiKey })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (testButton) testButton.textContent = 'Test Connection';
+            if (testSpinner) testSpinner.style.display = 'none';
+            
+            if (data.success) {
+                connectionTested = true;
+                const saveBtn = document.getElementById('saveBtn');
+                if (saveBtn) saveBtn.disabled = false;
+                
+                if (testResults) {
+                    testResults.innerHTML = '<div class="success-message">✓ Connected successfully!</div>';
+                    testResults.classList.add('success');
+                }
+                
+                // Populate dropdowns
+                if (data.root_folders) {
+                    const rootFolder = document.getElementById('rootFolder');
+                    if (rootFolder) {
+                        const currentValue = rootFolder.value; // Preserve current selection
+                        rootFolder.innerHTML = '<option value="">Select root folder...</option>';
+                        data.root_folders.forEach(folder => {
+                            const selected = folder.path === currentValue ? ' selected' : '';
+                            rootFolder.innerHTML += `<option value="${folder.path}"${selected}>${folder.path}</option>`;
+                        });
+                    }
+                }
+                
+                if (data.profiles) {
+                    const defaultProfile = document.getElementById('defaultProfile');
+                    const upgradeProfile = document.getElementById('upgradeProfile');
+                    
+                    if (defaultProfile) {
+                        const currentValue = defaultProfile.value; // Preserve current selection
+                        defaultProfile.innerHTML = '<option value="">Select default quality...</option>';
+                        data.profiles.forEach(profile => {
+                            const selected = profile.name === currentValue ? ' selected' : '';
+                            defaultProfile.innerHTML += `<option value="${profile.name}"${selected}>${profile.name}</option>`;
+                        });
+                    }
+                    
+                    if (upgradeProfile) {
+                        const currentValue = upgradeProfile.value; // Preserve current selection
+                        upgradeProfile.innerHTML = '<option value="">Select upgrade quality...</option>';
+                        data.profiles.forEach(profile => {
+                            const selected = profile.name === currentValue ? ' selected' : '';
+                            upgradeProfile.innerHTML += `<option value="${profile.name}"${selected}>${profile.name}</option>`;
+                        });
+                    }
+                }
+                
+                // Show quality section
+                const qualitySection = document.getElementById('qualitySection');
+                if (qualitySection) qualitySection.classList.add('show');
+            } else {
+                connectionTested = false;
+                const saveBtn = document.getElementById('saveBtn');
+                if (saveBtn) saveBtn.disabled = true;
+                
+                if (testResults) {
+                    testResults.innerHTML = `<div class="error-message">✗ ${data.error || 'Connection failed'}</div>`;
+                    testResults.classList.add('error');
+                }
+            }
+        })
+        .catch(error => {
+            if (testButton) testButton.textContent = 'Test Connection';
+            if (testSpinner) testSpinner.style.display = 'none';
+            if (testResults) {
+                testResults.innerHTML = `<div class="error-message">✗ Connection error: ${error.message}</div>`;
+                testResults.classList.add('error');
+            }
+        });
+    };
+
+    window.saveConfiguration = function() {
+        // Don't require connection test if we already have valid credentials
+        const radarrUrl = document.getElementById('radarrUrl');
+        const radarrApiKey = document.getElementById('radarrApiKey');
+        
+        if (!radarrUrl.value || !radarrApiKey.value) {
+            showMessage('Please enter Radarr URL and API Key', 'error');
+            return;
+        }
+        
+        const form = document.getElementById('setupForm');
+        if (!form.checkValidity()) {
+            form.reportValidity();
+            return;
+        }
+        
+        const formData = new FormData(form);
+        const config = {};
+        
+        // Get scheduler settings from the dropdowns
+        const schedulerDay = document.getElementById('schedulerDay');
+        const schedulerTime = document.getElementById('schedulerTime');
+        
+        // Handle checkboxes explicitly (unchecked ones don't appear in FormData)
+        config.boxarr_scheduler_enabled = document.getElementById('schedulerEnabled')?.checked || false;
+        config.boxarr_features_auto_add = document.getElementById('autoAdd')?.checked || false;
+        config.boxarr_features_quality_upgrade = document.getElementById('qualityUpgrade')?.checked || false;
+        
+        // Handle other form fields
+        for (let [key, value] of formData.entries()) {
+            if (key !== 'boxarr_scheduler_enabled' && key !== 'boxarr_features_auto_add' && key !== 'boxarr_features_quality_upgrade') {
+                config[key] = value;
+            }
+        }
+        
+        // Convert scheduler day and time to cron format
+        if (schedulerDay && schedulerTime) {
+            // Cron format: minute hour * * day_of_week
+            // Day of week: 0=Sunday, 1=Monday, ..., 6=Saturday
+            const cronString = `0 ${schedulerTime.value} * * ${schedulerDay.value}`;
+            config.boxarr_scheduler_cron = cronString;
+        } else {
+            // Default: Tuesday at 11 PM
+            config.boxarr_scheduler_cron = "0 23 * * 2";
+        }
+        
+        showMessage('Saving configuration...', 'info');
+        
+        fetch('/api/config/save', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(config)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showMessage('✓ Configuration saved successfully! Redirecting...', 'success');
+                setTimeout(() => {
+                    window.location.href = '/dashboard';
+                }, 1500);
+            } else {
+                showMessage('Failed to save: ' + (data.error || 'Unknown error'), 'error');
+            }
+        })
+        .catch(error => {
+            showMessage('Error saving configuration: ' + error.message, 'error');
+        });
+    };
+
+    window.toggleScheduler = function() {
+        const checkbox = document.getElementById('schedulerEnabled');
+        const controls = document.querySelector('.scheduler-controls');
+        if (controls) {
+            controls.classList.toggle('active', checkbox.checked);
+        }
+    };
+
+    // ==========================================
+    // Setup Page Helper Functions
+    // ==========================================
     
-    if (response.ok) {
-      showNotification('Configuration saved successfully', 'success');
-      setTimeout(() => {
-        window.location.href = '/';
-      }, 1500);
-    } else {
-      const error = await response.json();
-      showNotification(error.detail || 'Failed to save configuration', 'error');
+    function resetConnectionTest() {
+        connectionTested = false;
+        const saveBtn = document.getElementById('saveBtn');
+        if (saveBtn) saveBtn.disabled = true;
+        const qualitySection = document.getElementById('qualitySection');
+        if (qualitySection) qualitySection.classList.remove('show');
+        const testResults = document.getElementById('testResults');
+        if (testResults) testResults.classList.remove('show');
     }
-  } catch (error) {
-    showNotification('Failed to save configuration', 'error');
-  }
-}
 
-/**
- * Handle settings form submission
- */
-async function handleSettingsSubmit(e) {
-  e.preventDefault();
-  
-  const formData = new FormData(e.target);
-  const data = Object.fromEntries(formData);
-  
-  try {
-    const response = await fetch(`${API_BASE}/api/config/update`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(data)
+    // ==========================================
+    // Initialize on DOM Load
+    // ==========================================
+
+    document.addEventListener('DOMContentLoaded', function() {
+        // Check connection status
+        checkConnection();
+        setInterval(checkConnection, 30000);
+        
+        // Initialize page-specific features
+        const path = window.location.pathname;
+        
+        if (path.includes('W') && path !== '/dashboard') {
+            // Weekly page - start status updates
+            updateMovieStatuses();
+            statusCheckInterval = setInterval(updateMovieStatuses, 30000);
+        }
+        
+        // Setup page specific initialization
+        if (path === '/setup') {
+            const radarrUrl = document.getElementById('radarrUrl');
+            const radarrApiKey = document.getElementById('radarrApiKey');
+            const saveBtn = document.getElementById('saveBtn');
+            const setupForm = document.getElementById('setupForm');
+            
+            // Add form submit handler
+            if (setupForm) {
+                setupForm.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    saveConfiguration();
+                });
+            }
+            
+            // Add listeners to reset connection test when credentials change
+            if (radarrUrl) radarrUrl.addEventListener('input', resetConnectionTest);
+            if (radarrApiKey) radarrApiKey.addEventListener('input', resetConnectionTest);
+            
+            // Check if already configured and auto-test
+            if (radarrUrl && radarrApiKey && saveBtn) {
+                const url = radarrUrl.value;
+                const apiKey = radarrApiKey.value;
+                
+                // If we have credentials, check if it's a pre-configured setup
+                if (url && apiKey && apiKey.trim().length > 10) {
+                    // For editing existing config, enable save button but still test to get profiles
+                    connectionTested = true;
+                    saveBtn.disabled = false;
+                    
+                    // Auto-test to refresh quality profiles
+                    setTimeout(() => {
+                        window.testConnection();
+                    }, 500);
+                } else {
+                    // New setup - disable save button until tested
+                    saveBtn.disabled = true;
+                }
+            }
+        }
+        
+        // Add CSS animations if not present
+        if (!document.getElementById('boxarrAnimations')) {
+            const style = document.createElement('style');
+            style.id = 'boxarrAnimations';
+            style.textContent = `
+                @keyframes slideIn {
+                    from { transform: translateX(100%); opacity: 0; }
+                    to { transform: translateX(0); opacity: 1; }
+                }
+                @keyframes slideOut {
+                    from { transform: translateX(0); opacity: 1; }
+                    to { transform: translateX(100%); opacity: 0; }
+                }
+            `;
+            document.head.appendChild(style);
+        }
+        
+        // Handle Escape key for modals
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape' && isModalOpen) {
+                const modals = document.querySelectorAll('.modal.show');
+                modals.forEach(modal => modal.classList.remove('show'));
+                isModalOpen = false;
+            }
+        });
     });
-    
-    if (response.ok) {
-      showNotification('Settings updated successfully', 'success');
-    } else {
-      showNotification('Failed to update settings', 'error');
-    }
-  } catch (error) {
-    showNotification('Failed to update settings', 'error');
-  }
-}
 
-/**
- * Handle test connection
- */
-async function handleTestConnection() {
-  const url = document.querySelector('#radarr-url').value;
-  const apiKey = document.querySelector('#radarr-api-key').value;
-  
-  if (!url || !apiKey) {
-    showNotification('Please enter URL and API key', 'warning');
-    return;
-  }
-  
-  try {
-    const response = await fetch(`${API_BASE}/api/config/test`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ url, api_key: apiKey })
+    // Cleanup on page unload
+    window.addEventListener('beforeunload', function() {
+        if (statusCheckInterval) {
+            clearInterval(statusCheckInterval);
+        }
     });
-    
-    const result = await response.json();
-    
-    if (result.success) {
-      showNotification('Connection successful!', 'success');
-      
-      // Populate quality profiles if returned
-      if (result.quality_profiles) {
-        updateQualityProfileSelects(result.quality_profiles);
-      }
-    } else {
-      showNotification(result.error || 'Connection failed', 'error');
-    }
-  } catch (error) {
-    showNotification('Connection test failed', 'error');
-  }
-}
 
-/**
- * Update quality profile selects
- */
-function updateQualityProfileSelects(profiles) {
-  const selects = document.querySelectorAll('.quality-profile-select');
-  
-  selects.forEach(select => {
-    // Clear existing options
-    select.innerHTML = '';
-    
-    // Add new options
-    profiles.forEach(profile => {
-      const option = document.createElement('option');
-      option.value = profile.name;
-      option.textContent = profile.name;
-      select.appendChild(option);
-    });
-  });
-}
-
-/**
- * Show notification
- */
-function showNotification(message, type = 'info') {
-  // Remove any existing notifications
-  const existing = document.querySelector('.notification');
-  if (existing) {
-    existing.remove();
-  }
-  
-  // Create notification element
-  const notification = document.createElement('div');
-  notification.className = `notification notification-${type}`;
-  notification.textContent = message;
-  
-  // Add to page
-  document.body.appendChild(notification);
-  
-  // Animate in
-  setTimeout(() => {
-    notification.classList.add('show');
-  }, 10);
-  
-  // Remove after 3 seconds
-  setTimeout(() => {
-    notification.classList.remove('show');
-    setTimeout(() => {
-      notification.remove();
-    }, 300);
-  }, 3000);
-}
-
-/**
- * Handle movie quality upgrade
- */
-window.upgradeMovieQuality = async function(movieId) {
-  try {
-    const response = await fetch(`${API_BASE}/api/movies/${movieId}/upgrade`, {
-      method: 'POST'
-    });
-    
-    const result = await response.json();
-    
-    if (result.success) {
-      showNotification(result.message, 'success');
-      // Update the UI
-      setTimeout(() => updateMovieStatuses(), 1000);
-    } else {
-      showNotification(result.message, 'error');
-    }
-  } catch (error) {
-    showNotification('Failed to upgrade quality', 'error');
-  }
-};
-
-/**
- * Handle manual movie addition
- */
-window.addMovieToRadarr = async function(title, tmdbId) {
-  try {
-    const response = await fetch(`${API_BASE}/api/movies/add`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ title, tmdb_id: tmdbId })
-    });
-    
-    const result = await response.json();
-    
-    if (result.success) {
-      showNotification(result.message, 'success');
-      // Reload page to show updated status
-      setTimeout(() => window.location.reload(), 1500);
-    } else {
-      showNotification(result.message, 'error');
-    }
-  } catch (error) {
-    showNotification('Failed to add movie', 'error');
-  }
-};
-
-/**
- * Handle manual update trigger
- */
-window.triggerUpdate = async function() {
-  try {
-    showNotification('Triggering box office update...', 'info');
-    
-    const response = await fetch(`${API_BASE}/api/scheduler/trigger`, {
-      method: 'POST'
-    });
-    
-    const result = await response.json();
-    
-    if (result.success) {
-      showNotification(result.message, 'success');
-      // Reload page after update
-      setTimeout(() => window.location.reload(), 2000);
-    } else {
-      showNotification(result.message, 'error');
-    }
-  } catch (error) {
-    showNotification('Failed to trigger update', 'error');
-  }
-};
-
-// Cleanup on page unload
-window.addEventListener('beforeunload', () => {
-  stopStatusUpdates();
-});
+})();
