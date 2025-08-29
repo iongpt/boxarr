@@ -48,7 +48,7 @@ async def home_page(request: Request):
     # Check if Radarr is configured
     if not settings.is_configured:
         return RedirectResponse(url="/setup")
-    
+
     # Always redirect to dashboard when configured
     return RedirectResponse(url="/dashboard")
 
@@ -143,7 +143,6 @@ async def setup_page(request: Request):
             "quality_upgrade": settings.boxarr_features_quality_upgrade,
         },
     )
-
 
 
 @router.get("/{year}W{week}", response_class=HTMLResponse)
