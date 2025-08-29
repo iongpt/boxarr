@@ -197,7 +197,9 @@ class Settings(BaseSettings):
                                     setattr(self, attr_name, sub_value)
                         elif key == "ui" and isinstance(value, dict):
                             for sub_key, sub_value in value.items():
-                                if sub_key == "cards_per_row" and isinstance(sub_value, dict):
+                                if sub_key == "cards_per_row" and isinstance(
+                                    sub_value, dict
+                                ):
                                     for device, count in sub_value.items():
                                         attr_name = f"boxarr_ui_cards_per_row_{device.replace('4k', '_4k')}"
                                         if hasattr(self, attr_name):
