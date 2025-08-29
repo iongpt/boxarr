@@ -325,11 +325,18 @@ class BoxOfficeService:
     def get_current_week_movies(self) -> List[BoxOfficeMovie]:
         """
         Get current week's box office movies.
+        Actually fetches the previous week's data since box office data
+        is only available after the weekend ends.
 
         Returns:
             List of BoxOfficeMovie objects
         """
-        return self.fetch_weekend_box_office()
+        # Get previous week's data (most recent complete week)
+        from datetime import datetime, timedelta
+
+        last_week = datetime.now() - timedelta(weeks=1)
+        _, _, year, week = self.get_weekend_dates(last_week)
+        return self.fetch_weekend_box_office(year, week)
 
     def get_historical_movies(
         self, weeks_back: int = 1

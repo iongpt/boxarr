@@ -103,7 +103,7 @@ class BoxarrScheduler:
         if year and week:
             logger.info(f"Starting box office update for {year} Week {week:02d}")
         else:
-            logger.info("Starting scheduled box office update for current week")
+            logger.info("Starting scheduled box office update for previous week")
         start_time = datetime.now()
 
         try:
