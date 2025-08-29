@@ -468,6 +468,7 @@ class WeeklyPageGenerator:
             flex-direction: column;
             height: 100%;
             position: relative;
+            min-height: 500px;
         }}
         .movie-card.updating {{
             animation: pulse 1s infinite;
@@ -517,16 +518,18 @@ class WeeklyPageGenerator:
             display: flex;
             flex-direction: column;
             flex-grow: 1;
+            justify-content: space-between;
         }}
 
         .movie-title {{
-            font-size: 1.1em;
+            font-size: clamp(0.75em, calc(0.8em + 0.3em * (1 - var(--title-length, 0) / 40)), 1.1em);
             font-weight: bold;
             color: #2d3748;
             margin-bottom: 8px;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+            line-height: 1.2;
         }}
 
         .movie-status {{
@@ -555,6 +558,10 @@ class WeeklyPageGenerator:
             font-size: 0.85em;
             color: #4a5568;
             font-weight: 600;
+            background: #edf2f7;
+            padding: 4px 8px;
+            border-radius: 4px;
+            border: 1px solid #e2e8f0;
         }}
         .upgrade-btn {{
             background: linear-gradient(135deg, #9f7aea, #805ad5);
@@ -600,6 +607,9 @@ class WeeklyPageGenerator:
         .movie-details {{
             flex-grow: 1;
             margin-bottom: 12px;
+            min-height: 80px;
+            display: flex;
+            flex-direction: column;
         }}
         .movie-year {{
             font-weight: 600;
@@ -636,12 +646,46 @@ class WeeklyPageGenerator:
             font-weight: 600;
             transition: all 0.3s;
             font-size: 0.85em;
+            border: 2px solid transparent;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            position: relative;
+            overflow: hidden;
         }}
-        .imdb-link {{ background: #f5c518; color: black; }}
-        .wiki-link {{ background: #4a5568; color: white; }}
+        .movie-link:before {{
+            content: '→';
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            opacity: 0;
+            transition: all 0.3s;
+        }}
+        .imdb-link {{ 
+            background: linear-gradient(135deg, #f5c518, #f0b000);
+            color: black;
+            border-color: #f5c518;
+        }}
+        .wiki-link {{ 
+            background: linear-gradient(135deg, #4a5568, #2d3748);
+            color: white;
+            border-color: #4a5568;
+        }}
         .movie-link:hover {{
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            transform: translateY(-3px);
+            box-shadow: 0 6px 16px rgba(0,0,0,0.3);
+            padding-right: 24px;
+        }}
+        .movie-link:hover:before {{
+            opacity: 1;
+            right: 12px;
+        }}
+        .imdb-link:hover {{
+            background: linear-gradient(135deg, #f0b000, #e5a000);
+            border-color: #e5a000;
+        }}
+        .wiki-link:hover {{
+            background: linear-gradient(135deg, #2d3748, #1a202c);
+            border-color: #2d3748;
         }}
 
         .no-poster {{
@@ -731,6 +775,9 @@ class WeeklyPageGenerator:
                 else f"https://www.imdb.com/find?q={movie['title']}"
             )
 
+            # Calculate title length for dynamic font sizing
+            title_length = len(movie['title'])
+            
             html += f"""
             <div class="movie-card" data-radarr-id="{movie['radarr_id'] or ''}" data-rank="{movie['rank']}">
                 <div class="movie-poster-container">
@@ -738,7 +785,7 @@ class WeeklyPageGenerator:
                     <div class="movie-rank">#{movie['rank']}</div>
                 </div>
                 <div class="movie-content">
-                    <h3 class="movie-title" title="{movie['title']}">{movie['title']}</h3>
+                    <h3 class="movie-title" title="{movie['title']}" style="--title-length: {title_length}">{movie['title']}</h3>
                     <div class="movie-status" data-status="{movie['status']}" style="{status_style}">
                         <span class="status-icon">{movie['status_icon']}</span>
                         <span class="status-text">{movie['status']}</span>
