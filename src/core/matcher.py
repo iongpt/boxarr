@@ -105,10 +105,14 @@ class MovieMatcher:
 
         def _is_sequel(title: str) -> bool:
             # Has trailing number or roman numeral
-            if re.search(r"\s+\d+$", title):
+            has_number = re.search(r"\s+\d+$", title) is not None
+            if has_number:
                 return True
+            # Check for Roman numerals at the end
             words = title.strip().split()
-            return bool(words and words[-1].upper() in self.ROMAN_NUMERALS)
+            if words and words[-1].upper() in self.ROMAN_NUMERALS:
+                return True
+            return False
 
         for movie in movies:
             # Index by exact title
