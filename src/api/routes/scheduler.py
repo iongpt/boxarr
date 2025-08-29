@@ -99,13 +99,23 @@ async def get_scheduler_history():
                     with open(file_path) as f:
                         result = json.load(f)
 
+                    # Handle added_movies which could be a list or count
+                    added_movies = result.get("added_movies", [])
+                    added_count = (
+                        len(added_movies)
+                        if isinstance(added_movies, list)
+                        else added_movies
+                    )
+
                     runs.append(
                         {
                             "timestamp": run_time.isoformat(),
                             "week": parts[0],
                             "success": result.get("success", False),
-                            "movies_found": result.get("total_movies"),
-                            "movies_added": result.get("added_movies"),
+                            "movies_found": result.get(
+                                "total_count", result.get("total_movies")
+                            ),
+                            "movies_added": added_count,
                             "error": result.get("error"),
                         }
                     )

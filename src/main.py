@@ -103,6 +103,12 @@ class BoxarrApplication:
         """Run in CLI mode (no API)."""
         logger.info("Running in CLI mode")
 
+        # Initialize scheduler for CLI mode
+        self.scheduler = BoxarrScheduler(
+            boxoffice_service=BoxOfficeService(),
+            radarr_service=RadarrService() if settings.radarr_api_key else None,
+        )
+
         # Run immediate update
         logger.info("Performing box office update...")
 

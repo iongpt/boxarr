@@ -1,0 +1,101 @@
+#!/bin/bash
+
+# Boxarr Release Script
+# Usage: ./scripts/release v0.3.0
+
+set -e  # Exit on error
+
+# Color codes for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+# Check if version argument is provided
+if [ $# -eq 0 ]; then
+    echo -e "${RED}Error: Version argument required${NC}"
+    echo "Usage: $0 vX.Y.Z"
+    echo "Example: $0 v0.3.0"
+    exit 1
+fi
+
+VERSION=$1
+
+# Validate version format
+if ! [[ $VERSION =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo -e "${RED}Error: Invalid version format${NC}"
+    echo "Version must be in format vX.Y.Z (e.g., v0.3.0)"
+    exit 1
+fi
+
+# Extract version number without 'v' prefix
+VERSION_NUMBER=${VERSION:1}
+
+echo -e "${GREEN}🚀 Starting release process for ${VERSION}${NC}"
+
+# Check if we're on main branch
+CURRENT_BRANCH=$(git branch --show-current)
+if [ "$CURRENT_BRANCH" != "main" ] && [ "$CURRENT_BRANCH" != "master" ]; then
+    echo -e "${YELLOW}Warning: Not on main/master branch (current: $CURRENT_BRANCH)${NC}"
+    read -p "Continue anyway? (y/n) " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo "Release cancelled"
+        exit 1
+    fi
+fi
+
+# Check for uncommitted changes
+if [ -n "$(git status --porcelain)" ]; then
+    echo -e "${RED}Error: Uncommitted changes detected${NC}"
+    echo "Please commit or stash your changes before releasing"
+    exit 1
+fi
+
+# Update version in pyproject.toml
+echo -e "${YELLOW}Updating pyproject.toml...${NC}"
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    # macOS
+    sed -i '' "s/^version = \".*\"/version = \"$VERSION_NUMBER\"/" pyproject.toml
+else
+    # Linux
+    sed -i "s/^version = \".*\"/version = \"$VERSION_NUMBER\"/" pyproject.toml
+fi
+
+# Update fallback version in src/version.py
+echo -e "${YELLOW}Updating src/version.py...${NC}"
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    # macOS
+    sed -i '' "s/return \"[0-9]*\.[0-9]*\.[0-9]*\"$/return \"$VERSION_NUMBER\"/" src/version.py
+    sed -i '' "s/version = \"[0-9]*\.[0-9]*\.[0-9]*-dev\"$/version = \"$VERSION_NUMBER-dev\"/" src/version.py
+else
+    # Linux
+    sed -i "s/return \"[0-9]*\.[0-9]*\.[0-9]*\"$/return \"$VERSION_NUMBER\"/" src/version.py
+    sed -i "s/version = \"[0-9]*\.[0-9]*\.[0-9]*-dev\"$/version = \"$VERSION_NUMBER-dev\"/" src/version.py
+fi
+
+# Commit version changes
+echo -e "${YELLOW}Committing version changes...${NC}"
+git add pyproject.toml src/version.py
+git commit -m "Bump version to $VERSION_NUMBER"
+
+# Push to main
+echo -e "${YELLOW}Pushing to main branch...${NC}"
+git push origin $(git branch --show-current)
+
+# Create and push tag
+echo -e "${YELLOW}Creating tag ${VERSION}...${NC}"
+git tag -a "$VERSION" -m "Release version $VERSION_NUMBER"
+
+echo -e "${YELLOW}Pushing tag to origin...${NC}"
+git push origin "$VERSION"
+
+echo -e "${GREEN}✅ Release $VERSION completed successfully!${NC}"
+echo -e "${GREEN}The CD pipeline will now automatically:${NC}"
+echo "  - Build Docker images for multiple architectures"
+echo "  - Push images to GitHub Container Registry"
+echo "  - Create a GitHub release with changelog"
+echo ""
+echo -e "${YELLOW}Monitor the release at:${NC}"
+echo "  https://github.com/iongpt/boxarr/actions"
+echo "  https://github.com/iongpt/boxarr/releases"

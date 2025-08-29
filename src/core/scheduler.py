@@ -17,6 +17,7 @@ from .boxoffice import BoxOfficeService
 from .exceptions import SchedulerError
 from .json_generator import WeeklyDataGenerator
 from .matcher import MatchResult, MovieMatcher
+from .models import MovieStatus
 from .radarr import RadarrService
 
 logger = get_logger(__name__)
@@ -274,9 +275,9 @@ class BoxarrScheduler:
         """
         if movie.hasFile:
             return "Downloaded"
-        elif movie.status == "released" and movie.isAvailable:
+        elif movie.status == MovieStatus.RELEASED and movie.isAvailable:
             return "Missing"
-        elif movie.status == "inCinemas":
+        elif movie.status == MovieStatus.IN_CINEMAS:
             return "In Cinemas"
         else:
             return "Pending"
