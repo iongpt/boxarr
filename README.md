@@ -100,7 +100,6 @@ Boxarr is built with simplicity and efficiency in mind:
 - **FastAPI** backend for speed and modern Python features
 - **Static HTML generation** for fast page loads
 - **Minimal JavaScript** for dynamic status updates
-- **SQLite** for lightweight data storage
 - **No external dependencies** beyond Radarr
 
 ## Docker Deployment
