@@ -48,11 +48,15 @@ async def trigger_update():
         scheduler = get_scheduler()
         result = await scheduler.update_box_office()
 
+        # Handle added_movies which is a list
+        added_movies = result.get("added_movies", [])
+        movies_added_count = len(added_movies) if isinstance(added_movies, list) else 0
+        
         return TriggerResponse(
             success=True,
             message="Box office update completed",
-            movies_found=result.get("total_movies"),
-            movies_added=result.get("added_movies"),
+            movies_found=result.get("total_count"),  # Fixed: was "total_movies" but scheduler returns "total_count"
+            movies_added=movies_added_count,
         )
     except Exception as e:
         logger.error(f"Error triggering update: {e}")
@@ -131,7 +135,7 @@ async def update_specific_week(request: UpdateWeekRequest):  # noqa: C901
             raise HTTPException(status_code=400, detail="Invalid week number")
 
         from ...core.boxoffice import BoxOfficeService
-        from ...core.html_generator import WeeklyPageGenerator
+        from ...core.json_generator import WeeklyDataGenerator
         from ...core.matcher import MovieMatcher
         from ...core.radarr import RadarrService
 
@@ -183,9 +187,9 @@ async def update_specific_week(request: UpdateWeekRequest):  # noqa: C901
                 MatchResult(box_office_movie=movie) for movie in box_office_movies
             ]
 
-        # Generate page
-        generator = WeeklyPageGenerator()
-        generator.generate_weekly_page(
+        # Generate data file
+        generator = WeeklyDataGenerator()
+        generator.generate_weekly_data(
             match_results,
             year,
             week,

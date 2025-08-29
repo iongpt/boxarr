@@ -15,7 +15,7 @@ from ..utils.config import settings
 from ..utils.logger import get_logger
 from .boxoffice import BoxOfficeService
 from .exceptions import SchedulerError
-from .html_generator import WeeklyPageGenerator
+from .json_generator import WeeklyDataGenerator
 from .matcher import MatchResult, MovieMatcher
 from .radarr import RadarrService
 
@@ -176,10 +176,10 @@ class BoxarrScheduler:
                     self.boxoffice_service.get_weekend_dates()
                 )
 
-            # Generate static HTML page
-            page_generator = WeeklyPageGenerator(self.radarr_service)
-            html_path = await self._run_in_executor(
-                page_generator.generate_weekly_page,
+            # Generate JSON data file
+            page_generator = WeeklyDataGenerator(self.radarr_service)
+            data_path = await self._run_in_executor(
+                page_generator.generate_weekly_data,
                 match_results,
                 actual_year,
                 actual_week,
@@ -187,7 +187,7 @@ class BoxarrScheduler:
 
             # Process results for history
             results = self._process_match_results(match_results)
-            results["html_path"] = str(html_path)
+            results["data_path"] = str(data_path)
             results["added_movies"] = added_movies
 
             # Save to history
