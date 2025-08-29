@@ -7,7 +7,7 @@ from pathlib import Path
 def get_version() -> str:
     """
     Get the current version from git tags or fallback to a default.
-    
+
     Returns:
         Version string in format 'x.y.z' or 'x.y.z-dev' if not on a tag
     """
@@ -18,25 +18,25 @@ def get_version() -> str:
             capture_output=True,
             text=True,
             check=False,
-            cwd=Path(__file__).parent.parent
+            cwd=Path(__file__).parent.parent,
         )
-        
+
         if result.returncode == 0:
             version = result.stdout.strip()
-            
+
             # Clean up version string
             if version.startswith("v"):
                 version = version[1:]
-            
+
             # Check if we're on a tagged commit
             tag_result = subprocess.run(
                 ["git", "describe", "--exact-match", "--tags"],
                 capture_output=True,
                 text=True,
                 check=False,
-                cwd=Path(__file__).parent.parent
+                cwd=Path(__file__).parent.parent,
             )
-            
+
             if tag_result.returncode != 0:
                 # Not on a tag, add -dev suffix if not already present
                 if "-" in version:
@@ -50,13 +50,13 @@ def get_version() -> str:
                 else:
                     # Just a commit hash, use fallback
                     version = "0.4.1-dev"
-            
+
             return version
-            
+
     except (subprocess.SubprocessError, FileNotFoundError):
         # Git not available or not in a git repo
         pass
-    
+
     # Fallback version for when git is not available (e.g., in Docker)
     # This should be updated when creating a new release
     return "0.4.1"

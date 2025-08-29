@@ -6,11 +6,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from ..core.scheduler import BoxarrScheduler
+from .. import __version__
 from ..core.radarr import RadarrService
+from ..core.scheduler import BoxarrScheduler
 from ..utils.config import settings
 from ..utils.logger import get_logger
-from .. import __version__
 from .routes import (
     boxoffice_router,
     config_router,
