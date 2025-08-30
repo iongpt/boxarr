@@ -82,17 +82,21 @@ async def dashboard_page(request: Request):
         )
         if cron_match:
             hour = int(cron_match.group(2))
-            day = int(cron_match.group(3))
-            days = [
-                "Sunday",
-                "Monday",
-                "Tuesday",
-                "Wednesday",
-                "Thursday",
-                "Friday",
-                "Saturday",
-            ]
-            next_update = f"{days[day]} at {hour}:00"
+            apscheduler_day = int(cron_match.group(3))
+
+            # Convert APScheduler day to day name
+            # APScheduler: Monday=0, Tuesday=1, ..., Saturday=5, Sunday=6
+            apscheduler_days = {
+                0: "Monday",
+                1: "Tuesday",
+                2: "Wednesday",
+                3: "Thursday",
+                4: "Friday",
+                5: "Saturday",
+                6: "Sunday",
+            }
+            day_name = apscheduler_days.get(apscheduler_day, "Unknown")
+            next_update = f"{day_name} at {hour}:00"
 
     return templates.TemplateResponse(
         "dashboard.html",
@@ -122,8 +126,26 @@ async def setup_page(request: Request):
     cron_match = re.match(r"(\d+) (\d+) \* \* (\d+)", cron)
 
     # Extract current cron settings
-    current_day = int(cron_match.group(3)) if cron_match else 2
+    apscheduler_day = (
+        int(cron_match.group(3)) if cron_match else 1
+    )  # Default Tuesday (APScheduler format)
     current_time = int(cron_match.group(2)) if cron_match else 23
+
+    # Convert APScheduler day numbering to HTML form values
+    # APScheduler: Monday=0, Tuesday=1, ..., Saturday=5, Sunday=6
+    # HTML form: Sunday=0, Monday=1, ..., Saturday=6
+    apscheduler_to_html = {
+        0: 1,  # Monday: 0 -> 1
+        1: 2,  # Tuesday: 1 -> 2
+        2: 3,  # Wednesday: 2 -> 3
+        3: 4,  # Thursday: 3 -> 4
+        4: 5,  # Friday: 4 -> 5
+        5: 6,  # Saturday: 5 -> 6
+        6: 0,  # Sunday: 6 -> 0
+    }
+    current_day = apscheduler_to_html.get(
+        apscheduler_day, 2
+    )  # Default to Tuesday if unknown
 
     return templates.TemplateResponse(
         "setup.html",
