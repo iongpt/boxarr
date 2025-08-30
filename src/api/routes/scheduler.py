@@ -255,6 +255,9 @@ class UpdateWeekRequest(BaseModel):
 
     year: int
     week: int
+    auto_add_override: Optional[bool] = (
+        None  # Override auto-add setting for this request only
+    )
 
 
 @router.post("/update-week")
@@ -296,8 +299,14 @@ async def update_specific_week(request: UpdateWeekRequest):  # noqa: C901
             matcher.build_movie_index(radarr_movies)
             match_results = matcher.match_movies(box_office_movies, radarr_movies)
 
-            # Auto-add if enabled
-            if settings.boxarr_features_auto_add:
+            # Auto-add if enabled (check override first, then default setting)
+            should_auto_add = (
+                request.auto_add_override
+                if request.auto_add_override is not None
+                else settings.boxarr_features_auto_add
+            )
+
+            if should_auto_add:
                 for result in match_results:
                     if not result.is_matched:
                         # Search and add

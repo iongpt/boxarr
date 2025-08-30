@@ -64,9 +64,10 @@ async def dashboard_page(request: Request):
     # Get all available weeks
     weeks = await get_available_weeks()
 
-    # Separate into recent (first 24) and older
-    recent_weeks = weeks[:24]
-    older_weeks = weeks[24:] if len(weeks) > 24 else []
+    # Separate into recent (first 6) and older
+    # Changed from 24 to 6 to make the dropdown accessible sooner
+    recent_weeks = weeks[:6]
+    older_weeks = weeks[6:] if len(weeks) > 6 else []
 
     # Calculate next scheduled update
     from datetime import datetime
@@ -299,6 +300,8 @@ async def serve_weekly_page(request: Request, year: int, week: int):
                 "movies": movies,
                 "generated_at": generated_at,
             },
+            "auto_add": settings.boxarr_features_auto_add,
+            "scheduler_enabled": settings.boxarr_scheduler_enabled,
             "previous_week": f"{prev_year}W{prev_week_num:02d}" if prev_week else None,
             "next_week": f"{next_year}W{next_week_num:02d}" if next_week else None,
         },

@@ -331,6 +331,22 @@
             {{ week_data.friday.strftime('%B %d') }} - {{ week_data.sunday.strftime('%B %d, %Y') }}
         </div>
         
+        <!-- Status Indicator -->
+        <div style="margin: 1rem 0; padding: 0.75rem; background: rgba(var(--primary-rgb), 0.05); border-radius: 8px; border: 1px solid rgba(var(--primary-rgb), 0.2); font-size: 0.9rem;">
+            <strong>Current Settings:</strong>
+            {% if scheduler_enabled %}
+                📅 Scheduler <span style="color: var(--success-color); font-weight: 600;">ENABLED</span>
+            {% else %}
+                ⏸️ Scheduler <span style="color: var(--warning-color); font-weight: 600;">DISABLED</span>
+            {% endif %}
+            •
+            {% if auto_add %}
+                ✅ Auto-add <span style="color: var(--success-color); font-weight: 600;">ENABLED</span> - Missing movies will be automatically added
+            {% else %}
+                🔘 Auto-add <span style="color: var(--warning-color); font-weight: 600;">DISABLED</span> - Movies must be manually added
+            {% endif %}
+        </div>
+        
         <!-- Summary Stats -->
         <div class="summary">
             <div class="summary-item">
@@ -424,7 +440,7 @@
                 <!-- Actions -->
                 <div class="movie-actions">
                     {% if not movie.radarr_id %}
-                    <button class="action-btn add-to-radarr" onclick="addToRadarr('{{ movie.title }}', {{ movie.year or 'null' }})">
+                    <button class="action-btn add-to-radarr" onclick="addToRadarr('{{ movie.title }}', {{ movie.year or 'null' }}, this)">
                         Add to Radarr
                     </button>
                     {% elif movie.can_upgrade_quality %}
