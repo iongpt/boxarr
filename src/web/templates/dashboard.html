@@ -501,14 +501,29 @@
         <!-- Status Explanation -->
         <div class="status-explanation">
             {% if scheduler_enabled and auto_add %}
-                <strong>🤖 Fully Automatic Mode:</strong> Box office data is fetched every {{ next_update }} and missing movies are automatically added to Radarr for downloading.
+                <strong>🤖 Fully Automatic Mode:</strong> Box office data is fetched every <strong>{{ next_update }}</strong> and missing movies are <strong>automatically added</strong> to Radarr for downloading.
             {% elif scheduler_enabled and not auto_add %}
-                <strong>📅 Scheduled Fetch Mode:</strong> Box office data is fetched every {{ next_update }}, but you need to manually add movies to Radarr.
+                <strong>📅 Scheduled Fetch Mode:</strong> Box office data is fetched every <strong>{{ next_update }}</strong>, but you need to <strong>manually add</strong> movies to Radarr.
             {% elif not scheduler_enabled and auto_add %}
-                <strong>🎯 Manual Fetch with Auto-Add:</strong> You trigger data fetching manually, but movies are automatically added to Radarr when fetched.
+                <strong>🎯 Manual Fetch with Auto-Add:</strong> You trigger data fetching manually, but movies are <strong>automatically added</strong> to Radarr when fetched.
             {% else %}
-                <strong>🔧 Fully Manual Mode:</strong> You need to manually fetch box office data and manually add movies to Radarr.
+                <strong>🔧 Fully Manual Mode:</strong> You need to <strong>manually fetch</strong> box office data and <strong>manually add</strong> movies to Radarr.
             {% endif %}
+            
+            <div style="margin-top: 0.75rem; padding: 0.75rem; background: rgba(var(--primary-rgb), 0.1); border-radius: 8px; font-size: 0.9rem;">
+                <strong>Current behavior:</strong>
+                {% if scheduler_enabled %}
+                    📅 Scheduler runs every <strong>{{ next_update }}</strong>
+                {% else %}
+                    ⏸️ Scheduler is <strong>disabled</strong> - use manual fetch
+                {% endif %}
+                •
+                {% if auto_add %}
+                    ✅ Movies are <strong>added automatically</strong> when fetched
+                {% else %}
+                    🔘 Movies require <strong>manual adding</strong> after fetch
+                {% endif %}
+            </div>
             
             {% if not radarr_configured %}
                 <br><strong style="color: var(--error-color);">⚠️ Warning:</strong> Radarr is not configured. Please complete the setup first.
@@ -575,16 +590,29 @@
             {% if older_weeks %}
             <div class="older-weeks">
                 <p>Showing {{ recent_weeks|length }} recent weeks • <strong>{{ older_weeks|length }}</strong> older weeks available</p>
-                <select class="week-selector" onchange="if(this.value) window.location.href=this.value">
+                <select class="week-selector" onchange="if(this.value) showHistoricalWeekModal(this.value, this.options[this.selectedIndex].text); this.selectedIndex = 0;">
                     <option value="">View older weeks...</option>
                     {% for week in older_weeks %}
                     <option value="/{{ week.year }}W{{ '%02d'|format(week.week) }}">Week {{ "%02d"|format(week.week) }}, {{ week.year }} - {{ week.date_range }}</option>
                     {% endfor %}
                 </select>
-                <p style="margin-top: 1rem; font-size: 0.85rem; color: var(--text-secondary);">
-                    <span style="color: var(--primary-color);">💡 Tip:</span> When you view a historical week, box office data is automatically fetched if not already available.
-                    {% if auto_add %}Movies will be automatically added to Radarr.{% else %}You can then manually add movies to Radarr.{% endif %}
-                </p>
+                <div style="margin-top: 1rem; padding: 1rem; background: rgba(var(--primary-rgb), 0.05); border-radius: 8px; border: 1px solid rgba(var(--primary-rgb), 0.2);">
+                    <p style="font-size: 0.9rem; color: var(--text-primary); margin-bottom: 0.5rem;">
+                        <strong>📊 What happens when you select a historical week:</strong>
+                    </p>
+                    <ol style="font-size: 0.85rem; color: var(--text-secondary); margin: 0; padding-left: 1.5rem;">
+                        <li>Box office data for that week will be fetched from Box Office Mojo</li>
+                        <li>Movies will be matched against your Radarr library</li>
+                        {% if auto_add %}
+                        <li style="color: var(--success-color); font-weight: 600;">✅ Missing movies will be AUTOMATICALLY added to Radarr</li>
+                        {% else %}
+                        <li style="color: var(--warning-color); font-weight: 600;">🔘 You will need to MANUALLY add movies to Radarr</li>
+                        {% endif %}
+                    </ol>
+                    <p style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.5rem; margin-bottom: 0;">
+                        💡 <strong>Current setting:</strong> Auto-add is {% if auto_add %}<span style="color: var(--success-color);">ENABLED</span>{% else %}<span style="color: var(--warning-color);">DISABLED</span>{% endif %}
+                    </p>
+                </div>
             </div>
             {% endif %}
         {% else %}
@@ -629,6 +657,48 @@
         <div class="modal-footer">
             <button class="action-btn secondary" onclick="closeHistoricalUpdate()">Cancel</button>
             <button class="action-btn primary" onclick="updateHistoricalWeek()">Update Week</button>
+        </div>
+    </div>
+</div>
+
+<!-- Historical Week Confirmation Modal -->
+<div id="historicalWeekModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="historicalWeekTitle">Fetch Historical Week Data</h3>
+            <button class="modal-close" onclick="closeHistoricalWeekModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div style="padding: 1rem; background: rgba(var(--primary-rgb), 0.05); border-radius: 8px; margin-bottom: 1.5rem;">
+                <p style="font-size: 1rem; color: var(--text-primary); margin-bottom: 0.75rem;">
+                    <strong>📊 What will happen:</strong>
+                </p>
+                <ol style="font-size: 0.9rem; color: var(--text-secondary); margin: 0; padding-left: 1.5rem;">
+                    <li>Fetch box office data for <strong id="selectedWeekText">the selected week</strong></li>
+                    <li>Match movies against your Radarr library</li>
+                    <li id="autoAddBehavior" style="font-weight: 600;">
+                        {% if auto_add %}
+                        <span style="color: var(--success-color);">✅ Missing movies will be AUTOMATICALLY added</span>
+                        {% else %}
+                        <span style="color: var(--warning-color);">🔘 Movies will NOT be automatically added</span>
+                        {% endif %}
+                    </li>
+                </ol>
+            </div>
+            
+            <div class="form-group">
+                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                    <input type="checkbox" id="overrideAutoAdd" {% if auto_add %}checked{% endif %} style="width: auto; margin: 0;">
+                    <span>Automatically add missing movies for this fetch</span>
+                </label>
+                <p style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.5rem; margin-left: 1.5rem;">
+                    This overrides your default setting for this fetch only. Your global setting (currently {% if auto_add %}ENABLED{% else %}DISABLED{% endif %}) will not be changed.
+                </p>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="action-btn secondary" onclick="closeHistoricalWeekModal()">Cancel</button>
+            <button class="action-btn primary" onclick="fetchHistoricalWeek()">Fetch Week Data</button>
         </div>
     </div>
 </div>
