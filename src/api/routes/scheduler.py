@@ -255,7 +255,9 @@ class UpdateWeekRequest(BaseModel):
 
     year: int
     week: int
-    auto_add_override: Optional[bool] = None  # Override auto-add setting for this request only
+    auto_add_override: Optional[bool] = (
+        None  # Override auto-add setting for this request only
+    )
 
 
 @router.post("/update-week")
@@ -299,11 +301,11 @@ async def update_specific_week(request: UpdateWeekRequest):  # noqa: C901
 
             # Auto-add if enabled (check override first, then default setting)
             should_auto_add = (
-                request.auto_add_override 
-                if request.auto_add_override is not None 
+                request.auto_add_override
+                if request.auto_add_override is not None
                 else settings.boxarr_features_auto_add
             )
-            
+
             if should_auto_add:
                 for result in match_results:
                     if not result.is_matched:
