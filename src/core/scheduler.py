@@ -469,7 +469,7 @@ class BoxarrScheduler:
             existing_job = self.scheduler.get_job("box_office_update")
             if existing_job:
                 self.scheduler.remove_job("box_office_update")
-                logger.info(f"Removed existing scheduler job")
+                logger.info("Removed existing scheduler job")
 
             # Add new job with updated cron
             job = self.scheduler.add_job(
