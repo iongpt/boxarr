@@ -63,7 +63,7 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
         app.state.scheduler = scheduler
         # Update scheduler reference in routes module
         from .routes import scheduler as scheduler_routes
-        
+
         # Set the module-level variable correctly
         scheduler_routes._scheduler = scheduler
 
