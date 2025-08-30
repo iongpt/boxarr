@@ -18,6 +18,7 @@ pytest-asyncio>=0.21.0
 black>=23.9.0
 flake8>=6.1.0
 mypy>=1.6.0
+types-pytz>=2024.1.0.0
 types-pyyaml>=6.0.0
 
 # Documentation
