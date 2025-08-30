@@ -100,6 +100,19 @@ async def test_configuration(config: TestConfigRequest):
 async def save_configuration(config: SaveConfigRequest):
     """Save configuration to file."""
     try:
+        # Validate cron expression first
+        if config.boxarr_scheduler_enabled:
+            try:
+                from apscheduler.triggers.cron import CronTrigger
+
+                # Test if cron expression is valid
+                CronTrigger.from_crontab(config.boxarr_scheduler_cron)
+            except (ValueError, TypeError) as e:
+                return {
+                    "success": False,
+                    "message": f"Invalid cron expression: {str(e)}",
+                }
+
         # Test connection first
         test_service = RadarrService(
             url=config.radarr_url, api_key=config.radarr_api_key
@@ -148,8 +161,61 @@ async def save_configuration(config: SaveConfigRequest):
 
         logger.info("Configuration saved successfully")
 
+        # Save old scheduler settings BEFORE reloading
+        old_scheduler_enabled = settings.boxarr_scheduler_enabled
+        old_cron = settings.boxarr_scheduler_cron
+
         # Reload settings
         Settings.reload_from_file(config_path)
+
+        # Reload scheduler if it's running and schedule changed
+        try:
+            # Get new settings values (define these early to avoid NameError)
+            new_cron = config.boxarr_scheduler_cron
+            new_enabled = config.boxarr_scheduler_enabled
+
+            # Try to get scheduler from app state or module
+            scheduler = None
+            try:
+                # Try getting from the scheduler routes module
+                from .scheduler import get_scheduler
+
+                scheduler = get_scheduler()
+            except Exception as e:
+                logger.debug(f"Could not get scheduler instance: {e}")
+
+            # If scheduler exists and is running, check if we need to reload
+            if scheduler and hasattr(scheduler, "_running") and scheduler._running:
+                # Check if scheduler settings changed
+                schedule_changed = old_cron != new_cron
+                enabled_changed = old_scheduler_enabled != new_enabled
+
+                if schedule_changed or enabled_changed:
+                    if new_enabled:
+                        # Reload with new cron
+                        if scheduler.reload_schedule(new_cron):
+                            logger.info(
+                                f"✅ Scheduler reloaded: {old_cron} → {new_cron}"
+                            )
+                        else:
+                            logger.error(
+                                f"Failed to reload scheduler with new cron: {new_cron}"
+                            )
+                    else:
+                        # Disable scheduler by removing job
+                        job = scheduler.scheduler.get_job("box_office_update")
+                        if job:
+                            scheduler.scheduler.remove_job("box_office_update")
+                            logger.info("✅ Scheduler disabled (job removed)")
+                else:
+                    logger.debug("Scheduler settings unchanged, no reload needed")
+            elif new_enabled and not scheduler:
+                logger.warning(
+                    "⚠️ Scheduler should be enabled but instance not found - restart required"
+                )
+        except Exception as e:
+            logger.warning(f"Could not reload scheduler: {e}")
+            # Don't fail the whole config save just because scheduler reload failed
 
         return {
             "success": True,

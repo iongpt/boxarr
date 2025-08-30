@@ -1,5 +1,6 @@
 """Scheduler management routes."""
 
+import json
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -66,6 +67,126 @@ async def trigger_update():
             success=False,
             message=str(e),
         )
+
+
+@router.post("/reload")
+async def reload_scheduler():
+    """Manually reload the scheduler with current settings."""
+    try:
+        scheduler = get_scheduler()
+
+        if not scheduler._running:
+            return {
+                "success": False,
+                "message": "Scheduler is not running",
+            }
+
+        # Reload with current settings
+        if scheduler.reload_schedule():
+            next_run = scheduler.get_next_run_time()
+            return {
+                "success": True,
+                "message": f"Scheduler reloaded with cron: {settings.boxarr_scheduler_cron}",
+                "next_run": next_run.isoformat() if next_run else None,
+                "cron": settings.boxarr_scheduler_cron,
+            }
+        else:
+            return {
+                "success": False,
+                "message": "Failed to reload scheduler",
+            }
+    except Exception as e:
+        logger.error(f"Error reloading scheduler: {e}")
+        return {
+            "success": False,
+            "message": str(e),
+        }
+
+
+@router.get("/status")
+async def get_scheduler_status():
+    """Get current scheduler status and configuration."""
+    try:
+        scheduler = get_scheduler()
+
+        # Get job information
+        jobs = scheduler.scheduler.get_jobs() if scheduler.scheduler else []
+        job_info = []
+
+        for job in jobs:
+            job_info.append(
+                {
+                    "id": job.id,
+                    "name": job.name,
+                    "next_run_time": (
+                        job.next_run_time.isoformat() if job.next_run_time else None
+                    ),
+                    "pending": job.pending,
+                }
+            )
+
+        # Get next run time
+        next_run = scheduler.get_next_run_time() if scheduler._running else None
+
+        # Calculate time until next run
+        time_until_next = None
+        if next_run:
+            from datetime import datetime
+
+            import pytz
+
+            now = datetime.now(pytz.timezone(settings.boxarr_scheduler_timezone))
+            delta = next_run - now
+            time_until_next = {
+                "days": delta.days,
+                "hours": delta.seconds // 3600,
+                "minutes": (delta.seconds % 3600) // 60,
+                "total_hours": delta.total_seconds() / 3600,
+            }
+
+        # Get last run info from history
+        last_run_info = None
+        try:
+            history_dir = Path(settings.boxarr_data_directory) / "history"
+            if history_dir.exists():
+                history_files = sorted(history_dir.glob("*_latest.json"), reverse=True)
+                if history_files:
+                    with open(history_files[0]) as f:
+                        data = json.load(f)
+                        timestamp = data.get("timestamp")
+                        if timestamp:
+                            from datetime import datetime
+
+                            last_run_time = datetime.fromisoformat(
+                                timestamp.replace("Z", "+00:00")
+                            )
+                            last_run_info = {
+                                "timestamp": last_run_time.isoformat(),
+                                "success": True,
+                                "matched_count": data.get("matched_count", 0),
+                                "total_count": data.get("total_count", 0),
+                            }
+        except Exception as e:
+            logger.debug(f"Could not get last run info: {e}")
+
+        return {
+            "enabled": settings.boxarr_scheduler_enabled,
+            "running": scheduler._running if scheduler else False,
+            "cron_expression": settings.boxarr_scheduler_cron,
+            "timezone": settings.boxarr_scheduler_timezone,
+            "next_run_time": next_run.isoformat() if next_run else None,
+            "time_until_next": time_until_next,
+            "last_run": last_run_info,
+            "jobs": job_info,
+            "auto_add_enabled": settings.boxarr_features_auto_add,
+        }
+    except Exception as e:
+        logger.error(f"Error getting scheduler status: {e}")
+        return {
+            "enabled": settings.boxarr_scheduler_enabled,
+            "running": False,
+            "error": str(e),
+        }
 
 
 @router.get("/history")
