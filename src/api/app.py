@@ -61,10 +61,11 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
     # Store scheduler instance if provided
     if scheduler:
         app.state.scheduler = scheduler
-        # Update scheduler reference in routes
-        from .routes import scheduler as scheduler_module
+        # Update scheduler reference in routes module
+        from .routes import scheduler as scheduler_routes
 
-        scheduler_module._scheduler = scheduler
+        # Set the module-level variable correctly
+        scheduler_routes._scheduler = scheduler
 
     @app.on_event("startup")
     async def startup_event():

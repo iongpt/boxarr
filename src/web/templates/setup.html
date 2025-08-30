@@ -144,6 +144,53 @@
                 </div>
             </div>
 
+            <!-- Scheduler Debug Section (Collapsible) -->
+            {% if is_configured %}
+            <div class="form-section scheduler-debug-section">
+                <h2 class="section-title collapsible" onclick="toggleSchedulerDebug()">
+                    <span class="collapse-icon">▶</span> Scheduler Debug
+                    <span id="schedulerStatusBadge" class="status-badge"></span>
+                </h2>
+                
+                <div id="schedulerDebugContent" class="scheduler-debug-content" style="display: none;">
+                    <div class="debug-info">
+                        <div class="debug-row">
+                            <span class="debug-label">Service Status:</span>
+                            <span id="debugServiceStatus" class="debug-value">Loading...</span>
+                        </div>
+                        <div class="debug-row">
+                            <span class="debug-label">Next Run:</span>
+                            <span id="debugNextRun" class="debug-value">Loading...</span>
+                        </div>
+                        <div class="debug-row">
+                            <span class="debug-label">Last Run:</span>
+                            <span id="debugLastRun" class="debug-value">Loading...</span>
+                        </div>
+                        <div class="debug-row">
+                            <span class="debug-label">Active Jobs:</span>
+                            <span id="debugActiveJobs" class="debug-value">Loading...</span>
+                        </div>
+                        <div class="debug-row">
+                            <span class="debug-label">Timezone:</span>
+                            <span id="debugTimezone" class="debug-value">Loading...</span>
+                        </div>
+                    </div>
+                    
+                    <div class="debug-actions">
+                        <button type="button" class="btn btn-sm btn-success" onclick="triggerScheduler()">
+                            ▶ Trigger Now
+                        </button>
+                        <button type="button" class="btn btn-sm btn-warning" onclick="reloadScheduler()">
+                            🔄 Reload
+                        </button>
+                        <button type="button" class="btn btn-sm btn-info" onclick="refreshSchedulerStatus()">
+                            🔍 Refresh Status
+                        </button>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
             <div class="button-row">
                 {% if is_configured %}
                 <a href="/" class="btn btn-secondary">← Back to Dashboard</a>
@@ -163,6 +210,6 @@
         </form>
     </div>
 
-<script src="/static/js/app.js"></script>
+<script src="/static/js/app.js?v=2"></script>
 </body>
 </html>
