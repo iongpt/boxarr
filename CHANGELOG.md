@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Scheduler Day Numbering**: Fixed incorrect day-of-week mapping between UI and APScheduler causing scheduled tasks to run on wrong day (#13)
+  - APScheduler uses different day numbering (Monday=0) than standard cron (Sunday=0)
+  - Added bidirectional conversion between HTML form values and APScheduler format
+  - Settings page now correctly persists selected day after reload
+
 ## [1.0.3] - 2025-08-30
 
 ### Security
