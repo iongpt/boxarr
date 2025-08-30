@@ -183,9 +183,13 @@ function reloadScheduler() {
                 }
             })
             .catch(error => {
-                statusDot.classList.add('error');
-                statusDot.classList.remove('connected');
-                statusText.textContent = 'Disconnected';
+                if (statusDot) {
+                    statusDot.classList.add('error');
+                    statusDot.classList.remove('connected');
+                }
+                if (statusText) {
+                    statusText.textContent = 'Disconnected';
+                }
             });
     }
 
