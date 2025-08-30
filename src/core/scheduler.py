@@ -45,9 +45,11 @@ class BoxarrScheduler:
         try:
             tz = pytz.timezone(settings.boxarr_scheduler_timezone)
         except pytz.exceptions.UnknownTimeZoneError:
-            logger.warning(f"Unknown timezone: {settings.boxarr_scheduler_timezone}, using UTC")
+            logger.warning(
+                f"Unknown timezone: {settings.boxarr_scheduler_timezone}, using UTC"
+            )
             tz = pytz.UTC
-        
+
         self.scheduler = AsyncIOScheduler(timezone=tz)
 
         self.boxoffice_service = boxoffice_service
@@ -74,7 +76,7 @@ class BoxarrScheduler:
                 if existing_job:
                     self.scheduler.remove_job("box_office_update")
                     logger.info("Removed existing job before adding new one")
-                
+
                 # Schedule the main job
                 job = self.scheduler.add_job(
                     self.update_box_office,
@@ -88,7 +90,7 @@ class BoxarrScheduler:
 
                 self.scheduler.start()
                 self._running = True
-                
+
                 # Log detailed information about the scheduled job
                 logger.info(
                     f"Scheduler started successfully with cron: {settings.boxarr_scheduler_cron}"
@@ -98,12 +100,15 @@ class BoxarrScheduler:
                     logger.info(f"Next scheduled run: {job.next_run_time}")
                     # Calculate time until next run
                     from datetime import datetime
-                    time_until = job.next_run_time - datetime.now(job.next_run_time.tzinfo)
+
+                    time_until = job.next_run_time - datetime.now(
+                        job.next_run_time.tzinfo
+                    )
                     hours = time_until.total_seconds() / 3600
                     logger.info(f"Time until next run: {hours:.1f} hours")
                 else:
                     logger.warning("Job was added but next_run_time is not set")
-                    
+
             except Exception as e:
                 logger.error(f"Failed to start scheduler: {e}", exc_info=True)
                 self._running = False
@@ -450,22 +455,22 @@ class BoxarrScheduler:
     def reload_schedule(self, new_cron: str = None) -> bool:
         """
         Reload the scheduler with a new cron expression.
-        
+
         Args:
             new_cron: New cron expression (uses settings if not provided)
-            
+
         Returns:
             True if reload successful
         """
         try:
             cron_expr = new_cron or settings.boxarr_scheduler_cron
-            
+
             # Remove existing job if it exists
             existing_job = self.scheduler.get_job("box_office_update")
             if existing_job:
                 self.scheduler.remove_job("box_office_update")
                 logger.info(f"Removed existing scheduler job")
-            
+
             # Add new job with updated cron
             job = self.scheduler.add_job(
                 self.update_box_office,
@@ -476,22 +481,22 @@ class BoxarrScheduler:
                 max_instances=1,  # Prevent overlapping runs
                 misfire_grace_time=3600,  # Allow 1 hour grace period for misfires
             )
-            
+
             logger.info(f"Scheduler reloaded with new cron: {cron_expr}")
-            
+
             if job and job.next_run_time:
                 logger.info(f"Next scheduled run: {job.next_run_time}")
                 # Calculate time until next run
                 time_until = job.next_run_time - datetime.now(job.next_run_time.tzinfo)
                 hours = time_until.total_seconds() / 3600
                 logger.info(f"Time until next run: {hours:.1f} hours")
-            
+
             return True
-            
+
         except Exception as e:
             logger.error(f"Failed to reload scheduler: {e}", exc_info=True)
             return False
-    
+
     def get_next_run_time(self) -> Optional[datetime]:
         """
         Get next scheduled run time.

@@ -18,3 +18,4 @@ pyyaml>=6.0
 
 # Scheduling
 apscheduler>=3.10.0
+pytz>=2024.1
