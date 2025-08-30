@@ -77,7 +77,7 @@ fi
 # Commit version changes
 echo -e "${YELLOW}Committing version changes...${NC}"
 git add pyproject.toml src/version.py
-git commit -m "Bump version to $VERSION_NUMBER"
+git commit -m "Release version $VERSION_NUMBER"
 
 # Push to main
 echo -e "${YELLOW}Pushing to main branch...${NC}"
