@@ -653,6 +653,30 @@
                     {% endfor %}
                 </select>
             </div>
+            
+            <!-- Auto-Add Override Section -->
+            <div style="margin-top: 1.5rem; padding: 1rem; background: rgba(var(--primary-rgb), 0.05); border-radius: 8px; border: 1px solid rgba(var(--primary-rgb), 0.2);">
+                <p style="font-size: 0.9rem; color: var(--text-primary); margin-bottom: 0.75rem;">
+                    <strong>📊 Current behavior:</strong>
+                </p>
+                <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.75rem;">
+                    {% if auto_add %}
+                    ✅ Your global auto-add is <strong style="color: var(--success-color);">ENABLED</strong> - Movies will be automatically added to Radarr
+                    {% else %}
+                    🔘 Your global auto-add is <strong style="color: var(--warning-color);">DISABLED</strong> - Movies will NOT be automatically added
+                    {% endif %}
+                </p>
+                
+                <div class="form-group" style="margin: 0;">
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" id="historicalAutoAddOverride" {% if auto_add %}checked{% endif %} style="width: auto; margin: 0;">
+                        <span>Automatically add missing movies for this fetch</span>
+                    </label>
+                    <p style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.5rem; margin-left: 1.5rem; margin-bottom: 0;">
+                        This overrides your default setting for this fetch only.
+                    </p>
+                </div>
+            </div>
         </div>
         <div class="modal-footer">
             <button class="action-btn secondary" onclick="closeHistoricalUpdate()">Cancel</button>

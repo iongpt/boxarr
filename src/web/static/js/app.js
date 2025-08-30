@@ -442,6 +442,7 @@ function reloadScheduler() {
     window.updateHistoricalWeek = function() {
         const year = document.getElementById('historicalYear').value;
         const week = document.getElementById('historicalWeek').value;
+        const overrideAutoAdd = document.getElementById('historicalAutoAddOverride').checked;
         
         closeHistoricalUpdate();
         
@@ -476,11 +477,16 @@ function reloadScheduler() {
         }
         
         addLogEntry(`Starting historical data fetch for Week ${week}, ${year}`);
+        addLogEntry(`Auto-add override: ${overrideAutoAdd ? 'ENABLED' : 'DISABLED'}`);
         
         fetch('/api/scheduler/update-week', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ year: parseInt(year), week: parseInt(week) })
+            body: JSON.stringify({ 
+                year: parseInt(year), 
+                week: parseInt(week),
+                auto_add_override: overrideAutoAdd
+            })
         })
         .then(response => {
             addLogEntry('Received response from server');
@@ -489,8 +495,10 @@ function reloadScheduler() {
         .then(data => {
             if (data.success) {
                 addLogEntry(`Found ${data.movies_found || 0} movies`, 'success');
-                if (data.movies_added && data.movies_added > 0) {
+                if (overrideAutoAdd && data.movies_added && data.movies_added > 0) {
                     addLogEntry(`Added ${data.movies_added} new movies to Radarr`, 'success');
+                } else if (!overrideAutoAdd) {
+                    addLogEntry('Movies fetched but not automatically added (as requested)', 'info');
                 }
                 if (progressMessage) progressMessage.textContent = '✅ Historical week updated successfully!';
                 addLogEntry('Update completed!', 'success');
