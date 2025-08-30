@@ -3,6 +3,153 @@
  * Unified JavaScript for all pages
  */
 
+// Scheduler Debug Functions (Global scope for onclick handlers)
+function toggleSchedulerDebug() {
+    const content = document.getElementById('schedulerDebugContent');
+    const icon = document.querySelector('.collapse-icon');
+    
+    if (content && icon) {
+        if (content.style.display === 'none') {
+            content.style.display = 'block';
+            icon.textContent = '▼';
+            refreshSchedulerStatus();
+        } else {
+            content.style.display = 'none';
+            icon.textContent = '▶';
+        }
+    }
+}
+
+function refreshSchedulerStatus() {
+    fetch('/api/scheduler/status')
+        .then(response => response.json())
+        .then(data => {
+            // Update service status
+            const serviceStatus = document.getElementById('debugServiceStatus');
+            const statusBadge = document.getElementById('schedulerStatusBadge');
+            
+            if (serviceStatus) {
+                if (data.running && data.jobs && data.jobs.length > 0) {
+                    serviceStatus.innerHTML = '<span style="color: #48bb78;">✓ Running</span>';
+                    if (statusBadge) {
+                        statusBadge.innerHTML = '🟢';
+                        statusBadge.title = 'Scheduler is running';
+                    }
+                } else if (data.running) {
+                    serviceStatus.innerHTML = '<span style="color: #f6ad55;">⚠ Running (No Jobs)</span>';
+                    if (statusBadge) {
+                        statusBadge.innerHTML = '🟡';
+                        statusBadge.title = 'Scheduler running but no jobs scheduled';
+                    }
+                } else {
+                    serviceStatus.innerHTML = '<span style="color: #f56565;">✗ Not Running</span>';
+                    if (statusBadge) {
+                        statusBadge.innerHTML = '🔴';
+                        statusBadge.title = 'Scheduler is not running';
+                    }
+                }
+            }
+            
+            // Update next run
+            const nextRun = document.getElementById('debugNextRun');
+            if (nextRun) {
+                if (data.next_run_time) {
+                    const nextTime = new Date(data.next_run_time);
+                    const timeUntil = data.time_until_next;
+                    if (timeUntil) {
+                        nextRun.innerHTML = `${nextTime.toLocaleString()} <small>(in ${timeUntil.days}d ${timeUntil.hours}h ${timeUntil.minutes}m)</small>`;
+                    } else {
+                        nextRun.innerHTML = nextTime.toLocaleString();
+                    }
+                } else {
+                    nextRun.innerHTML = 'No scheduled runs';
+                }
+            }
+            
+            // Update last run
+            const lastRun = document.getElementById('debugLastRun');
+            if (lastRun) {
+                if (data.last_run) {
+                    const lastTime = new Date(data.last_run.timestamp);
+                    lastRun.innerHTML = `${lastTime.toLocaleString()} <small>(${data.last_run.matched_count}/${data.last_run.total_count} matched)</small>`;
+                } else {
+                    lastRun.innerHTML = 'No previous runs';
+                }
+            }
+            
+            // Update active jobs
+            const activeJobs = document.getElementById('debugActiveJobs');
+            if (activeJobs) {
+                activeJobs.innerHTML = data.jobs ? data.jobs.length : '0';
+            }
+            
+            // Update timezone
+            const timezone = document.getElementById('debugTimezone');
+            if (timezone) {
+                timezone.innerHTML = data.timezone || 'Unknown';
+            }
+        })
+        .catch(error => {
+            console.error('Error fetching scheduler status:', error);
+            const serviceStatus = document.getElementById('debugServiceStatus');
+            if (serviceStatus) {
+                serviceStatus.innerHTML = '<span style="color: #f56565;">Error loading status</span>';
+            }
+        });
+}
+
+function triggerScheduler() {
+    if (!confirm('Manually trigger box office update now?')) return;
+    
+    const btn = event.target;
+    btn.disabled = true;
+    btn.textContent = 'Triggering...';
+    
+    fetch('/api/scheduler/trigger', { method: 'POST' })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert(`Update completed! Found ${data.movies_found} movies, added ${data.movies_added || 0} new movies.`);
+                refreshSchedulerStatus();
+            } else {
+                alert(`Update failed: ${data.message}`);
+            }
+        })
+        .catch(error => {
+            alert(`Error: ${error.message}`);
+        })
+        .finally(() => {
+            btn.disabled = false;
+            btn.textContent = '▶ Trigger Now';
+        });
+}
+
+function reloadScheduler() {
+    if (!confirm('Reload scheduler with current settings?')) return;
+    
+    const btn = event.target;
+    btn.disabled = true;
+    btn.textContent = 'Reloading...';
+    
+    fetch('/api/scheduler/reload', { method: 'POST' })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert(`Scheduler reloaded! Next run: ${new Date(data.next_run).toLocaleString()}`);
+                refreshSchedulerStatus();
+            } else {
+                alert(`Reload failed: ${data.message}`);
+            }
+        })
+        .catch(error => {
+            alert(`Error: ${error.message}`);
+        })
+        .finally(() => {
+            btn.disabled = false;
+            btn.textContent = '🔄 Reload';
+        });
+}
+
 (function() {
     'use strict';
 
@@ -22,6 +169,9 @@
         const statusDot = document.getElementById('statusDot');
         const statusText = document.getElementById('statusText');
         
+        // Skip if elements don't exist (e.g., on setup page)
+        if (!statusDot || !statusText) return;
+        
         fetch('/api/health')
             .then(response => {
                 if (response.ok) {
@@ -33,9 +183,13 @@
                 }
             })
             .catch(error => {
-                statusDot.classList.add('error');
-                statusDot.classList.remove('connected');
-                statusText.textContent = 'Disconnected';
+                if (statusDot) {
+                    statusDot.classList.add('error');
+                    statusDot.classList.remove('connected');
+                }
+                if (statusText) {
+                    statusText.textContent = 'Disconnected';
+                }
             });
     }
 
@@ -595,5 +749,10 @@
             clearInterval(statusCheckInterval);
         }
     });
+
+    // Initialize scheduler debug on page load if present
+    if (document.getElementById('schedulerDebugContent')) {
+        refreshSchedulerStatus();
+    }
 
 })();
