@@ -261,10 +261,53 @@ async def add_movie_to_radarr(request: AddMovieRequest):
                 "movie_id": result.id,
             }
         else:
-            return {"success": False, "message": "Failed to add movie"}
+            return {
+                "success": False, 
+                "message": "Failed to add movie to Radarr",
+                "error": "The movie could not be added. It may already exist under a different title."
+            }
+    except HTTPException as e:
+        logger.error(f"HTTP error adding movie: {e.detail}")
+        return {
+            "success": False, 
+            "message": "Configuration error",
+            "error": e.detail
+        }
     except Exception as e:
         logger.error(f"Error adding movie: {e}")
-        return {"success": False, "message": str(e)}
+        error_msg = str(e)
+        
+        # Provide more specific error messages based on common issues
+        if "already exists" in error_msg.lower() or "duplicate" in error_msg.lower():
+            return {
+                "success": False, 
+                "message": "Movie already exists",
+                "error": "This movie is already in your Radarr library"
+            }
+        elif "connection" in error_msg.lower() or "refused" in error_msg.lower():
+            return {
+                "success": False, 
+                "message": "Connection failed",
+                "error": "Could not connect to Radarr. Please check your settings."
+            }
+        elif "unauthorized" in error_msg.lower() or "401" in error_msg:
+            return {
+                "success": False, 
+                "message": "Authentication failed",
+                "error": "Invalid Radarr API key. Please check your configuration."
+            }
+        elif "not found" in error_msg.lower() or "404" in error_msg:
+            return {
+                "success": False, 
+                "message": "Movie not found",
+                "error": "This movie could not be found in the TMDB database"
+            }
+        else:
+            return {
+                "success": False, 
+                "message": "Unexpected error",
+                "error": error_msg
+            }
 
 
 def regenerate_weeks_with_movie(movie_title: str):

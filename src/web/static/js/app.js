@@ -295,6 +295,134 @@ function reloadScheduler() {
             });
     };
 
+    // Global variables for historical week selection
+    let selectedHistoricalWeekUrl = null;
+    let selectedHistoricalWeekText = null;
+
+    window.showHistoricalWeekModal = function(weekUrl, weekText) {
+        selectedHistoricalWeekUrl = weekUrl;
+        selectedHistoricalWeekText = weekText;
+        
+        const modal = document.getElementById('historicalWeekModal');
+        const weekTextEl = document.getElementById('selectedWeekText');
+        
+        if (weekTextEl) {
+            weekTextEl.textContent = weekText;
+        }
+        
+        if (modal) {
+            modal.classList.add('show');
+            isModalOpen = true;
+        }
+    };
+
+    window.closeHistoricalWeekModal = function() {
+        const modal = document.getElementById('historicalWeekModal');
+        if (modal) {
+            modal.classList.remove('show');
+            isModalOpen = false;
+        }
+        selectedHistoricalWeekUrl = null;
+        selectedHistoricalWeekText = null;
+    };
+
+    window.fetchHistoricalWeek = function() {
+        if (!selectedHistoricalWeekUrl) return;
+        
+        const overrideAutoAdd = document.getElementById('overrideAutoAdd').checked;
+        const weekMatch = selectedHistoricalWeekUrl.match(/\/(\d{4})W(\d{2})/);
+        
+        if (!weekMatch) {
+            showMessage('Invalid week format', 'error');
+            return;
+        }
+        
+        const year = weekMatch[1];
+        const week = weekMatch[2];
+        
+        closeHistoricalWeekModal();
+        
+        const modal = document.getElementById('progressModal');
+        const progressTitle = document.getElementById('progressTitle');
+        const progressMessage = document.getElementById('progressMessage');
+        const progressLog = document.getElementById('progressLog');
+        const progressFooter = document.getElementById('progressFooter');
+        
+        if (modal) {
+            modal.classList.add('show');
+            isModalOpen = true;
+        }
+        if (progressTitle) {
+            progressTitle.textContent = `Fetching ${selectedHistoricalWeekText}`;
+        }
+        
+        // Clear previous log and set initial message
+        if (progressLog) progressLog.innerHTML = '';
+        if (progressMessage) progressMessage.textContent = `Fetching box office data for ${selectedHistoricalWeekText}...`;
+        if (progressFooter) progressFooter.style.display = 'none';
+        
+        // Add log entry helper
+        function addLogEntry(message, type = 'info') {
+            if (progressLog) {
+                const entry = document.createElement('div');
+                entry.style.color = type === 'error' ? '#f56565' : type === 'success' ? '#48bb78' : '#718096';
+                entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+                progressLog.appendChild(entry);
+                progressLog.scrollTop = progressLog.scrollHeight;
+            }
+        }
+        
+        addLogEntry(`Starting historical data fetch for ${selectedHistoricalWeekText}`);
+        addLogEntry(`Auto-add override: ${overrideAutoAdd ? 'ENABLED' : 'DISABLED'}`);
+        
+        fetch('/api/scheduler/update-week', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                year: parseInt(year), 
+                week: parseInt(week),
+                auto_add_override: overrideAutoAdd
+            })
+        })
+        .then(response => {
+            addLogEntry('Received response from server');
+            return response.json();
+        })
+        .then(data => {
+            if (data.success) {
+                addLogEntry(`Found ${data.movies_found || 0} movies`, 'success');
+                if (overrideAutoAdd && data.movies_added && data.movies_added > 0) {
+                    addLogEntry(`Added ${data.movies_added} new movies to Radarr`, 'success');
+                } else if (!overrideAutoAdd) {
+                    addLogEntry('Movies fetched but not automatically added (as requested)', 'info');
+                }
+                if (progressMessage) progressMessage.textContent = '✅ Historical week fetched successfully!';
+                addLogEntry('Update completed!', 'success');
+                if (progressFooter) progressFooter.style.display = 'block';
+                setTimeout(() => window.location.href = selectedHistoricalWeekUrl, 2000);
+            } else {
+                const errorMsg = data.message || data.error || 'Unknown error occurred';
+                if (progressMessage) progressMessage.textContent = '❌ Fetch failed';
+                addLogEntry(`Error: ${errorMsg}`, 'error');
+                
+                // Provide helpful error messages
+                if (errorMsg.includes('already exists')) {
+                    addLogEntry('This week has already been fetched', 'error');
+                } else if (errorMsg.includes('not found')) {
+                    addLogEntry('No box office data available for this week', 'error');
+                }
+                
+                if (progressFooter) progressFooter.style.display = 'block';
+            }
+        })
+        .catch(error => {
+            if (progressMessage) progressMessage.textContent = '❌ Network error';
+            addLogEntry(`Network error: ${error.message}`, 'error');
+            addLogEntry('Please check if the Boxarr server is running', 'error');
+            if (progressFooter) progressFooter.style.display = 'block';
+        });
+    };
+
     window.showHistoricalUpdate = function() {
         const modal = document.getElementById('historicalModal');
         if (modal) {
@@ -471,10 +599,18 @@ function reloadScheduler() {
         });
     }
 
-    window.addToRadarr = function(title, year) {
+    window.addToRadarr = function(title, year, buttonElement) {
         if (confirm(`Add "${title}" to Radarr?`)) {
             // Show loading state immediately
             showMessage('Adding movie to Radarr...', 'info');
+            
+            // Update button to show loading state
+            if (buttonElement) {
+                const originalText = buttonElement.textContent;
+                buttonElement.disabled = true;
+                buttonElement.innerHTML = '<span style="display: inline-block; animation: spin 1s linear infinite;">⏳</span> Adding...';
+                buttonElement.style.opacity = '0.7';
+            }
             
             fetch('/api/movies/add', {
                 method: 'POST',
@@ -493,23 +629,29 @@ function reloadScheduler() {
                         setTimeout(() => window.location.reload(), 1000);
                     }, 500);
                 } else {
-                    // Provide more specific error messages
-                    let errorMsg = 'Failed to add movie';
+                    // Restore button on error
+                    if (buttonElement) {
+                        buttonElement.disabled = false;
+                        buttonElement.textContent = 'Add to Radarr';
+                        buttonElement.style.opacity = '1';
+                    }
+                    
+                    // Use the improved error messages from the API
+                    let errorMsg = data.message || 'Failed to add movie';
                     if (data.error) {
-                        if (data.error.includes('already exists') || data.error.includes('duplicate')) {
-                            errorMsg = 'Movie already exists in Radarr';
-                        } else if (data.error.includes('not found')) {
-                            errorMsg = 'Movie not found in TMDB database';
-                        } else if (data.error.includes('connection') || data.error.includes('Connection')) {
-                            errorMsg = 'Could not connect to Radarr';
-                        } else {
-                            errorMsg = data.error;
-                        }
+                        errorMsg = data.error;
                     }
                     showMessage('❌ ' + errorMsg, 'error');
                 }
             })
             .catch(error => {
+                // Restore button on network error
+                if (buttonElement) {
+                    buttonElement.disabled = false;
+                    buttonElement.textContent = 'Add to Radarr';
+                    buttonElement.style.opacity = '1';
+                }
+                
                 let errorMsg = 'Network error';
                 if (error.message.includes('fetch')) {
                     errorMsg = 'Could not reach Boxarr server';
@@ -837,6 +979,10 @@ function reloadScheduler() {
                 @keyframes slideOut {
                     from { transform: translateX(0); opacity: 1; }
                     to { transform: translateX(100%); opacity: 0; }
+                }
+                @keyframes spin {
+                    from { transform: rotate(0deg); }
+                    to { transform: rotate(360deg); }
                 }
             `;
             document.head.appendChild(style);

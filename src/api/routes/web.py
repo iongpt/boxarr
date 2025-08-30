@@ -299,6 +299,8 @@ async def serve_weekly_page(request: Request, year: int, week: int):
                 "movies": movies,
                 "generated_at": generated_at,
             },
+            "auto_add": settings.boxarr_features_auto_add,
+            "scheduler_enabled": settings.boxarr_scheduler_enabled,
             "previous_week": f"{prev_year}W{prev_week_num:02d}" if prev_week else None,
             "next_week": f"{next_year}W{next_week_num:02d}" if next_week else None,
         },
