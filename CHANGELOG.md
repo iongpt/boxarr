@@ -7,7 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.0.2] - 2025-08-30
+## [1.0.3] - 2025-08-30
+
+### Security
+- **Privacy Fix**: Corrected author attribution in git history to use username instead of real name
+
+## [1.0.2] - 2025-08-30 [DEPRECATED - Use v1.0.3]
 
 ### Added
 - **Auto-Add Override**: New checkbox in Historical Week modal to control auto-add behavior per fetch without changing global settings (#12)
