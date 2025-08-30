@@ -109,12 +109,20 @@ jobs:
         VERSION=${GITHUB_REF#refs/tags/v}
         echo "version=$VERSION" >> $GITHUB_OUTPUT
         
-        # Generate changelog (basic implementation)
-        echo "## What's Changed" > CHANGELOG.tmp
-        git log --pretty=format:"* %s (%h)" $(git describe --tags --abbrev=0 HEAD~1)..HEAD >> CHANGELOG.tmp
+        # Extract changelog for this version from CHANGELOG.md
+        # This extracts the section between the current version header and the next version header
+        awk "/^## \[$VERSION\]/{flag=1; next} /^## \[/{flag=0} flag" CHANGELOG.md > CHANGELOG.tmp
         
+        # If no specific version section found, use recent commits as fallback
+        if [ ! -s CHANGELOG.tmp ]; then
+          echo "## What's Changed" > CHANGELOG.tmp
+          git log --pretty=format:"* %s (%h)" $(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || git rev-list --max-parents=0 HEAD)..HEAD >> CHANGELOG.tmp
+        fi
+        
+        echo "" >> CHANGELOG.tmp
         echo "## Docker Images" >> CHANGELOG.tmp
         echo "- \`ghcr.io/${{ github.repository }}:$VERSION\`" >> CHANGELOG.tmp
+        echo "- \`ghcr.io/${{ github.repository }}:latest\`" >> CHANGELOG.tmp
         
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v1
