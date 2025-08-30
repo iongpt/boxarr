@@ -852,13 +852,25 @@ function reloadScheduler() {
         
         // Convert scheduler day and time to cron format
         if (schedulerDay && schedulerTime) {
-            // Cron format: minute hour * * day_of_week
-            // Day of week: 0=Sunday, 1=Monday, ..., 6=Saturday
-            const cronString = `0 ${schedulerTime.value} * * ${schedulerDay.value}`;
+            // APScheduler uses different day numbering than standard cron:
+            // APScheduler: Monday=0, Tuesday=1, ..., Saturday=5, Sunday=6
+            // HTML form uses: Sunday=0, Monday=1, ..., Saturday=6
+            // We need to convert from HTML form values to APScheduler values
+            const dayMapping = {
+                '0': '6', // Sunday: 0 -> 6
+                '1': '0', // Monday: 1 -> 0
+                '2': '1', // Tuesday: 2 -> 1
+                '3': '2', // Wednesday: 3 -> 2
+                '4': '3', // Thursday: 4 -> 3
+                '5': '4', // Friday: 5 -> 4
+                '6': '5'  // Saturday: 6 -> 5
+            };
+            const apschedulerDay = dayMapping[schedulerDay.value] || schedulerDay.value;
+            const cronString = `0 ${schedulerTime.value} * * ${apschedulerDay}`;
             config.boxarr_scheduler_cron = cronString;
         } else {
-            // Default: Tuesday at 11 PM
-            config.boxarr_scheduler_cron = "0 23 * * 2";
+            // Default: Tuesday at 11 PM (APScheduler day 1)
+            config.boxarr_scheduler_cron = "0 23 * * 1";
         }
         
         showMessage('Saving configuration...', 'info');
