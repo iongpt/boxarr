@@ -132,6 +132,7 @@ async def get_scheduler_status():
         time_until_next = None
         if next_run:
             from datetime import datetime
+
             import pytz
 
             now = datetime.now(pytz.timezone(settings.boxarr_scheduler_timezone))
