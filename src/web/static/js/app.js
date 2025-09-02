@@ -606,6 +606,13 @@ function reloadScheduler() {
         }
     };
 
+    window.changePageSize = function(newSize) {
+        const urlParams = new URLSearchParams(window.location.search);
+        urlParams.set('per_page', newSize);
+        urlParams.set('page', '1'); // Reset to first page when changing page size
+        window.location.href = `/dashboard?${urlParams.toString()}`;
+    };
+
     // ==========================================
     // Weekly Page Functions
     // ==========================================

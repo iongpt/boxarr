@@ -61,13 +61,41 @@ async def dashboard_page(request: Request):
     if not settings.is_configured:
         return RedirectResponse(url="/setup")
 
-    # Get all available weeks
-    weeks = await get_available_weeks()
+    # Get query parameters for pagination and filtering
+    page = int(request.query_params.get("page", 1))
+    per_page = int(request.query_params.get("per_page", 10))
+    year_filter_str = request.query_params.get("year", None)
 
-    # Separate into recent (first 6) and older
-    # Changed from 24 to 6 to make the dropdown accessible sooner
-    recent_weeks = weeks[:6]
-    older_weeks = weeks[6:] if len(weeks) > 6 else []
+    # Validate per_page
+    if per_page not in [10, 20, 50, 100]:
+        per_page = 10
+
+    # Get all available weeks
+    all_weeks = await get_available_weeks()
+
+    # Apply year filter if specified
+    year_filter: Optional[int] = None
+    if year_filter_str and year_filter_str.isdigit():
+        year_filter = int(year_filter_str)
+        weeks = [w for w in all_weeks if w.year == year_filter]
+    else:
+        weeks = all_weeks
+
+    # Get unique years for filter buttons
+    available_years = sorted(list(set(w.year for w in all_weeks)), reverse=True)
+
+    # Calculate pagination
+    total_weeks = len(weeks)
+    total_pages = (total_weeks + per_page - 1) // per_page  # Ceiling division
+    page = max(1, min(page, total_pages))  # Ensure page is within bounds
+
+    start_idx = (page - 1) * per_page
+    end_idx = start_idx + per_page
+    paginated_weeks = weeks[start_idx:end_idx]
+
+    # For backward compatibility, keep these but empty
+    recent_weeks = paginated_weeks
+    older_weeks: List[WeekInfo] = []
 
     # Calculate next scheduled update
     from datetime import datetime
@@ -139,7 +167,7 @@ async def dashboard_page(request: Request):
             "weeks": weeks,
             "recent_weeks": recent_weeks,
             "older_weeks": older_weeks,
-            "total_weeks": len(weeks),
+            "total_weeks": total_weeks,
             "radarr_configured": bool(settings.radarr_api_key),
             "scheduler_enabled": settings.boxarr_scheduler_enabled,
             "auto_add": settings.boxarr_features_auto_add,
@@ -148,6 +176,14 @@ async def dashboard_page(request: Request):
             "version": __version__,
             "auto_add_filters_active": auto_add_filters_active,
             "filter_descriptions": filter_descriptions,
+            # Pagination data
+            "current_page": page,
+            "total_pages": total_pages,
+            "per_page": per_page,
+            "paginated_weeks": paginated_weeks,
+            "available_years": available_years,
+            "year_filter": year_filter,
+            "total_all_weeks": len(all_weeks),
         },
     )
 
