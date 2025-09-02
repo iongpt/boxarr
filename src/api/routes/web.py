@@ -65,14 +65,14 @@ async def dashboard_page(request: Request):
     page = int(request.query_params.get("page", 1))
     per_page = int(request.query_params.get("per_page", 10))
     year_filter = request.query_params.get("year", None)
-    
+
     # Validate per_page
     if per_page not in [10, 20, 50, 100]:
         per_page = 10
-    
+
     # Get all available weeks
     all_weeks = await get_available_weeks()
-    
+
     # Apply year filter if specified
     if year_filter and year_filter.isdigit():
         year_filter = int(year_filter)
@@ -80,19 +80,19 @@ async def dashboard_page(request: Request):
     else:
         weeks = all_weeks
         year_filter = None
-    
+
     # Get unique years for filter buttons
     available_years = sorted(list(set(w.year for w in all_weeks)), reverse=True)
-    
+
     # Calculate pagination
     total_weeks = len(weeks)
     total_pages = (total_weeks + per_page - 1) // per_page  # Ceiling division
     page = max(1, min(page, total_pages))  # Ensure page is within bounds
-    
+
     start_idx = (page - 1) * per_page
     end_idx = start_idx + per_page
     paginated_weeks = weeks[start_idx:end_idx]
-    
+
     # For backward compatibility, keep these but empty
     recent_weeks = paginated_weeks
     older_weeks = []
