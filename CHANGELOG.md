@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Improved Dashboard Pagination**: Complete overhaul of weekly card display system (#18)
+  - **Proper Pagination**: Navigate through pages with Previous/Next buttons and page numbers
+  - **Configurable Page Size**: Choose to display 10, 20, 50, or 100 cards per page (default: 10)
+  - **Year Filtering**: Filter weekly cards by year with dedicated filter buttons
+  - **Smart Navigation**: Page numbers show current page ± 2 with ellipsis for gaps
 - **Advanced Auto-Add Filtering**: Comprehensive filtering options for automatic movie additions (#16)
   - **Top X Movies Limit**: Choose to add only the top 1-10 movies from box office rankings
   - **Genre Filtering**: Whitelist or blacklist specific genres (19 common genres pre-populated)
@@ -16,10 +21,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Expandable Settings UI**: Auto-add options only appear when feature is enabled
 
 ### Fixed
+- **Dashboard Navigation**: Replaced limited dropdown system with full pagination controls (#18)
 - **UI Bug**: Movies already in Radarr no longer show "Add to Radarr" button when JSON is outdated
 - **Status Updates**: Weekly pages now correctly update movie status by matching on title when radarr_id is missing
 
 ### Changed
+- **Dashboard Layout**: Removed old "6 cards + dropdown" system in favor of paginated display (#18)
 - **Historical Fetch Modals**: Removed confusing auto-add override option, now shows current settings with link to Settings page
 - **Improved Logging**: Added detailed logging showing why movies are filtered out during auto-add
 
