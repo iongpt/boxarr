@@ -396,7 +396,20 @@ class BoxarrScheduler:
         if not unmatched:
             return []
 
-        logger.info(f"Auto-adding {len(unmatched)} unmatched movies to Radarr")
+        # Apply limit if configured
+        limit = settings.boxarr_features_auto_add_limit
+        if limit < len(unmatched):
+            logger.info(
+                f"Limiting auto-add to top {limit} movies (out of {len(unmatched)} unmatched)"
+            )
+            # Sort by rank to get top movies
+            unmatched = sorted(unmatched, key=lambda r: r.box_office_movie.rank)[:limit]
+
+        if not unmatched:
+            logger.info("No movies to auto-add - all top movies are already in Radarr")
+            return []
+
+        logger.info(f"Auto-adding up to {len(unmatched)} unmatched movies to Radarr")
 
         # Get default quality profile
         profiles = self.radarr_service.get_quality_profiles()
@@ -417,8 +430,61 @@ class BoxarrScheduler:
                 )
 
                 if search_results:
-                    # Add the first result with default profile
                     movie_info = search_results[0]
+
+                    # Apply genre filter if enabled
+                    if settings.boxarr_features_auto_add_genre_filter_enabled:
+                        movie_genres = movie_info.get("genres", [])
+
+                        if (
+                            settings.boxarr_features_auto_add_genre_filter_mode
+                            == "whitelist"
+                        ):
+                            # Check if movie has at least one whitelisted genre
+                            whitelist = (
+                                settings.boxarr_features_auto_add_genre_whitelist
+                            )
+                            if whitelist and not any(
+                                genre in whitelist for genre in movie_genres
+                            ):
+                                logger.info(
+                                    f"Skipping '{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
+                                    f"genres {movie_genres} not in whitelist {whitelist}"
+                                )
+                                continue
+                        else:  # blacklist mode
+                            # Check if movie has any blacklisted genre
+                            blacklist = (
+                                settings.boxarr_features_auto_add_genre_blacklist
+                            )
+                            if blacklist and any(
+                                genre in blacklist for genre in movie_genres
+                            ):
+                                logger.info(
+                                    f"Skipping '{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
+                                    f"contains blacklisted genre(s) from {blacklist}"
+                                )
+                                continue
+
+                    # Apply rating filter if enabled
+                    if settings.boxarr_features_auto_add_rating_filter_enabled:
+                        movie_rating = movie_info.get("certification")
+                        rating_whitelist = (
+                            settings.boxarr_features_auto_add_rating_whitelist
+                        )
+
+                        if (
+                            rating_whitelist
+                            and movie_rating
+                            and movie_rating not in rating_whitelist
+                        ):
+                            logger.info(
+                                f"Skipping '{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
+                                f"rating '{movie_rating}' not in allowed ratings {rating_whitelist}"
+                            )
+                            continue
+
+                    # Add the movie with default profile
                     added_movie = await self._run_in_executor(
                         self.radarr_service.add_movie,
                         movie_info["tmdbId"],

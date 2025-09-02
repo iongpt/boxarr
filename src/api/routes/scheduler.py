@@ -255,9 +255,6 @@ class UpdateWeekRequest(BaseModel):
 
     year: int
     week: int
-    auto_add_override: Optional[bool] = (
-        None  # Override auto-add setting for this request only
-    )
 
 
 @router.post("/update-week")
@@ -299,30 +296,99 @@ async def update_specific_week(request: UpdateWeekRequest):  # noqa: C901
             matcher.build_movie_index(radarr_movies)
             match_results = matcher.match_movies(box_office_movies, radarr_movies)
 
-            # Auto-add if enabled (check override first, then default setting)
-            should_auto_add = (
-                request.auto_add_override
-                if request.auto_add_override is not None
-                else settings.boxarr_features_auto_add
-            )
+            # Auto-add if enabled (using global settings only)
+            if settings.boxarr_features_auto_add:
+                # Get unmatched movies and apply limit
+                unmatched = [r for r in match_results if not r.is_matched]
 
-            if should_auto_add:
-                for result in match_results:
-                    if not result.is_matched:
-                        # Search and add
-                        search = radarr_service.search_movie_tmdb(
-                            result.box_office_movie.title
-                        )
-                        if search:
-                            movie = radarr_service.add_movie(
-                                tmdb_id=search[0]["tmdbId"],
-                                quality_profile_id=None,  # Uses default from settings
-                                root_folder=str(settings.radarr_root_folder),
-                                monitored=True,
-                                search_for_movie=True,
+                # Apply limit if configured
+                limit = settings.boxarr_features_auto_add_limit
+                if limit < len(unmatched):
+                    logger.info(
+                        f"Limiting auto-add to top {limit} movies (out of {len(unmatched)} unmatched)"
+                    )
+                    # Sort by rank to get top movies
+                    unmatched = sorted(
+                        unmatched, key=lambda r: r.box_office_movie.rank
+                    )[:limit]
+
+                if not unmatched:
+                    logger.info(
+                        "No movies to auto-add - all top movies are already in Radarr"
+                    )
+                else:
+                    logger.info(
+                        f"Processing {len(unmatched)} movies for auto-add with filters"
+                    )
+
+                for result in unmatched:
+                    # Search for movie in TMDB
+                    search = radarr_service.search_movie_tmdb(
+                        result.box_office_movie.title
+                    )
+                    if search:
+                        movie_info = search[0]
+
+                        # Apply genre filter if enabled
+                        if settings.boxarr_features_auto_add_genre_filter_enabled:
+                            movie_genres = movie_info.get("genres", [])
+
+                            if (
+                                settings.boxarr_features_auto_add_genre_filter_mode
+                                == "whitelist"
+                            ):
+                                whitelist = (
+                                    settings.boxarr_features_auto_add_genre_whitelist
+                                )
+                                if whitelist and not any(
+                                    genre in whitelist for genre in movie_genres
+                                ):
+                                    logger.info(
+                                        f"Skipping '{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
+                                        f"genres {movie_genres} not in whitelist {whitelist}"
+                                    )
+                                    continue
+                            else:  # blacklist mode
+                                blacklist = (
+                                    settings.boxarr_features_auto_add_genre_blacklist
+                                )
+                                if blacklist and any(
+                                    genre in blacklist for genre in movie_genres
+                                ):
+                                    logger.info(
+                                        f"Skipping '{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
+                                        f"contains blacklisted genre(s) from {blacklist}"
+                                    )
+                                    continue
+
+                        # Apply rating filter if enabled
+                        if settings.boxarr_features_auto_add_rating_filter_enabled:
+                            movie_rating = movie_info.get("certification")
+                            rating_whitelist = (
+                                settings.boxarr_features_auto_add_rating_whitelist
                             )
-                            if movie:
-                                added_count += 1
+
+                            if (
+                                rating_whitelist
+                                and movie_rating
+                                and movie_rating not in rating_whitelist
+                            ):
+                                logger.info(
+                                    f"Skipping '{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
+                                    f"rating '{movie_rating}' not in allowed ratings {rating_whitelist}"
+                                )
+                                continue
+
+                        # Add the movie
+                        movie = radarr_service.add_movie(
+                            tmdb_id=movie_info["tmdbId"],
+                            quality_profile_id=None,  # Uses default from settings
+                            root_folder=str(settings.radarr_root_folder),
+                            monitored=True,
+                            search_for_movie=True,
+                        )
+                        if movie:
+                            added_count += 1
         else:
             # No Radarr, create unmatched results
             from ...core.matcher import MatchResult

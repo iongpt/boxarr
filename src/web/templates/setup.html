@@ -127,10 +127,103 @@
                 
                 <div class="checkbox-group">
                     <input type="checkbox" id="autoAdd" name="boxarr_features_auto_add" class="checkbox-input"
-                           {% if auto_add %}checked{% endif %}>
+                           {% if auto_add %}checked{% endif %} onchange="toggleAutoAddOptions()">
                     <div>
                         <label for="autoAdd" class="checkbox-label main">Auto-Add Missing Movies</label>
                         <div class="checkbox-label description">Automatically add unmatched movies to Radarr</div>
+                    </div>
+                </div>
+                
+                <!-- Auto-Add Advanced Options -->
+                <div id="autoAddOptions" class="auto-add-options {% if auto_add %}active{% endif %}" style="margin-left: 2rem; margin-top: 1rem; padding: 1rem; background: var(--bg-color); border-radius: 8px; border-left: 3px solid var(--primary-color);">
+                    <!-- Top X Movies Limit -->
+                    <div class="form-group">
+                        <label for="autoAddLimit" class="form-label">Maximum Movies to Add</label>
+                        <select id="autoAddLimit" name="boxarr_features_auto_add_limit" class="form-select">
+                            {% for i in range(1, 11) %}
+                            <option value="{{ i }}" {% if auto_add_limit == i %}selected{% endif %}>{{ i }} movie{% if i > 1 %}s{% endif %}</option>
+                            {% endfor %}
+                        </select>
+                        <small class="text-muted">Only add the top X movies from the box office rankings</small>
+                    </div>
+                    
+                    <!-- Genre Filter -->
+                    <div class="filter-section" style="margin-top: 1.5rem;">
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="genreFilterEnabled" name="boxarr_features_auto_add_genre_filter_enabled" 
+                                   class="checkbox-input" {% if genre_filter_enabled %}checked{% endif %} onchange="toggleGenreFilter()">
+                            <div>
+                                <label for="genreFilterEnabled" class="checkbox-label main">Enable Genre Filter</label>
+                                <div class="checkbox-label description">Filter movies by genre before adding</div>
+                            </div>
+                        </div>
+                        
+                        <div id="genreFilterOptions" class="filter-options {% if genre_filter_enabled %}active{% endif %}" style="margin-top: 0.5rem;">
+                            <div class="form-group">
+                                <label class="form-label">Filter Mode</label>
+                                <div class="radio-group">
+                                    <label class="radio-label">
+                                        <input type="radio" name="boxarr_features_auto_add_genre_filter_mode" value="whitelist" 
+                                               {% if genre_filter_mode == 'whitelist' %}checked{% endif %} onchange="updateGenreMode()">
+                                        <span>Whitelist - Only add movies with selected genres</span>
+                                    </label>
+                                    <label class="radio-label">
+                                        <input type="radio" name="boxarr_features_auto_add_genre_filter_mode" value="blacklist" 
+                                               {% if genre_filter_mode == 'blacklist' %}checked{% endif %} onchange="updateGenreMode()">
+                                        <span>Blacklist - Exclude movies with selected genres</span>
+                                    </label>
+                                </div>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label class="form-label" id="genreListLabel">
+                                    {% if genre_filter_mode == 'whitelist' %}Allowed Genres{% else %}Excluded Genres{% endif %}
+                                </label>
+                                <div class="genre-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.5rem;">
+                                    {% set common_genres = ['Action', 'Adventure', 'Animation', 'Comedy', 'Crime', 'Documentary', 
+                                                           'Drama', 'Family', 'Fantasy', 'History', 'Horror', 'Music', 
+                                                           'Mystery', 'Romance', 'Science Fiction', 'TV Movie', 'Thriller', 'War', 'Western'] %}
+                                    {% for genre in common_genres %}
+                                    <label class="checkbox-label" style="display: flex; align-items: center; gap: 0.5rem;">
+                                        <input type="checkbox" name="genre_{{ genre | replace(' ', '_') }}" value="{{ genre }}"
+                                               data-genre-whitelist="{% if genre in genre_whitelist %}true{% else %}false{% endif %}"
+                                               data-genre-blacklist="{% if genre in genre_blacklist %}true{% else %}false{% endif %}"
+                                               {% if (genre_filter_mode == 'whitelist' and genre in genre_whitelist) or (genre_filter_mode == 'blacklist' and genre in genre_blacklist) %}checked{% endif %}>
+                                        <span>{{ genre }}</span>
+                                    </label>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Age Rating Filter -->
+                    <div class="filter-section" style="margin-top: 1.5rem;">
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="ratingFilterEnabled" name="boxarr_features_auto_add_rating_filter_enabled" 
+                                   class="checkbox-input" {% if rating_filter_enabled %}checked{% endif %} onchange="toggleRatingFilter()">
+                            <div>
+                                <label for="ratingFilterEnabled" class="checkbox-label main">Enable Age Rating Filter</label>
+                                <div class="checkbox-label description">Only add movies with specific age ratings</div>
+                            </div>
+                        </div>
+                        
+                        <div id="ratingFilterOptions" class="filter-options {% if rating_filter_enabled %}active{% endif %}" style="margin-top: 0.5rem;">
+                            <div class="form-group">
+                                <label class="form-label">Allowed Age Ratings</label>
+                                <div class="rating-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 0.5rem;">
+                                    {% set common_ratings = ['G', 'PG', 'PG-13', 'R', 'NC-17', 'NR'] %}
+                                    {% for rating in common_ratings %}
+                                    <label class="checkbox-label" style="display: flex; align-items: center; gap: 0.5rem;">
+                                        <input type="checkbox" name="rating_{{ rating | replace('-', '_') }}" value="{{ rating }}"
+                                               {% if rating in rating_whitelist %}checked{% endif %}>
+                                        <span>{{ rating }}</span>
+                                    </label>
+                                    {% endfor %}
+                                </div>
+                                <small class="text-muted">Note: Some movies may not have rating information available</small>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 

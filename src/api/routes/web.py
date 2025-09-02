@@ -98,6 +98,40 @@ async def dashboard_page(request: Request):
             day_name = apscheduler_days.get(apscheduler_day, "Unknown")
             next_update = f"{day_name} at {hour}:00"
 
+    # Check if any auto-add filters are active
+    auto_add_filters_active = settings.boxarr_features_auto_add and (
+        settings.boxarr_features_auto_add_limit < 10
+        or settings.boxarr_features_auto_add_genre_filter_enabled
+        or settings.boxarr_features_auto_add_rating_filter_enabled
+    )
+
+    # Build filter description
+    filter_descriptions = []
+    if (
+        settings.boxarr_features_auto_add
+        and settings.boxarr_features_auto_add_limit < 10
+    ):
+        filter_descriptions.append(
+            f"Top {settings.boxarr_features_auto_add_limit} movies"
+        )
+    if settings.boxarr_features_auto_add_genre_filter_enabled:
+        mode = settings.boxarr_features_auto_add_genre_filter_mode
+        if mode == "whitelist" and settings.boxarr_features_auto_add_genre_whitelist:
+            filter_descriptions.append(
+                f"Genre whitelist ({len(settings.boxarr_features_auto_add_genre_whitelist)} genres)"
+            )
+        elif mode == "blacklist" and settings.boxarr_features_auto_add_genre_blacklist:
+            filter_descriptions.append(
+                f"Genre blacklist ({len(settings.boxarr_features_auto_add_genre_blacklist)} genres)"
+            )
+    if (
+        settings.boxarr_features_auto_add_rating_filter_enabled
+        and settings.boxarr_features_auto_add_rating_whitelist
+    ):
+        filter_descriptions.append(
+            f"Rating filter ({len(settings.boxarr_features_auto_add_rating_whitelist)} ratings)"
+        )
+
     return templates.TemplateResponse(
         "dashboard.html",
         {
@@ -112,6 +146,8 @@ async def dashboard_page(request: Request):
             "quality_upgrade": settings.boxarr_features_quality_upgrade,
             "next_update": next_update,
             "version": __version__,
+            "auto_add_filters_active": auto_add_filters_active,
+            "filter_descriptions": filter_descriptions,
         },
     )
 
@@ -165,6 +201,14 @@ async def setup_page(request: Request):
             "scheduler_time": current_time,
             "auto_add": settings.boxarr_features_auto_add,
             "quality_upgrade": settings.boxarr_features_quality_upgrade,
+            # New auto-add advanced options
+            "auto_add_limit": settings.boxarr_features_auto_add_limit,
+            "genre_filter_enabled": settings.boxarr_features_auto_add_genre_filter_enabled,
+            "genre_filter_mode": settings.boxarr_features_auto_add_genre_filter_mode,
+            "genre_whitelist": settings.boxarr_features_auto_add_genre_whitelist,
+            "genre_blacklist": settings.boxarr_features_auto_add_genre_blacklist,
+            "rating_filter_enabled": settings.boxarr_features_auto_add_rating_filter_enabled,
+            "rating_whitelist": settings.boxarr_features_auto_add_rating_whitelist,
         },
     )
 
@@ -207,49 +251,66 @@ async def serve_weekly_page(request: Request, year: int, week: int):
                     upgrade_profile_id = p.id
                     break
 
-            # Create lookup dict
+            # Create lookup dicts - by ID and by title for matching
             movie_dict = {movie.id: movie for movie in all_radarr_movies}
+            movie_dict_by_title = {
+                movie.title.lower(): movie for movie in all_radarr_movies
+            }
 
             # Update movie statuses dynamically
             for movie in movies:
+                radarr_movie = None
+
+                # First try to find by radarr_id if it exists
                 if movie.get("radarr_id"):
                     radarr_movie = movie_dict.get(movie["radarr_id"])
+
+                # If not found by ID (or no ID), try to find by title
+                # This handles movies added to Radarr after JSON was generated
+                if not radarr_movie:
+                    movie_title_lower = movie.get("title", "").lower()
+                    radarr_movie = movie_dict_by_title.get(movie_title_lower)
+
+                    # If found by title, update the radarr_id
                     if radarr_movie:
-                        # Update status
-                        if radarr_movie.hasFile:
-                            movie["status"] = "Downloaded"
-                            movie["status_color"] = "#48bb78"
-                            movie["status_icon"] = "✅"
-                        elif (
-                            radarr_movie.status == MovieStatus.RELEASED
-                            and radarr_movie.isAvailable
-                        ):
-                            movie["status"] = "Missing"
-                            movie["status_color"] = "#f56565"
-                            movie["status_icon"] = "❌"
-                        elif radarr_movie.status == MovieStatus.IN_CINEMAS:
-                            movie["status"] = "In Cinemas"
-                            movie["status_color"] = "#f6ad55"
-                            movie["status_icon"] = "🎬"
-                        else:
-                            movie["status"] = "Pending"
-                            movie["status_color"] = "#ed8936"
-                            movie["status_icon"] = "⏳"
+                        movie["radarr_id"] = radarr_movie.id
 
-                        # Update quality profile
-                        movie["quality_profile_name"] = profiles_by_id.get(
-                            radarr_movie.qualityProfileId, "Unknown"
-                        )
-                        movie["quality_profile_id"] = radarr_movie.qualityProfileId
-                        movie["has_file"] = radarr_movie.hasFile
+                if radarr_movie:
+                    # Update status
+                    if radarr_movie.hasFile:
+                        movie["status"] = "Downloaded"
+                        movie["status_color"] = "#48bb78"
+                        movie["status_icon"] = "✅"
+                    elif (
+                        radarr_movie.status == MovieStatus.RELEASED
+                        and radarr_movie.isAvailable
+                    ):
+                        movie["status"] = "Missing"
+                        movie["status_color"] = "#f56565"
+                        movie["status_icon"] = "❌"
+                    elif radarr_movie.status == MovieStatus.IN_CINEMAS:
+                        movie["status"] = "In Cinemas"
+                        movie["status_color"] = "#f6ad55"
+                        movie["status_icon"] = "🎬"
+                    else:
+                        movie["status"] = "Pending"
+                        movie["status_color"] = "#ed8936"
+                        movie["status_icon"] = "⏳"
 
-                        # Check if can upgrade
-                        movie["can_upgrade_quality"] = bool(
-                            settings.boxarr_features_quality_upgrade
-                            and radarr_movie.qualityProfileId
-                            and upgrade_profile_id
-                            and radarr_movie.qualityProfileId != upgrade_profile_id
-                        )
+                    # Update quality profile
+                    movie["quality_profile_name"] = profiles_by_id.get(
+                        radarr_movie.qualityProfileId, "Unknown"
+                    )
+                    movie["quality_profile_id"] = radarr_movie.qualityProfileId
+                    movie["has_file"] = radarr_movie.hasFile
+
+                    # Check if can upgrade
+                    movie["can_upgrade_quality"] = bool(
+                        settings.boxarr_features_quality_upgrade
+                        and radarr_movie.qualityProfileId
+                        and upgrade_profile_id
+                        and radarr_movie.qualityProfileId != upgrade_profile_id
+                    )
         except Exception as e:
             logger.warning(f"Could not fetch current Radarr status: {e}")
 
