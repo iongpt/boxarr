@@ -64,7 +64,7 @@ async def dashboard_page(request: Request):
     # Get query parameters for pagination and filtering
     page = int(request.query_params.get("page", 1))
     per_page = int(request.query_params.get("per_page", 10))
-    year_filter = request.query_params.get("year", None)
+    year_filter_str = request.query_params.get("year", None)
 
     # Validate per_page
     if per_page not in [10, 20, 50, 100]:
@@ -74,12 +74,12 @@ async def dashboard_page(request: Request):
     all_weeks = await get_available_weeks()
 
     # Apply year filter if specified
-    if year_filter and year_filter.isdigit():
-        year_filter = int(year_filter)
+    year_filter: Optional[int] = None
+    if year_filter_str and year_filter_str.isdigit():
+        year_filter = int(year_filter_str)
         weeks = [w for w in all_weeks if w.year == year_filter]
     else:
         weeks = all_weeks
-        year_filter = None
 
     # Get unique years for filter buttons
     available_years = sorted(list(set(w.year for w in all_weeks)), reverse=True)
@@ -95,7 +95,7 @@ async def dashboard_page(request: Request):
 
     # For backward compatibility, keep these but empty
     recent_weeks = paginated_weeks
-    older_weeks = []
+    older_weeks: List[WeekInfo] = []
 
     # Calculate next scheduled update
     from datetime import datetime
