@@ -22,6 +22,14 @@ Track all your weekly box office reports in one place. See at a glance which mov
 
 Beautiful movie cards showing current box office rankings, download status, quality profiles, and quick action buttons. Upgrade quality or add missing movies with a single click.
 
+### Advanced Auto-Add Filters
+![Advanced Auto-Add Filters](docs/images/auto-add-filters.png)
+
+Fine-tune which movies are automatically added with powerful filtering options:
+- **Top X Limit**: Only add the highest-ranking movies (1-10)
+- **Genre Filtering**: Whitelist or blacklist specific genres
+- **Age Rating Filter**: Control content by MPAA ratings
+
 ## Requirements
 
 **Boxarr requires a working Radarr installation.** It's designed as a companion tool that extends Radarr's functionality by automatically adding trending movies from the box office.
@@ -40,7 +48,10 @@ Boxarr monitors the weekly box office top 10 and integrates with your Radarr ins
 - **📊 Weekly Box Office Tracking** - Automatically fetches top 10 movies from Box Office Mojo
 - **🔄 Radarr Integration** - Seamlessly checks and adds movies to your library
 - **🎯 Smart Matching** - Intelligently matches box office titles with Radarr entries
-- **⚡ Auto-Add Movies** - Optionally adds missing movies automatically
+- **⚡ Auto-Add Movies** - Optionally adds missing movies automatically with advanced filtering:
+  - Limit to top X movies (1-10)
+  - Filter by genre (whitelist/blacklist)
+  - Filter by age rating (G, PG, PG-13, R, etc.)
 - **📅 Scheduled Updates** - Runs weekly on your preferred schedule
 - **🎨 Beautiful Web UI** - Clean, responsive interface for all devices
 - **🚀 Easy Setup** - No configuration files needed - just a simple web wizard
@@ -145,9 +156,16 @@ Select from your existing Radarr quality profiles:
 ### Auto-Add Movies
 When enabled, Boxarr will automatically:
 1. Search for unmatched movies in TMDB
-2. Add them to Radarr with your default profile
-3. Mark them as monitored
-4. Trigger automatic search
+2. Apply configured filters (genre, rating, top X limit)
+3. Add filtered movies to Radarr with your default profile
+4. Mark them as monitored and trigger automatic search
+
+#### Advanced Filtering Options
+- **Top X Limit**: Add only the highest-ranking movies (1-10)
+- **Genre Filtering**: 
+  - Whitelist: Only add movies with selected genres
+  - Blacklist: Exclude movies with selected genres
+- **Age Rating Filter**: Control content by MPAA ratings (G, PG, PG-13, R, NC-17, NR)
 
 ## API Endpoints
 

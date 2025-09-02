@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Advanced Auto-Add Filtering**: Comprehensive filtering options for automatic movie additions (#16)
+  - **Top X Movies Limit**: Choose to add only the top 1-10 movies from box office rankings
+  - **Genre Filtering**: Whitelist or blacklist specific genres (19 common genres pre-populated)
+  - **Age Rating Filter**: Filter by MPAA ratings (G, PG, PG-13, R, NC-17, NR)
+- **Enhanced Dashboard Display**: Shows active filters when auto-add is enabled
+- **Expandable Settings UI**: Auto-add options only appear when feature is enabled
+
+### Fixed
+- **UI Bug**: Movies already in Radarr no longer show "Add to Radarr" button when JSON is outdated
+- **Status Updates**: Weekly pages now correctly update movie status by matching on title when radarr_id is missing
+
+### Changed
+- **Historical Fetch Modals**: Removed confusing auto-add override option, now shows current settings with link to Settings page
+- **Improved Logging**: Added detailed logging showing why movies are filtered out during auto-add
+
+### Screenshots
+![Advanced Auto-Add Filters](docs/images/auto-add-filters.png)
+
 ## [1.0.3] - 2025-08-30
 
 ### Security

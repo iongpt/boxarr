@@ -20,6 +20,68 @@ function toggleSchedulerDebug() {
     }
 }
 
+// Auto-Add Options Functions
+function toggleAutoAddOptions() {
+    const checkbox = document.getElementById('autoAdd');
+    const options = document.getElementById('autoAddOptions');
+    
+    if (checkbox && options) {
+        if (checkbox.checked) {
+            options.classList.add('active');
+        } else {
+            options.classList.remove('active');
+        }
+    }
+}
+
+function toggleGenreFilter() {
+    const checkbox = document.getElementById('genreFilterEnabled');
+    const options = document.getElementById('genreFilterOptions');
+    
+    if (checkbox && options) {
+        if (checkbox.checked) {
+            options.classList.add('active');
+        } else {
+            options.classList.remove('active');
+        }
+    }
+}
+
+function toggleRatingFilter() {
+    const checkbox = document.getElementById('ratingFilterEnabled');
+    const options = document.getElementById('ratingFilterOptions');
+    
+    if (checkbox && options) {
+        if (checkbox.checked) {
+            options.classList.add('active');
+        } else {
+            options.classList.remove('active');
+        }
+    }
+}
+
+function updateGenreMode() {
+    const mode = document.querySelector('input[name="boxarr_features_auto_add_genre_filter_mode"]:checked');
+    const label = document.getElementById('genreListLabel');
+    const genreCheckboxes = document.querySelectorAll('[name^="genre_"]');
+    
+    if (mode && label) {
+        if (mode.value === 'whitelist') {
+            label.textContent = 'Allowed Genres';
+            // Clear all and set from whitelist data
+            genreCheckboxes.forEach(checkbox => {
+                checkbox.checked = checkbox.dataset.genreWhitelist === 'true';
+            });
+        } else {
+            label.textContent = 'Excluded Genres';
+            // Clear all and set from blacklist data
+            genreCheckboxes.forEach(checkbox => {
+                checkbox.checked = checkbox.dataset.genreBlacklist === 'true';
+            });
+        }
+    }
+}
+
 function refreshSchedulerStatus() {
     fetch('/api/scheduler/status')
         .then(response => response.json())
@@ -329,7 +391,6 @@ function reloadScheduler() {
     window.fetchHistoricalWeek = function() {
         if (!selectedHistoricalWeekUrl) return;
         
-        const overrideAutoAdd = document.getElementById('overrideAutoAdd').checked;
         const weekMatch = selectedHistoricalWeekUrl.match(/\/(\d{4})W(\d{2})/);
         
         if (!weekMatch) {
@@ -373,15 +434,13 @@ function reloadScheduler() {
         }
         
         addLogEntry(`Starting historical data fetch for ${selectedHistoricalWeekText}`);
-        addLogEntry(`Auto-add override: ${overrideAutoAdd ? 'ENABLED' : 'DISABLED'}`);
         
         fetch('/api/scheduler/update-week', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
                 year: parseInt(year), 
-                week: parseInt(week),
-                auto_add_override: overrideAutoAdd
+                week: parseInt(week)
             })
         })
         .then(response => {
@@ -391,10 +450,8 @@ function reloadScheduler() {
         .then(data => {
             if (data.success) {
                 addLogEntry(`Found ${data.movies_found || 0} movies`, 'success');
-                if (overrideAutoAdd && data.movies_added && data.movies_added > 0) {
+                if (data.movies_added && data.movies_added > 0) {
                     addLogEntry(`Added ${data.movies_added} new movies to Radarr`, 'success');
-                } else if (!overrideAutoAdd) {
-                    addLogEntry('Movies fetched but not automatically added (as requested)', 'info');
                 }
                 if (progressMessage) progressMessage.textContent = '✅ Historical week fetched successfully!';
                 addLogEntry('Update completed!', 'success');
@@ -442,7 +499,6 @@ function reloadScheduler() {
     window.updateHistoricalWeek = function() {
         const year = document.getElementById('historicalYear').value;
         const week = document.getElementById('historicalWeek').value;
-        const overrideAutoAdd = document.getElementById('historicalAutoAddOverride').checked;
         
         closeHistoricalUpdate();
         
@@ -477,15 +533,13 @@ function reloadScheduler() {
         }
         
         addLogEntry(`Starting historical data fetch for Week ${week}, ${year}`);
-        addLogEntry(`Auto-add override: ${overrideAutoAdd ? 'ENABLED' : 'DISABLED'}`);
         
         fetch('/api/scheduler/update-week', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
                 year: parseInt(year), 
-                week: parseInt(week),
-                auto_add_override: overrideAutoAdd
+                week: parseInt(week)
             })
         })
         .then(response => {
@@ -495,10 +549,8 @@ function reloadScheduler() {
         .then(data => {
             if (data.success) {
                 addLogEntry(`Found ${data.movies_found || 0} movies`, 'success');
-                if (overrideAutoAdd && data.movies_added && data.movies_added > 0) {
+                if (data.movies_added && data.movies_added > 0) {
                     addLogEntry(`Added ${data.movies_added} new movies to Radarr`, 'success');
-                } else if (!overrideAutoAdd) {
-                    addLogEntry('Movies fetched but not automatically added (as requested)', 'info');
                 }
                 if (progressMessage) progressMessage.textContent = '✅ Historical week updated successfully!';
                 addLogEntry('Update completed!', 'success');
@@ -843,9 +895,40 @@ function reloadScheduler() {
         config.boxarr_features_auto_add = document.getElementById('autoAdd')?.checked || false;
         config.boxarr_features_quality_upgrade = document.getElementById('qualityUpgrade')?.checked || false;
         
+        // Handle new auto-add advanced options
+        config.boxarr_features_auto_add_limit = parseInt(document.getElementById('autoAddLimit')?.value || '10');
+        config.boxarr_features_auto_add_genre_filter_enabled = document.getElementById('genreFilterEnabled')?.checked || false;
+        config.boxarr_features_auto_add_genre_filter_mode = document.querySelector('input[name="boxarr_features_auto_add_genre_filter_mode"]:checked')?.value || 'blacklist';
+        config.boxarr_features_auto_add_rating_filter_enabled = document.getElementById('ratingFilterEnabled')?.checked || false;
+        
+        // Collect genre checkboxes based on mode
+        const genreMode = config.boxarr_features_auto_add_genre_filter_mode;
+        const genreWhitelist = [];
+        const genreBlacklist = [];
+        document.querySelectorAll('[name^="genre_"]').forEach(checkbox => {
+            if (checkbox.checked) {
+                if (genreMode === 'whitelist') {
+                    genreWhitelist.push(checkbox.value);
+                } else {
+                    genreBlacklist.push(checkbox.value);
+                }
+            }
+        });
+        config.boxarr_features_auto_add_genre_whitelist = genreWhitelist;
+        config.boxarr_features_auto_add_genre_blacklist = genreBlacklist;
+        
+        // Collect rating checkboxes
+        const ratingWhitelist = [];
+        document.querySelectorAll('[name^="rating_"]').forEach(checkbox => {
+            if (checkbox.checked) {
+                ratingWhitelist.push(checkbox.value);
+            }
+        });
+        config.boxarr_features_auto_add_rating_whitelist = ratingWhitelist;
+        
         // Handle other form fields
         for (let [key, value] of formData.entries()) {
-            if (key !== 'boxarr_scheduler_enabled' && key !== 'boxarr_features_auto_add' && key !== 'boxarr_features_quality_upgrade') {
+            if (!key.startsWith('boxarr_features_') && !key.startsWith('genre_') && !key.startsWith('rating_')) {
                 config[key] = value;
             }
         }

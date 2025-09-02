@@ -121,6 +121,32 @@ class Settings(BaseSettings):
         default=False, description="Enable notifications"
     )
 
+    # Auto-Add Advanced Options
+    boxarr_features_auto_add_limit: int = Field(
+        default=10,
+        ge=1,
+        le=10,
+        description="Maximum number of movies to auto-add (1-10)",
+    )
+    boxarr_features_auto_add_genre_filter_enabled: bool = Field(
+        default=False, description="Enable genre filtering for auto-add"
+    )
+    boxarr_features_auto_add_genre_filter_mode: str = Field(
+        default="blacklist", description="Genre filter mode: 'whitelist' or 'blacklist'"
+    )
+    boxarr_features_auto_add_genre_whitelist: List[str] = Field(
+        default_factory=list, description="Genres to include (whitelist mode)"
+    )
+    boxarr_features_auto_add_genre_blacklist: List[str] = Field(
+        default_factory=list, description="Genres to exclude (blacklist mode)"
+    )
+    boxarr_features_auto_add_rating_filter_enabled: bool = Field(
+        default=False, description="Enable age rating filtering for auto-add"
+    )
+    boxarr_features_auto_add_rating_whitelist: List[str] = Field(
+        default_factory=list, description="Age ratings to allow"
+    )
+
     # Data Configuration
     boxarr_data_history_retention_days: int = Field(
         default=90, ge=7, le=365, description="Days to retain historical data"
@@ -192,9 +218,20 @@ class Settings(BaseSettings):
                                     setattr(self, attr_name, sub_value)
                         elif key == "features" and isinstance(value, dict):
                             for sub_key, sub_value in value.items():
-                                attr_name = f"boxarr_features_{sub_key}"
-                                if hasattr(self, attr_name):
-                                    setattr(self, attr_name, sub_value)
+                                if sub_key == "auto_add_options" and isinstance(
+                                    sub_value, dict
+                                ):
+                                    # Handle nested auto_add_options
+                                    for opt_key, opt_value in sub_value.items():
+                                        attr_name = (
+                                            f"boxarr_features_auto_add_{opt_key}"
+                                        )
+                                        if hasattr(self, attr_name):
+                                            setattr(self, attr_name, opt_value)
+                                else:
+                                    attr_name = f"boxarr_features_{sub_key}"
+                                    if hasattr(self, attr_name):
+                                        setattr(self, attr_name, sub_value)
                         elif key == "ui" and isinstance(value, dict):
                             for sub_key, sub_value in value.items():
                                 if sub_key == "cards_per_row" and isinstance(

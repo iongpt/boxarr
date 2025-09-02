@@ -500,17 +500,7 @@
         
         <!-- Status Explanation -->
         <div class="status-explanation">
-            {% if scheduler_enabled and auto_add %}
-                <strong>🤖 Fully Automatic Mode:</strong> Box office data is fetched every <strong>{{ next_update }}</strong> and missing movies are <strong>automatically added</strong> to Radarr for downloading.
-            {% elif scheduler_enabled and not auto_add %}
-                <strong>📅 Scheduled Fetch Mode:</strong> Box office data is fetched every <strong>{{ next_update }}</strong>, but you need to <strong>manually add</strong> movies to Radarr.
-            {% elif not scheduler_enabled and auto_add %}
-                <strong>🎯 Manual Fetch with Auto-Add:</strong> You trigger data fetching manually, but movies are <strong>automatically added</strong> to Radarr when fetched.
-            {% else %}
-                <strong>🔧 Fully Manual Mode:</strong> You need to <strong>manually fetch</strong> box office data and <strong>manually add</strong> movies to Radarr.
-            {% endif %}
-            
-            <div style="margin-top: 0.75rem; padding: 0.75rem; background: rgba(var(--primary-rgb), 0.1); border-radius: 8px; font-size: 0.9rem;">
+            <div style="padding: 0.75rem; background: rgba(var(--primary-rgb), 0.1); border-radius: 8px; font-size: 0.9rem;">
                 <strong>Current behavior:</strong>
                 {% if scheduler_enabled %}
                     📅 Scheduler runs every <strong>{{ next_update }}</strong>
@@ -520,6 +510,9 @@
                 •
                 {% if auto_add %}
                     ✅ Movies are <strong>added automatically</strong> when fetched
+                    {% if auto_add_filters_active %}
+                        <br><span style="margin-left: 1.5rem;">🎯 <strong>Filters active:</strong> {{ filter_descriptions | join(', ') }}</span>
+                    {% endif %}
                 {% else %}
                     🔘 Movies require <strong>manual adding</strong> after fetch
                 {% endif %}
@@ -654,26 +647,23 @@
                 </select>
             </div>
             
-            <!-- Auto-Add Override Section -->
+            <!-- Current Behavior Section -->
             <div style="margin-top: 1.5rem; padding: 1rem; background: rgba(var(--primary-rgb), 0.05); border-radius: 8px; border: 1px solid rgba(var(--primary-rgb), 0.2);">
                 <p style="font-size: 0.9rem; color: var(--text-primary); margin-bottom: 0.75rem;">
                     <strong>📊 Current behavior:</strong>
                 </p>
-                <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 0.75rem;">
+                <div style="font-size: 0.85rem; color: var(--text-secondary);">
                     {% if auto_add %}
-                    ✅ Your global auto-add is <strong style="color: var(--success-color);">ENABLED</strong> - Movies will be automatically added to Radarr
+                        ✅ Auto-add is <strong style="color: var(--success-color);">ENABLED</strong> - Movies will be automatically added to Radarr
+                        {% if auto_add_filters_active %}
+                            <br>🎯 <strong>Filters active:</strong> {{ filter_descriptions | join(', ') }}
+                        {% endif %}
                     {% else %}
-                    🔘 Your global auto-add is <strong style="color: var(--warning-color);">DISABLED</strong> - Movies will NOT be automatically added
+                        🔘 Auto-add is <strong style="color: var(--warning-color);">DISABLED</strong> - Movies will NOT be automatically added
                     {% endif %}
-                </p>
-                
-                <div class="form-group" style="margin: 0;">
-                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-                        <input type="checkbox" id="historicalAutoAddOverride" {% if auto_add %}checked{% endif %} style="width: auto; margin: 0;">
-                        <span>Automatically add missing movies for this fetch</span>
-                    </label>
-                    <p style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.5rem; margin-left: 1.5rem; margin-bottom: 0;">
-                        This overrides your default setting for this fetch only.
+                    
+                    <p style="margin-top: 1rem; font-size: 0.85rem; color: var(--text-primary);">
+                        💡 <strong>Note:</strong> This behavior applies to all historical fetches. You can change these settings in <a href="/setup" style="color: var(--primary-color); text-decoration: underline;">Settings</a>.
                     </p>
                 </div>
             </div>
@@ -702,21 +692,21 @@
                     <li>Match movies against your Radarr library</li>
                     <li id="autoAddBehavior" style="font-weight: 600;">
                         {% if auto_add %}
-                        <span style="color: var(--success-color);">✅ Missing movies will be AUTOMATICALLY added</span>
+                            <span style="color: var(--success-color);">✅ Missing movies will be AUTOMATICALLY added
+                            {% if auto_add_filters_active %}
+                                <br><span style="margin-left: 1rem;">🎯 With filters: {{ filter_descriptions | join(', ') }}</span>
+                            {% endif %}
+                            </span>
                         {% else %}
-                        <span style="color: var(--warning-color);">🔘 Movies will NOT be automatically added</span>
+                            <span style="color: var(--warning-color);">🔘 Movies will NOT be automatically added</span>
                         {% endif %}
                     </li>
                 </ol>
             </div>
             
-            <div class="form-group">
-                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-                    <input type="checkbox" id="overrideAutoAdd" {% if auto_add %}checked{% endif %} style="width: auto; margin: 0;">
-                    <span>Automatically add missing movies for this fetch</span>
-                </label>
-                <p style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.5rem; margin-left: 1.5rem;">
-                    This overrides your default setting for this fetch only. Your global setting (currently {% if auto_add %}ENABLED{% else %}DISABLED{% endif %}) will not be changed.
+            <div style="padding: 0.75rem; background: rgba(var(--info-rgb, 59, 130, 246), 0.1); border-radius: 8px; border: 1px solid rgba(var(--info-rgb, 59, 130, 246), 0.2);">
+                <p style="font-size: 0.85rem; color: var(--text-primary); margin: 0;">
+                    💡 <strong>Tip:</strong> To change auto-add behavior or filters, visit <a href="/setup" style="color: var(--primary-color); text-decoration: underline;">Settings</a>.
                 </p>
             </div>
         </div>

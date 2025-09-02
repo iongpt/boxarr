@@ -1,10 +1,10 @@
 """Configuration management routes."""
 
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ...core.radarr import RadarrService
 from ...utils.config import Settings, settings
@@ -43,6 +43,14 @@ class SaveConfigRequest(BaseModel):
     boxarr_scheduler_cron: str = "0 23 * * 2"
     boxarr_features_auto_add: bool = True
     boxarr_features_quality_upgrade: bool = True
+    # New auto-add advanced options
+    boxarr_features_auto_add_limit: int = 10
+    boxarr_features_auto_add_genre_filter_enabled: bool = False
+    boxarr_features_auto_add_genre_filter_mode: str = "blacklist"
+    boxarr_features_auto_add_genre_whitelist: List[str] = Field(default_factory=list)
+    boxarr_features_auto_add_genre_blacklist: List[str] = Field(default_factory=list)
+    boxarr_features_auto_add_rating_filter_enabled: bool = False
+    boxarr_features_auto_add_rating_whitelist: List[str] = Field(default_factory=list)
 
 
 @router.get("", response_model=ConfigResponse)
@@ -148,6 +156,15 @@ async def save_configuration(config: SaveConfigRequest):
                 "features": {
                     "auto_add": config.boxarr_features_auto_add,
                     "quality_upgrade": config.boxarr_features_quality_upgrade,
+                    "auto_add_options": {
+                        "limit": config.boxarr_features_auto_add_limit,
+                        "genre_filter_enabled": config.boxarr_features_auto_add_genre_filter_enabled,
+                        "genre_filter_mode": config.boxarr_features_auto_add_genre_filter_mode,
+                        "genre_whitelist": config.boxarr_features_auto_add_genre_whitelist,
+                        "genre_blacklist": config.boxarr_features_auto_add_genre_blacklist,
+                        "rating_filter_enabled": config.boxarr_features_auto_add_rating_filter_enabled,
+                        "rating_whitelist": config.boxarr_features_auto_add_rating_whitelist,
+                    },
                 },
             },
         }
