@@ -254,7 +254,7 @@ async def check_for_update():
         if "-" in current_version:
             # Handle versions like "1.0.5-2-g1234567"
             current_version = current_version.split("-")[0]
-        
+
         # Fetch latest release from GitHub
         async with httpx.AsyncClient() as client:
             response = await client.get(
@@ -262,17 +262,17 @@ async def check_for_update():
                 headers={"Accept": "application/vnd.github.v3+json"},
                 timeout=5.0,
             )
-            
+
             if response.status_code != 200:
                 logger.warning(f"GitHub API returned status {response.status_code}")
                 return {
                     "update_available": False,
                     "error": "Could not check for updates",
                 }
-            
+
             release_data = response.json()
             latest_version = release_data.get("tag_name", "").lstrip("v")
-            
+
             # Compare versions
             def parse_version(v):
                 """Parse semantic version string to tuple for comparison."""
@@ -281,17 +281,17 @@ async def check_for_update():
                     return tuple(int(p) for p in parts[:3])  # Major, minor, patch
                 except (ValueError, AttributeError):
                     return (0, 0, 0)
-            
+
             current_tuple = parse_version(current_version)
             latest_tuple = parse_version(latest_version)
-            
+
             update_available = latest_tuple > current_tuple
-            
+
             # Always link to releases page if update available
             changelog_url = None
             if update_available:
                 changelog_url = "https://github.com/iongpt/boxarr/releases"
-            
+
             return {
                 "update_available": update_available,
                 "current_version": __version__,
@@ -301,7 +301,7 @@ async def check_for_update():
                 "release_name": release_data.get("name"),
                 "published_at": release_data.get("published_at"),
             }
-            
+
     except httpx.TimeoutException:
         logger.warning("Timeout checking for updates")
         return {
