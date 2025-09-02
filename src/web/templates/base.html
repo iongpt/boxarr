@@ -168,6 +168,37 @@
         .footer a:hover {
             text-decoration: underline;
         }
+        
+        /* Update notification styles */
+        .update-notification {
+            display: none;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 0.25rem 0.75rem;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            margin-left: 0.5rem;
+            text-decoration: none;
+            transition: all 0.2s;
+        }
+        
+        .update-notification.show {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+        
+        .update-notification:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+            color: white;
+            text-decoration: none;
+        }
+        
+        .update-icon {
+            animation: pulse 2s infinite;
+        }
     </style>
     {% block styles %}{% endblock %}
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
@@ -178,6 +209,10 @@
             <div class="navbar-brand">
                 <h1>🎬 Boxarr</h1>
                 <span class="version-badge">v{{ version|default('0.4.1-dev-dirty') }}</span>
+                <a href="#" id="updateNotification" class="update-notification" target="_blank">
+                    <span class="update-icon">⬆️</span>
+                    <span id="updateText">Update available</span>
+                </a>
             </div>
             <div class="navbar-menu">
                 <a href="/dashboard" class="nav-link {% if request.path == '/dashboard' %}active{% endif %}">Dashboard</a>

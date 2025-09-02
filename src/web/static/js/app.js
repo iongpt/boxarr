@@ -256,6 +256,43 @@ function reloadScheduler() {
     }
 
     /**
+     * Check for application updates
+     */
+    function checkForUpdates() {
+        fetch('/api/config/check-update')
+            .then(response => response.json())
+            .then(data => {
+                if (data.update_available) {
+                    const notification = document.getElementById('updateNotification');
+                    const updateText = document.getElementById('updateText');
+                    
+                    if (notification) {
+                        // Set the changelog URL
+                        if (data.changelog_url) {
+                            notification.href = data.changelog_url;
+                        } else if (data.release_url) {
+                            notification.href = data.release_url;
+                        }
+                        
+                        // Update the text to show version
+                        if (updateText) {
+                            updateText.textContent = `Update to v${data.latest_version}`;
+                        }
+                        
+                        // Show the notification
+                        notification.classList.add('show');
+                        
+                        // Log for debugging
+                        console.log(`Update available: v${data.current_version} → v${data.latest_version}`);
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Error checking for updates:', error);
+            });
+    }
+
+    /**
      * Show a temporary message to the user
      */
     function showMessage(message, type = 'info') {
@@ -1016,6 +1053,9 @@ function reloadScheduler() {
         // Check connection status
         checkConnection();
         setInterval(checkConnection, 30000);
+        
+        // Check for updates (only once on page load)
+        checkForUpdates();
         
         // Initialize page-specific features
         const path = window.location.pathname;

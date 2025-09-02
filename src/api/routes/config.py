@@ -1,11 +1,13 @@
 """Configuration management routes."""
 
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
+import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from ... import __version__
 from ...core.radarr import RadarrService
 from ...utils.config import Settings, settings
 from ...utils.logger import get_logger
@@ -241,3 +243,79 @@ async def save_configuration(config: SaveConfigRequest):
     except Exception as e:
         logger.error(f"Error saving configuration: {e}")
         return {"success": False, "message": str(e)}
+
+
+@router.get("/check-update")
+async def check_for_update():
+    """Check if a newer version is available on GitHub."""
+    try:
+        # Clean up current version for comparison
+        current_version = __version__.replace("-dev", "").replace("-dirty", "")
+        if "-" in current_version:
+            # Handle versions like "1.0.5-2-g1234567"
+            current_version = current_version.split("-")[0]
+        
+        # Fetch latest release from GitHub
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                "https://api.github.com/repos/iongpt/boxarr/releases/latest",
+                headers={"Accept": "application/vnd.github.v3+json"},
+                timeout=5.0,
+            )
+            
+            if response.status_code != 200:
+                logger.warning(f"GitHub API returned status {response.status_code}")
+                return {
+                    "update_available": False,
+                    "error": "Could not check for updates",
+                }
+            
+            release_data = response.json()
+            latest_version = release_data.get("tag_name", "").lstrip("v")
+            
+            # Compare versions
+            def parse_version(v):
+                """Parse semantic version string to tuple for comparison."""
+                try:
+                    parts = v.split(".")
+                    return tuple(int(p) for p in parts[:3])  # Major, minor, patch
+                except (ValueError, AttributeError):
+                    return (0, 0, 0)
+            
+            current_tuple = parse_version(current_version)
+            latest_tuple = parse_version(latest_version)
+            
+            update_available = latest_tuple > current_tuple
+            
+            # Generate changelog URL
+            changelog_url = None
+            if update_available:
+                # If we're on a tagged version, create a comparison link
+                if not ("-dev" in __version__ or "-dirty" in __version__):
+                    changelog_url = f"https://github.com/iongpt/boxarr/compare/v{current_version}...v{latest_version}"
+                else:
+                    # For dev versions, link to the release page
+                    changelog_url = release_data.get("html_url")
+            
+            return {
+                "update_available": update_available,
+                "current_version": __version__,
+                "latest_version": latest_version,
+                "changelog_url": changelog_url,
+                "release_url": release_data.get("html_url"),
+                "release_name": release_data.get("name"),
+                "published_at": release_data.get("published_at"),
+            }
+            
+    except httpx.TimeoutException:
+        logger.warning("Timeout checking for updates")
+        return {
+            "update_available": False,
+            "error": "Timeout checking for updates",
+        }
+    except Exception as e:
+        logger.error(f"Error checking for updates: {e}")
+        return {
+            "update_available": False,
+            "error": str(e),
+        }
