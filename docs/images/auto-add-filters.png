@@ -1,0 +1,11 @@
+# Placeholder for auto-add filters screenshot
+This file should be replaced with the actual screenshot showing:
+- Auto-Add Missing Movies checkbox (checked)
+- Expandable options panel showing:
+  - Maximum Movies to Add dropdown (set to "10 movies")
+  - Genre Filter section with Blacklist mode selected
+  - War and Western genres checked as excluded
+  - Age Rating Filter section (checked)
+  - All rating checkboxes visible
+
+The screenshot demonstrates the advanced filtering capabilities added in PR #17.
