@@ -450,6 +450,145 @@
     border-top: 1px solid var(--border-color);
     text-align: center;
 }
+
+/* Pagination and Filter Styles */
+.filter-section {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+    box-shadow: var(--shadow);
+}
+
+.filter-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.year-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.year-filter-label {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-right: 0.5rem;
+}
+
+.year-btn {
+    padding: 0.5rem 1rem;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-primary);
+    text-decoration: none;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.year-btn:hover {
+    background: var(--bg-color);
+    transform: translateY(-1px);
+}
+
+.year-btn.active {
+    background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+    color: white;
+    border-color: transparent;
+}
+
+.page-size-selector {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.page-size-selector label {
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.page-size-select {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--card-bg);
+    color: var(--text-primary);
+    font-size: 0.95rem;
+    cursor: pointer;
+}
+
+.pagination-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 1rem;
+    margin: 2rem 0;
+    padding: 1.5rem;
+    background: var(--card-bg);
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+    box-shadow: var(--shadow);
+}
+
+.pagination {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.page-link {
+    padding: 0.5rem 0.75rem;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    color: var(--text-primary);
+    text-decoration: none;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+    min-width: 40px;
+    text-align: center;
+}
+
+.page-link:hover:not(.disabled):not(.active) {
+    background: var(--bg-color);
+    transform: translateY(-1px);
+}
+
+.page-link.active {
+    background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+    color: white;
+    border-color: transparent;
+}
+
+.page-link.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.page-info {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    margin: 0 1rem;
+}
+
+.filter-info {
+    padding: 0.75rem;
+    background: rgba(var(--primary-rgb), 0.05);
+    border-radius: 8px;
+    margin-bottom: 1rem;
+    font-size: 0.9rem;
+    color: var(--text-primary);
+}
 </style>
 {% endblock %}
 
@@ -494,7 +633,7 @@
             
             <div class="status-item">
                 <span class="status-label">Weekly Pages:</span>
-                <span class="status-value highlight">{{ total_weeks }}</span>
+                <span class="status-value highlight">{{ total_all_weeks }}</span>
             </div>
         </div>
         
@@ -543,13 +682,46 @@
         </div>
     </div>
     
+    <!-- Filters and Pagination Controls -->
+    {% if weeks %}
+    <div class="filter-section">
+        <div class="filter-controls">
+            <div class="year-filters">
+                <span class="year-filter-label">Filter by year:</span>
+                <a href="/dashboard?page=1&per_page={{ per_page }}" 
+                   class="year-btn {% if not year_filter %}active{% endif %}">All</a>
+                {% for year in available_years %}
+                <a href="/dashboard?year={{ year }}&page=1&per_page={{ per_page }}" 
+                   class="year-btn {% if year_filter == year %}active{% endif %}">{{ year }}</a>
+                {% endfor %}
+            </div>
+            
+            <div class="page-size-selector">
+                <label for="perPageSelect">Show:</label>
+                <select id="perPageSelect" class="page-size-select" onchange="changePageSize(this.value)">
+                    <option value="10" {% if per_page == 10 %}selected{% endif %}>10 per page</option>
+                    <option value="20" {% if per_page == 20 %}selected{% endif %}>20 per page</option>
+                    <option value="50" {% if per_page == 50 %}selected{% endif %}>50 per page</option>
+                    <option value="100" {% if per_page == 100 %}selected{% endif %}>100 per page</option>
+                </select>
+            </div>
+        </div>
+        
+        {% if year_filter %}
+        <div class="filter-info">
+            <strong>Showing {{ total_weeks }} weeks from {{ year_filter }}</strong>
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+    
     <!-- Weekly Reports -->
     <div class="reports-container">
         {% if weeks %}
             <h2 class="section-title">Weekly Box Office Reports</h2>
             
             <div class="reports-grid">
-                {% for week in recent_weeks %}
+                {% for week in paginated_weeks %}
                 <div class="report-card">
                     <div class="report-header">
                         <h3>Week {{ "%02d"|format(week.week) }}, {{ week.year }}</h3>
@@ -580,32 +752,61 @@
                 {% endfor %}
             </div>
             
-            {% if older_weeks %}
-            <div class="older-weeks">
-                <p>Showing {{ recent_weeks|length }} recent weeks • <strong>{{ older_weeks|length }}</strong> older weeks available</p>
-                <select class="week-selector" onchange="if(this.value) showHistoricalWeekModal(this.value, this.options[this.selectedIndex].text); this.selectedIndex = 0;">
-                    <option value="">View older weeks...</option>
-                    {% for week in older_weeks %}
-                    <option value="/{{ week.year }}W{{ '%02d'|format(week.week) }}">Week {{ "%02d"|format(week.week) }}, {{ week.year }} - {{ week.date_range }}</option>
+            <!-- Pagination -->
+            {% if total_pages > 1 %}
+            <div class="pagination-container">
+                <div class="pagination">
+                    <!-- Previous button -->
+                    {% if current_page > 1 %}
+                    <a href="/dashboard?page={{ current_page - 1 }}&per_page={{ per_page }}{% if year_filter %}&year={{ year_filter }}{% endif %}" 
+                       class="page-link">← Previous</a>
+                    {% else %}
+                    <span class="page-link disabled">← Previous</span>
+                    {% endif %}
+                    
+                    <!-- Page numbers -->
+                    {% set start_page = current_page - 2 %}
+                    {% if start_page < 1 %}{% set start_page = 1 %}{% endif %}
+                    {% set end_page = current_page + 2 %}
+                    {% if end_page > total_pages %}{% set end_page = total_pages %}{% endif %}
+                    
+                    {% if start_page > 1 %}
+                    <a href="/dashboard?page=1&per_page={{ per_page }}{% if year_filter %}&year={{ year_filter }}{% endif %}" 
+                       class="page-link">1</a>
+                    {% if start_page > 2 %}
+                    <span class="page-link disabled">...</span>
+                    {% endif %}
+                    {% endif %}
+                    
+                    {% for page_num in range(start_page, end_page + 1) %}
+                    {% if page_num == current_page %}
+                    <span class="page-link active">{{ page_num }}</span>
+                    {% else %}
+                    <a href="/dashboard?page={{ page_num }}&per_page={{ per_page }}{% if year_filter %}&year={{ year_filter }}{% endif %}" 
+                       class="page-link">{{ page_num }}</a>
+                    {% endif %}
                     {% endfor %}
-                </select>
-                <div style="margin-top: 1rem; padding: 1rem; background: rgba(var(--primary-rgb), 0.05); border-radius: 8px; border: 1px solid rgba(var(--primary-rgb), 0.2);">
-                    <p style="font-size: 0.9rem; color: var(--text-primary); margin-bottom: 0.5rem;">
-                        <strong>📊 What happens when you select a historical week:</strong>
-                    </p>
-                    <ol style="font-size: 0.85rem; color: var(--text-secondary); margin: 0; padding-left: 1.5rem;">
-                        <li>Box office data for that week will be fetched from Box Office Mojo</li>
-                        <li>Movies will be matched against your Radarr library</li>
-                        {% if auto_add %}
-                        <li style="color: var(--success-color); font-weight: 600;">✅ Missing movies will be AUTOMATICALLY added to Radarr</li>
-                        {% else %}
-                        <li style="color: var(--warning-color); font-weight: 600;">🔘 You will need to MANUALLY add movies to Radarr</li>
-                        {% endif %}
-                    </ol>
-                    <p style="font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.5rem; margin-bottom: 0;">
-                        💡 <strong>Current setting:</strong> Auto-add is {% if auto_add %}<span style="color: var(--success-color);">ENABLED</span>{% else %}<span style="color: var(--warning-color);">DISABLED</span>{% endif %}
-                    </p>
+                    
+                    {% if end_page < total_pages %}
+                    {% if end_page < total_pages - 1 %}
+                    <span class="page-link disabled">...</span>
+                    {% endif %}
+                    <a href="/dashboard?page={{ total_pages }}&per_page={{ per_page }}{% if year_filter %}&year={{ year_filter }}{% endif %}" 
+                       class="page-link">{{ total_pages }}</a>
+                    {% endif %}
+                    
+                    <!-- Next button -->
+                    {% if current_page < total_pages %}
+                    <a href="/dashboard?page={{ current_page + 1 }}&per_page={{ per_page }}{% if year_filter %}&year={{ year_filter }}{% endif %}" 
+                       class="page-link">Next →</a>
+                    {% else %}
+                    <span class="page-link disabled">Next →</span>
+                    {% endif %}
                 </div>
+                
+                <span class="page-info">
+                    Page {{ current_page }} of {{ total_pages }} | Showing {{ paginated_weeks|length }} of {{ total_weeks }} weeks
+                </span>
             </div>
             {% endif %}
         {% else %}
