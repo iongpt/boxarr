@@ -274,9 +274,9 @@ function reloadScheduler() {
                             notification.href = data.release_url;
                         }
                         
-                        // Update the text to show version
+                        // Update the text
                         if (updateText) {
-                            updateText.textContent = `Update to v${data.latest_version}`;
+                            updateText.textContent = "See what's changed";
                         }
                         
                         // Show the notification

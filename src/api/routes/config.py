@@ -287,15 +287,10 @@ async def check_for_update():
             
             update_available = latest_tuple > current_tuple
             
-            # Generate changelog URL
+            # Always link to releases page if update available
             changelog_url = None
             if update_available:
-                # If we're on a tagged version, create a comparison link
-                if not ("-dev" in __version__ or "-dirty" in __version__):
-                    changelog_url = f"https://github.com/iongpt/boxarr/compare/v{current_version}...v{latest_version}"
-                else:
-                    # For dev versions, link to the release page
-                    changelog_url = release_data.get("html_url")
+                changelog_url = "https://github.com/iongpt/boxarr/releases"
             
             return {
                 "update_available": update_available,
