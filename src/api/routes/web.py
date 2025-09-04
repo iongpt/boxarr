@@ -21,6 +21,17 @@ router = APIRouter(tags=["web"])
 # Template directory
 templates = Jinja2Templates(directory="src/web/templates")
 
+# Helper function for URL generation in templates
+def url_for(request: Request, path: str) -> str:
+    """Generate URL with proper base path handling."""
+    root_path = request.scope.get('root_path', '')
+    if not path.startswith('/'):
+        path = '/' + path
+    return root_path + path
+
+# Register the helper as a Jinja2 global
+templates.env.globals['url_for'] = url_for
+
 
 class WeekInfo(BaseModel):
     """Week information model."""

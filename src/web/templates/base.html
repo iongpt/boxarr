@@ -219,8 +219,8 @@
                 </a>
             </div>
             <div class="navbar-menu">
-                <a href="{{ request.scope.get('root_path', '') }}/dashboard" class="nav-link {% if request.path == '/dashboard' %}active{% endif %}">Dashboard</a>
-                <a href="{{ request.scope.get('root_path', '') }}/setup" class="nav-link {% if request.path == '/setup' %}active{% endif %}">Settings</a>
+                <a href="{{ request.scope.get('root_path', '') }}/dashboard" class="nav-link {% if request.path.endswith('/dashboard') %}active{% endif %}">Dashboard</a>
+                <a href="{{ request.scope.get('root_path', '') }}/setup" class="nav-link {% if request.path.endswith('/setup') %}active{% endif %}">Settings</a>
                 <!-- <a href="/docs" class="nav-link" target="_blank">API Docs</a> -->
                 <div class="connection-status" id="connectionStatus">
                     <span class="status-dot" id="statusDot"></span>

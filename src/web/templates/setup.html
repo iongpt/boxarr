@@ -7,6 +7,10 @@
     <link rel="stylesheet" href="{{ request.scope.get('root_path', '') }}/static/css/style.css">
 </head>
 <body class="setup-page">
+    <script>
+        // Inject base path for JavaScript usage
+        window.BOXARR_BASE_PATH = "{{ request.scope.get('root_path', '') }}";
+    </script>
     <div class="setup-container">
         <div class="setup-header">
             <h1 class="setup-title">🎬 Welcome to Boxarr!</h1>

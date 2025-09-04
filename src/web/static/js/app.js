@@ -23,6 +23,32 @@ function apiUrl(endpoint) {
     return makeUrl('/api' + endpoint);
 }
 
+// Helper to check if current path matches a given path (handling base path)
+function isCurrentPath(targetPath) {
+    const currentPath = window.location.pathname;
+    const expectedPath = makeUrl(targetPath);
+    return currentPath === expectedPath;
+}
+
+// Helper to get path without base
+function getPathWithoutBase() {
+    const currentPath = window.location.pathname;
+    if (BASE_PATH && currentPath.startsWith(BASE_PATH)) {
+        return currentPath.substring(BASE_PATH.length);
+    }
+    return currentPath;
+}
+
+// Safe URL construction that prevents double-prefixing
+function safeUrl(path) {
+    // If path is already absolute and contains base path, return as-is
+    if (BASE_PATH && path.startsWith(BASE_PATH)) {
+        return path;
+    }
+    // Otherwise use makeUrl to add base path
+    return makeUrl(path);
+}
+
 // Scheduler Debug Functions (Global scope for onclick handlers)
 function toggleSchedulerDebug() {
     const content = document.getElementById('schedulerDebugContent');
@@ -513,7 +539,7 @@ function reloadScheduler() {
                 if (progressMessage) progressMessage.textContent = '✅ Historical week fetched successfully!';
                 addLogEntry('Update completed!', 'success');
                 if (progressFooter) progressFooter.style.display = 'block';
-                setTimeout(() => window.location.href = makeUrl(selectedHistoricalWeekUrl), 2000);
+                setTimeout(() => window.location.href = safeUrl(selectedHistoricalWeekUrl), 2000);
             } else {
                 const errorMsg = data.message || data.error || 'Unknown error occurred';
                 if (progressMessage) progressMessage.textContent = '❌ Fetch failed';
@@ -1078,9 +1104,9 @@ function reloadScheduler() {
         checkForUpdates();
         
         // Initialize page-specific features
-        const path = window.location.pathname;
+        const path = getPathWithoutBase();
         
-        if (path.includes('W') && path !== '/dashboard') {
+        if (path.includes('W') && !isCurrentPath('/dashboard')) {
             // Weekly page - start status updates
             updateMovieStatuses();
             // More frequent updates initially (every 5 seconds for first minute)
@@ -1097,7 +1123,7 @@ function reloadScheduler() {
         }
         
         // Setup page specific initialization
-        if (path === '/setup') {
+        if (isCurrentPath('/setup')) {
             const radarrUrl = document.getElementById('radarrUrl');
             const radarrApiKey = document.getElementById('radarrApiKey');
             const saveBtn = document.getElementById('saveBtn');
