@@ -79,6 +79,10 @@ class Settings(BaseSettings):
     boxarr_api_port: int = Field(
         default=8889, ge=1, le=65535, description="API server port"
     )
+    boxarr_url_base: str = Field(
+        default="",
+        description="URL base path for reverse proxy (e.g., 'boxarr' for /boxarr/)",
+    )
 
     # Scheduler Configuration
     boxarr_scheduler_enabled: bool = Field(
@@ -166,6 +170,11 @@ class Settings(BaseSettings):
         default="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
         description="Log format string",
     )
+
+    @validator("boxarr_url_base")
+    def normalize_url_base(cls, v: str) -> str:
+        """Normalize URL base by stripping leading/trailing slashes."""
+        return v.strip("/") if v else ""
 
     @validator("radarr_api_key")
     def validate_api_key(cls, v: str) -> str:

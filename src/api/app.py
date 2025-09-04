@@ -5,6 +5,7 @@ from typing import Optional
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from .. import __version__
 from ..core.radarr import RadarrService
@@ -32,13 +33,23 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
     Returns:
         Configured FastAPI application
     """
+    # Prepare root_path from settings
+    base = settings.boxarr_url_base
+    root_path = f"/{base}" if base else ""
+
     app = FastAPI(
         title="Boxarr",
         description="Box Office Tracking for Radarr - A local media management tool",
         version=__version__,
+        root_path=root_path,
         docs_url="/api/docs",
         redoc_url="/api/redoc",
     )
+
+    # Add ProxyHeadersMiddleware to handle reverse proxy headers
+    # Note: Remove trusted_hosts parameter for better security
+    # Only add specific hosts if needed: trusted_hosts=["proxy.example.com"]
+    app.add_middleware(ProxyHeadersMiddleware)  # type: ignore[arg-type]
 
     # Add CORS middleware for local network access
     app.add_middleware(

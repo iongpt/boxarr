@@ -3,6 +3,52 @@
  * Unified JavaScript for all pages
  */
 
+// Get base path from injected variable (set in base.html)
+const BASE_PATH = window.BOXARR_BASE_PATH || '';
+
+// URL helper functions
+function makeUrl(path) {
+    // Ensure path starts with /
+    if (!path.startsWith('/')) {
+        path = '/' + path;
+    }
+    return BASE_PATH + path;
+}
+
+function apiUrl(endpoint) {
+    // Ensure endpoint starts with /
+    if (!endpoint.startsWith('/')) {
+        endpoint = '/' + endpoint;
+    }
+    return makeUrl('/api' + endpoint);
+}
+
+// Helper to check if current path matches a given path (handling base path)
+function isCurrentPath(targetPath) {
+    const currentPath = window.location.pathname;
+    const expectedPath = makeUrl(targetPath);
+    return currentPath === expectedPath;
+}
+
+// Helper to get path without base
+function getPathWithoutBase() {
+    const currentPath = window.location.pathname;
+    if (BASE_PATH && currentPath.startsWith(BASE_PATH)) {
+        return currentPath.substring(BASE_PATH.length);
+    }
+    return currentPath;
+}
+
+// Safe URL construction that prevents double-prefixing
+function safeUrl(path) {
+    // If path is already absolute and contains base path, return as-is
+    if (BASE_PATH && path.startsWith(BASE_PATH)) {
+        return path;
+    }
+    // Otherwise use makeUrl to add base path
+    return makeUrl(path);
+}
+
 // Scheduler Debug Functions (Global scope for onclick handlers)
 function toggleSchedulerDebug() {
     const content = document.getElementById('schedulerDebugContent');
@@ -83,7 +129,7 @@ function updateGenreMode() {
 }
 
 function refreshSchedulerStatus() {
-    fetch('/api/scheduler/status')
+    fetch(apiUrl('/scheduler/status'))
         .then(response => response.json())
         .then(data => {
             // Update service status
@@ -167,7 +213,7 @@ function triggerScheduler() {
     btn.disabled = true;
     btn.textContent = 'Triggering...';
     
-    fetch('/api/scheduler/trigger', { method: 'POST' })
+    fetch(apiUrl('/scheduler/trigger'), { method: 'POST' })
         .then(response => response.json())
         .then(data => {
             if (data.success) {
@@ -193,7 +239,7 @@ function reloadScheduler() {
     btn.disabled = true;
     btn.textContent = 'Reloading...';
     
-    fetch('/api/scheduler/reload', { method: 'POST' })
+    fetch(apiUrl('/scheduler/reload'), { method: 'POST' })
         .then(response => response.json())
         .then(data => {
             if (data.success) {
@@ -234,7 +280,7 @@ function reloadScheduler() {
         // Skip if elements don't exist (e.g., on setup page)
         if (!statusDot || !statusText) return;
         
-        fetch('/api/health')
+        fetch(apiUrl('/health'))
             .then(response => {
                 if (response.ok) {
                     statusDot.classList.add('connected');
@@ -259,7 +305,7 @@ function reloadScheduler() {
      * Check for application updates
      */
     function checkForUpdates() {
-        fetch('/api/config/check-update')
+        fetch(apiUrl('/config/check-update'))
             .then(response => response.json())
             .then(data => {
                 if (data.update_available) {
@@ -356,7 +402,7 @@ function reloadScheduler() {
         
         addLogEntry('Starting box office update...');
         
-        fetch('/api/scheduler/trigger', { method: 'POST' })
+        fetch(apiUrl('/scheduler/trigger'), { method: 'POST' })
             .then(response => {
                 addLogEntry('Received response from server');
                 return response.json();
@@ -472,7 +518,7 @@ function reloadScheduler() {
         
         addLogEntry(`Starting historical data fetch for ${selectedHistoricalWeekText}`);
         
-        fetch('/api/scheduler/update-week', {
+        fetch(apiUrl('/scheduler/update-week'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
@@ -493,7 +539,7 @@ function reloadScheduler() {
                 if (progressMessage) progressMessage.textContent = '✅ Historical week fetched successfully!';
                 addLogEntry('Update completed!', 'success');
                 if (progressFooter) progressFooter.style.display = 'block';
-                setTimeout(() => window.location.href = selectedHistoricalWeekUrl, 2000);
+                setTimeout(() => window.location.href = safeUrl(selectedHistoricalWeekUrl), 2000);
             } else {
                 const errorMsg = data.message || data.error || 'Unknown error occurred';
                 if (progressMessage) progressMessage.textContent = '❌ Fetch failed';
@@ -571,7 +617,7 @@ function reloadScheduler() {
         
         addLogEntry(`Starting historical data fetch for Week ${week}, ${year}`);
         
-        fetch('/api/scheduler/update-week', {
+        fetch(apiUrl('/scheduler/update-week'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
@@ -592,7 +638,7 @@ function reloadScheduler() {
                 if (progressMessage) progressMessage.textContent = '✅ Historical week updated successfully!';
                 addLogEntry('Update completed!', 'success');
                 if (progressFooter) progressFooter.style.display = 'block';
-                setTimeout(() => window.location.href = `/${year}W${String(week).padStart(2, '0')}`, 2000);
+                setTimeout(() => window.location.href = makeUrl(`/${year}W${String(week).padStart(2, '0')}`), 2000);
             } else {
                 const errorMsg = data.message || data.error || 'Unknown error occurred';
                 if (progressMessage) progressMessage.textContent = '❌ Update failed';
@@ -627,7 +673,7 @@ function reloadScheduler() {
 
     window.deleteWeek = function(year, week) {
         if (confirm(`Are you sure you want to delete Week ${week}, ${year}?`)) {
-            fetch(`/api/weeks/${year}/W${week}/delete`, { method: 'DELETE' })
+            fetch(apiUrl(`/weeks/${year}/W${week}/delete`), { method: 'DELETE' })
                 .then(response => response.json())
                 .then(data => {
                     if (data.success) {
@@ -647,7 +693,7 @@ function reloadScheduler() {
         const urlParams = new URLSearchParams(window.location.search);
         urlParams.set('per_page', newSize);
         urlParams.set('page', '1'); // Reset to first page when changing page size
-        window.location.href = `/dashboard?${urlParams.toString()}`;
+        window.location.href = makeUrl(`/dashboard?${urlParams.toString()}`);
     };
 
     // ==========================================
@@ -662,7 +708,7 @@ function reloadScheduler() {
         
         if (movieIds.length === 0) return;
         
-        fetch('/api/movies/status', {
+        fetch(apiUrl('/movies/status'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ movie_ids: movieIds })
@@ -716,7 +762,7 @@ function reloadScheduler() {
                 buttonElement.style.opacity = '0.7';
             }
             
-            fetch('/api/movies/add', {
+            fetch(apiUrl('/movies/add'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ title, year })
@@ -773,7 +819,7 @@ function reloadScheduler() {
                 buttonElement.textContent = 'Processing...';
             }
             
-            fetch(`/api/movies/${movieId}/upgrade`, {
+            fetch(apiUrl(`/movies/${movieId}/upgrade`), {
                 method: 'POST'
             })
             .then(response => response.json())
@@ -831,7 +877,7 @@ function reloadScheduler() {
         if (testButton) testButton.textContent = 'Testing...';
         if (testSpinner) testSpinner.style.display = 'inline-block';
         
-        fetch('/api/config/test', {
+        fetch(apiUrl('/config/test'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ url, api_key: apiKey })
@@ -1002,7 +1048,7 @@ function reloadScheduler() {
         
         showMessage('Saving configuration...', 'info');
         
-        fetch('/api/config/save', {
+        fetch(apiUrl('/config/save'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(config)
@@ -1012,7 +1058,7 @@ function reloadScheduler() {
             if (data.success) {
                 showMessage('✓ Configuration saved successfully! Redirecting...', 'success');
                 setTimeout(() => {
-                    window.location.href = '/dashboard';
+                    window.location.href = makeUrl('/dashboard');
                 }, 1500);
             } else {
                 showMessage('Failed to save: ' + (data.error || 'Unknown error'), 'error');
@@ -1058,9 +1104,9 @@ function reloadScheduler() {
         checkForUpdates();
         
         // Initialize page-specific features
-        const path = window.location.pathname;
+        const path = getPathWithoutBase();
         
-        if (path.includes('W') && path !== '/dashboard') {
+        if (path.includes('W') && !isCurrentPath('/dashboard')) {
             // Weekly page - start status updates
             updateMovieStatuses();
             // More frequent updates initially (every 5 seconds for first minute)
@@ -1077,7 +1123,7 @@ function reloadScheduler() {
         }
         
         // Setup page specific initialization
-        if (path === '/setup') {
+        if (isCurrentPath('/setup')) {
             const radarrUrl = document.getElementById('radarrUrl');
             const radarrApiKey = document.getElementById('radarrApiKey');
             const saveBtn = document.getElementById('saveBtn');

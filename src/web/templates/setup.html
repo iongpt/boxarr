@@ -4,9 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Boxarr Setup{% endblock %}</title>
-    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="{{ request.scope.get('root_path', '') }}/static/css/style.css">
 </head>
 <body class="setup-page">
+    <script>
+        // Inject base path for JavaScript usage
+        window.BOXARR_BASE_PATH = "{{ request.scope.get('root_path', '') }}";
+    </script>
     <div class="setup-container">
         <div class="setup-header">
             <h1 class="setup-title">🎬 Welcome to Boxarr!</h1>
@@ -286,10 +290,10 @@
 
             <div class="button-row">
                 {% if is_configured %}
-                <a href="/" class="btn btn-secondary">← Back to Dashboard</a>
+                <a href="{{ request.scope.get('root_path', '') }}/" class="btn btn-secondary">← Back to Dashboard</a>
                 {% else %}
                 <div id="navigationSection" style="display: none;">
-                    <a href="/" class="btn btn-secondary">← Back to Dashboard</a>
+                    <a href="{{ request.scope.get('root_path', '') }}/" class="btn btn-secondary">← Back to Dashboard</a>
                 </div>
                 {% endif %}
                 
@@ -303,6 +307,6 @@
         </form>
     </div>
 
-<script src="/static/js/app.js?v=2"></script>
+<script src="{{ request.scope.get('root_path', '') }}/static/js/app.js?v=2"></script>
 </body>
 </html>
