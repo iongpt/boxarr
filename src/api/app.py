@@ -36,7 +36,7 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
     # Prepare root_path from settings
     base = settings.boxarr_url_base
     root_path = f"/{base}" if base else ""
-    
+
     app = FastAPI(
         title="Boxarr",
         description="Box Office Tracking for Radarr - A local media management tool",
@@ -50,7 +50,7 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
     # Note: Remove trusted_hosts parameter for better security
     # Only add specific hosts if needed: trusted_hosts=["proxy.example.com"]
     app.add_middleware(ProxyHeadersMiddleware)
-    
+
     # Add CORS middleware for local network access
     app.add_middleware(
         CORSMiddleware,

@@ -21,16 +21,18 @@ router = APIRouter(tags=["web"])
 # Template directory
 templates = Jinja2Templates(directory="src/web/templates")
 
+
 # Helper function for URL generation in templates
 def url_for(request: Request, path: str) -> str:
     """Generate URL with proper base path handling."""
-    root_path = request.scope.get('root_path', '')
-    if not path.startswith('/'):
-        path = '/' + path
+    root_path = request.scope.get("root_path", "")
+    if not path.startswith("/"):
+        path = "/" + path
     return root_path + path
 
+
 # Register the helper as a Jinja2 global
-templates.env.globals['url_for'] = url_for
+templates.env.globals["url_for"] = url_for
 
 
 class WeekInfo(BaseModel):
@@ -59,11 +61,11 @@ async def home_page(request: Request):
     """Serve the home page (dashboard or setup)."""
     # Check if Radarr is configured
     if not settings.is_configured:
-        base = request.scope.get('root_path', '')
+        base = request.scope.get("root_path", "")
         return RedirectResponse(url=f"{base}/setup")
 
     # Always redirect to dashboard when configured
-    base = request.scope.get('root_path', '')
+    base = request.scope.get("root_path", "")
     return RedirectResponse(url=f"{base}/dashboard")
 
 
@@ -72,7 +74,7 @@ async def dashboard_page(request: Request):
     """Serve the dashboard page."""
     # Check if configured - if not, redirect to setup
     if not settings.is_configured:
-        base = request.scope.get('root_path', '')
+        base = request.scope.get("root_path", "")
         return RedirectResponse(url=f"{base}/setup")
 
     # Get query parameters for pagination and filtering
@@ -484,7 +486,7 @@ async def get_widget(request: Request):
 
         # Build the base URL with correct scheme, host, and base path
         # request.base_url already includes the root_path from FastAPI
-        full_url = str(request.base_url).rstrip('/') + '/'
+        full_url = str(request.base_url).rstrip("/") + "/"
 
         # Simple widget HTML
         html = f"""
