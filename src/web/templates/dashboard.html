@@ -675,7 +675,7 @@
             </button>
             
             {% if recent_weeks %}
-            <a href="/{{ recent_weeks[0].year }}W{{ '%02d'|format(recent_weeks[0].week) }}" class="action-btn primary">
+            <a href="{{ request.scope.get('root_path', '') }}/{{ recent_weeks[0].year }}W{{ '%02d'|format(recent_weeks[0].week) }}" class="action-btn primary">
                 <span class="btn-icon">👁️</span> View Last Week
             </a>
             {% endif %}
@@ -688,10 +688,10 @@
         <div class="filter-controls">
             <div class="year-filters">
                 <span class="year-filter-label">Filter by year:</span>
-                <a href="/dashboard?page=1&per_page={{ per_page }}" 
+                <a href="{{ request.scope.get('root_path', '') }}/dashboard?page=1&per_page={{ per_page }}" 
                    class="year-btn {% if not year_filter %}active{% endif %}">All</a>
                 {% for year in available_years %}
-                <a href="/dashboard?year={{ year }}&page=1&per_page={{ per_page }}" 
+                <a href="{{ request.scope.get('root_path', '') }}/dashboard?year={{ year }}&page=1&per_page={{ per_page }}" 
                    class="year-btn {% if year_filter == year %}active{% endif %}">{{ year }}</a>
                 {% endfor %}
             </div>
@@ -745,7 +745,7 @@
                     </div>
                     
                     <div class="report-actions">
-                        <a href="/{{ week.year }}W{{ '%02d'|format(week.week) }}" class="report-btn view">View</a>
+                        <a href="{{ request.scope.get('root_path', '') }}/{{ week.year }}W{{ '%02d'|format(week.week) }}" class="report-btn view">View</a>
                         <button class="report-btn delete" onclick="deleteWeek('{{ week.year }}', '{{ '%02d'|format(week.week) }}')">Delete</button>
                     </div>
                 </div>
@@ -758,7 +758,7 @@
                 <div class="pagination">
                     <!-- Previous button -->
                     {% if current_page > 1 %}
-                    <a href="/dashboard?page={{ current_page - 1 }}&per_page={{ per_page }}{% if year_filter %}&year={{ year_filter }}{% endif %}" 
+                    <a href="{{ request.scope.get('root_path', '') }}/dashboard?page={{ current_page - 1 }}&per_page={{ per_page }}{% if year_filter %}&year={{ year_filter }}{% endif %}" 
                        class="page-link">← Previous</a>
                     {% else %}
                     <span class="page-link disabled">← Previous</span>
@@ -771,7 +771,7 @@
                     {% if end_page > total_pages %}{% set end_page = total_pages %}{% endif %}
                     
                     {% if start_page > 1 %}
-                    <a href="/dashboard?page=1&per_page={{ per_page }}{% if year_filter %}&year={{ year_filter }}{% endif %}" 
+                    <a href="{{ request.scope.get('root_path', '') }}/dashboard?page=1&per_page={{ per_page }}{% if year_filter %}&year={{ year_filter }}{% endif %}" 
                        class="page-link">1</a>
                     {% if start_page > 2 %}
                     <span class="page-link disabled">...</span>
@@ -782,7 +782,7 @@
                     {% if page_num == current_page %}
                     <span class="page-link active">{{ page_num }}</span>
                     {% else %}
-                    <a href="/dashboard?page={{ page_num }}&per_page={{ per_page }}{% if year_filter %}&year={{ year_filter }}{% endif %}" 
+                    <a href="{{ request.scope.get('root_path', '') }}/dashboard?page={{ page_num }}&per_page={{ per_page }}{% if year_filter %}&year={{ year_filter }}{% endif %}" 
                        class="page-link">{{ page_num }}</a>
                     {% endif %}
                     {% endfor %}
@@ -791,13 +791,13 @@
                     {% if end_page < total_pages - 1 %}
                     <span class="page-link disabled">...</span>
                     {% endif %}
-                    <a href="/dashboard?page={{ total_pages }}&per_page={{ per_page }}{% if year_filter %}&year={{ year_filter }}{% endif %}" 
+                    <a href="{{ request.scope.get('root_path', '') }}/dashboard?page={{ total_pages }}&per_page={{ per_page }}{% if year_filter %}&year={{ year_filter }}{% endif %}" 
                        class="page-link">{{ total_pages }}</a>
                     {% endif %}
                     
                     <!-- Next button -->
                     {% if current_page < total_pages %}
-                    <a href="/dashboard?page={{ current_page + 1 }}&per_page={{ per_page }}{% if year_filter %}&year={{ year_filter }}{% endif %}" 
+                    <a href="{{ request.scope.get('root_path', '') }}/dashboard?page={{ current_page + 1 }}&per_page={{ per_page }}{% if year_filter %}&year={{ year_filter }}{% endif %}" 
                        class="page-link">Next →</a>
                     {% else %}
                     <span class="page-link disabled">Next →</span>
@@ -864,7 +864,7 @@
                     {% endif %}
                     
                     <p style="margin-top: 1rem; font-size: 0.85rem; color: var(--text-primary);">
-                        💡 <strong>Note:</strong> This behavior applies to all historical fetches. You can change these settings in <a href="/setup" style="color: var(--primary-color); text-decoration: underline;">Settings</a>.
+                        💡 <strong>Note:</strong> This behavior applies to all historical fetches. You can change these settings in <a href="{{ request.scope.get('root_path', '') }}/setup" style="color: var(--primary-color); text-decoration: underline;">Settings</a>.
                     </p>
                 </div>
             </div>
@@ -907,7 +907,7 @@
             
             <div style="padding: 0.75rem; background: rgba(var(--info-rgb, 59, 130, 246), 0.1); border-radius: 8px; border: 1px solid rgba(var(--info-rgb, 59, 130, 246), 0.2);">
                 <p style="font-size: 0.85rem; color: var(--text-primary); margin: 0;">
-                    💡 <strong>Tip:</strong> To change auto-add behavior or filters, visit <a href="/setup" style="color: var(--primary-color); text-decoration: underline;">Settings</a>.
+                    💡 <strong>Tip:</strong> To change auto-add behavior or filters, visit <a href="{{ request.scope.get('root_path', '') }}/setup" style="color: var(--primary-color); text-decoration: underline;">Settings</a>.
                 </p>
             </div>
         </div>

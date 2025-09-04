@@ -370,13 +370,13 @@
         <!-- Navigation Controls -->
         <div class="nav-controls">
             {% if previous_week %}
-            <a href="/{{ previous_week }}" class="nav-btn">← Previous</a>
+            <a href="{{ request.scope.get('root_path', '') }}/{{ previous_week }}" class="nav-btn">← Previous</a>
             {% endif %}
             
-            <a href="/dashboard" class="nav-btn">📊 Dashboard</a>
+            <a href="{{ request.scope.get('root_path', '') }}/dashboard" class="nav-btn">📊 Dashboard</a>
             
             {% if next_week %}
-            <a href="/{{ next_week }}" class="nav-btn">Next →</a>
+            <a href="{{ request.scope.get('root_path', '') }}/{{ next_week }}" class="nav-btn">Next →</a>
             {% endif %}
         </div>
     </div>

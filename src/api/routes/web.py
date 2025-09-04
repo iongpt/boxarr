@@ -48,10 +48,12 @@ async def home_page(request: Request):
     """Serve the home page (dashboard or setup)."""
     # Check if Radarr is configured
     if not settings.is_configured:
-        return RedirectResponse(url="/setup")
+        base = request.scope.get('root_path', '')
+        return RedirectResponse(url=f"{base}/setup")
 
     # Always redirect to dashboard when configured
-    return RedirectResponse(url="/dashboard")
+    base = request.scope.get('root_path', '')
+    return RedirectResponse(url=f"{base}/dashboard")
 
 
 @router.get("/dashboard", response_class=HTMLResponse)
@@ -59,7 +61,8 @@ async def dashboard_page(request: Request):
     """Serve the dashboard page."""
     # Check if configured - if not, redirect to setup
     if not settings.is_configured:
-        return RedirectResponse(url="/setup")
+        base = request.scope.get('root_path', '')
+        return RedirectResponse(url=f"{base}/setup")
 
     # Get query parameters for pagination and filtering
     page = int(request.query_params.get("page", 1))
@@ -462,11 +465,15 @@ async def delete_week(year: int, week: int):
 
 
 @router.get("/api/widget", response_class=HTMLResponse)
-async def get_widget():
+async def get_widget(request: Request):
     """Get embeddable widget HTML."""
     try:
         # Get current week data
         widget_data = await get_widget_data()
+
+        # Build the base URL with correct scheme, host, and base path
+        # request.base_url already includes the root_path from FastAPI
+        full_url = str(request.base_url).rstrip('/') + '/'
 
         # Simple widget HTML
         html = f"""
@@ -475,7 +482,7 @@ async def get_widget():
             <ol>
                 {"".join(f'<li>{m["title"]}</li>' for m in widget_data.movies[:5])}
             </ol>
-            <a href="http://{settings.boxarr_host}:{settings.boxarr_port}/">View Full List</a>
+            <a href="{full_url}">View Full List</a>
         </div>
         """
         return HTMLResponse(content=html)
