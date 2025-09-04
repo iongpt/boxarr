@@ -49,7 +49,7 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
     # Add ProxyHeadersMiddleware to handle reverse proxy headers
     # Note: Remove trusted_hosts parameter for better security
     # Only add specific hosts if needed: trusted_hosts=["proxy.example.com"]
-    app.add_middleware(ProxyHeadersMiddleware)
+    app.add_middleware(ProxyHeadersMiddleware)  # type: ignore[arg-type]
 
     # Add CORS middleware for local network access
     app.add_middleware(

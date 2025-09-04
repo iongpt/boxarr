@@ -25,7 +25,7 @@ templates = Jinja2Templates(directory="src/web/templates")
 # Helper function for URL generation in templates
 def url_for(request: Request, path: str) -> str:
     """Generate URL with proper base path handling."""
-    root_path = request.scope.get("root_path", "")
+    root_path = str(request.scope.get("root_path", ""))
     if not path.startswith("/"):
         path = "/" + path
     return root_path + path
