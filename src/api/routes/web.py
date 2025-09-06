@@ -3,7 +3,7 @@
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -38,14 +38,16 @@ templates.env.globals["url_for"] = url_for
 def get_template_context(request: Request, **kwargs) -> dict:
     """Get base template context with common values."""
     # Handle both string and enum values for theme
-    theme = settings.boxarr_ui_theme
-    if hasattr(theme, "value"):
-        theme = theme.value
+    theme_value = settings.boxarr_ui_theme
+    if hasattr(theme_value, "value"):
+        theme_str = getattr(theme_value, "value")
+    else:
+        theme_str = str(theme_value)
 
     context = {
         "request": request,
         "version": __version__,
-        "theme": theme,
+        "theme": theme_str,
     }
     context.update(kwargs)
     return context
