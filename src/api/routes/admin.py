@@ -4,7 +4,7 @@ import asyncio
 import json
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Optional, AsyncGenerator
+from typing import Any, Dict, List, Optional, AsyncGenerator
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
@@ -65,7 +65,7 @@ async def check_missing_metadata():
             )
 
         # Scan all JSON files
-        unique_movies = {}  # title -> {has_poster, has_tmdb, weeks: []}
+        unique_movies: Dict[str, Dict[str, Any]] = {}  # title -> {has_poster, has_tmdb, weeks: []}
         total_movies = 0
         total_occurrences_missing = 0
         weeks_with_issues = set()
@@ -137,7 +137,7 @@ async def repair_missing_metadata(request: RepairRequest):
             # Phase 1: Collect unique movies missing data
             yield f"data: {json.dumps({'stage': 'scanning', 'message': 'Scanning for movies with missing metadata...'})}\n\n"
 
-            unique_movies = {}  # title -> {sample_data, weeks: []}
+            unique_movies: Dict[str, Dict[str, Any]] = {}  # title -> {sample_data, weeks: []}
 
             json_files = list(weekly_pages_dir.glob("*.json"))
             for idx, json_file in enumerate(json_files, 1):
@@ -175,8 +175,8 @@ async def repair_missing_metadata(request: RepairRequest):
             message = f"Found {len(unique_movies)} unique movies to process..."
             yield f"data: {json.dumps({'stage': 'fetching', 'message': message})}\n\n"
 
-            tmdb_cache = {}
-            errors = []
+            tmdb_cache: Dict[str, Dict[str, Any]] = {}
+            errors: List[str] = []
             total_movies = len(unique_movies)
 
             for idx, title in enumerate(unique_movies, 1):
