@@ -1459,22 +1459,35 @@ function closeHistoricalUpdate() {
 
 function updateCurrentWeek() {
     showProgress('Updating Last Week');
+    addToProgressLog('Starting update for last week...');
     
     fetch(apiUrl('/scheduler/trigger'), {
         method: 'POST',
         headers: {'Content-Type': 'application/json'}
     })
-    .then(response => response.json())
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
     .then(data => {
         if (data.success) {
+            addToProgressLog(`Update completed successfully! Found ${data.movies_found || 0} movies.`);
+            if (data.movies_added > 0) {
+                addToProgressLog(`Added ${data.movies_added} movies to Radarr.`);
+            }
             showSuccess(`Updated successfully! Found ${data.movies_found || 0} movies.`);
             setTimeout(() => location.reload(), 2000);
         } else {
-            showError('Update failed: ' + data.message);
+            addToProgressLog(`Update failed: ${data.message || 'Unknown error'}`, 'error');
+            showError('Update failed: ' + (data.message || 'Unknown error'));
         }
     })
     .catch(error => {
-        showError('Update failed: ' + error.message);
+        const errorMsg = error.message || 'Network error';
+        addToProgressLog(`Error: ${errorMsg}`, 'error');
+        showError('Update failed: ' + errorMsg);
     });
 }
 
@@ -1484,23 +1497,36 @@ function updateHistoricalWeek() {
     
     closeHistoricalUpdate();
     showProgress(`Updating Week ${week}, ${year}`);
+    addToProgressLog(`Starting update for Week ${week}, ${year}...`);
     
     fetch(apiUrl('/scheduler/update-week'), {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({year: parseInt(year), week: parseInt(week)})
     })
-    .then(response => response.json())
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
     .then(data => {
         if (data.success) {
+            addToProgressLog(`Update completed successfully! Found ${data.movies_found || 0} movies.`);
+            if (data.movies_added > 0) {
+                addToProgressLog(`Added ${data.movies_added} movies to Radarr.`);
+            }
             showSuccess(`Updated successfully! Found ${data.movies_found || 0} movies.`);
             setTimeout(() => location.reload(), 2000);
         } else {
-            showError('Update failed: ' + data.message);
+            addToProgressLog(`Update failed: ${data.message || 'Unknown error'}`, 'error');
+            showError('Update failed: ' + (data.message || 'Unknown error'));
         }
     })
     .catch(error => {
-        showError('Update failed: ' + error.message);
+        const errorMsg = error.message || 'Network error';
+        addToProgressLog(`Error: ${errorMsg}`, 'error');
+        showError('Update failed: ' + errorMsg);
     });
 }
 
@@ -1535,11 +1561,35 @@ function showProgress(message) {
     const progressMessage = document.getElementById('progressMessage');
     const multiWeekProgress = document.getElementById('multiWeekProgress');
     const progressSpinner = document.getElementById('progressSpinner');
+    const progressLog = document.getElementById('progressLog');
     
     modal.style.display = 'flex';
     progressMessage.textContent = message;
     multiWeekProgress.style.display = 'none';
     progressSpinner.style.display = 'block';
+    
+    // Clear previous log entries
+    progressLog.innerHTML = '';
+    progressLog.style.display = 'block';
+}
+
+// Helper function to add entries to progress log
+function addToProgressLog(message, type = 'info') {
+    const log = document.getElementById('progressLog');
+    const entry = document.createElement('div');
+    const timestamp = new Date().toLocaleTimeString();
+    entry.textContent = `[${timestamp}] ${message}`;
+    
+    if (type === 'error') {
+        entry.style.color = 'var(--error-color)';
+    } else if (type === 'warning') {
+        entry.style.color = 'var(--warning-color)';
+    } else if (type === 'success') {
+        entry.style.color = 'var(--success-color)';
+    }
+    
+    log.appendChild(entry);
+    log.scrollTop = log.scrollHeight;
 }
 
 function showSuccess(message) {
@@ -1551,6 +1601,9 @@ function showSuccess(message) {
     progressMessage.innerHTML = `<span style="color: var(--success-color);">✅ ${message}</span>`;
     progressSpinner.style.display = 'none';
     progressFooter.style.display = 'block';
+    
+    // Also add to log
+    addToProgressLog(message, 'success');
 }
 
 function showError(message) {
@@ -1562,6 +1615,9 @@ function showError(message) {
     progressMessage.innerHTML = `<span style="color: var(--error-color);">❌ ${message}</span>`;
     progressSpinner.style.display = 'none';
     progressFooter.style.display = 'block';
+    
+    // Also add to log
+    addToProgressLog(message, 'error');
 }
 
 function closeProgressModal() {
