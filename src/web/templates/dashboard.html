@@ -688,10 +688,10 @@
         <div class="filter-controls">
             <div class="year-filters">
                 <span class="year-filter-label">Filter by year:</span>
-                <a href="{{ request.scope.get('root_path', '') }}/dashboard?page=1&per_page={{ per_page }}" 
+                <a href="{{ request.scope.get('root_path', '') }}/weeks?page=1&per_page={{ per_page }}" 
                    class="year-btn {% if not year_filter %}active{% endif %}">All</a>
                 {% for year in available_years %}
-                <a href="{{ request.scope.get('root_path', '') }}/dashboard?year={{ year }}&page=1&per_page={{ per_page }}" 
+                <a href="{{ request.scope.get('root_path', '') }}/weeks?year={{ year }}&page=1&per_page={{ per_page }}" 
                    class="year-btn {% if year_filter == year %}active{% endif %}">{{ year }}</a>
                 {% endfor %}
             </div>
@@ -758,7 +758,7 @@
                 <div class="pagination">
                     <!-- Previous button -->
                     {% if current_page > 1 %}
-                    <a href="{{ request.scope.get('root_path', '') }}/dashboard?page={{ current_page - 1 }}&per_page={{ per_page }}{% if year_filter %}&year={{ year_filter }}{% endif %}" 
+                    <a href="{{ request.scope.get('root_path', '') }}/weeks?page={{ current_page - 1 }}&per_page={{ per_page }}{% if year_filter %}&year={{ year_filter }}{% endif %}" 
                        class="page-link">← Previous</a>
                     {% else %}
                     <span class="page-link disabled">← Previous</span>
@@ -771,7 +771,7 @@
                     {% if end_page > total_pages %}{% set end_page = total_pages %}{% endif %}
                     
                     {% if start_page > 1 %}
-                    <a href="{{ request.scope.get('root_path', '') }}/dashboard?page=1&per_page={{ per_page }}{% if year_filter %}&year={{ year_filter }}{% endif %}" 
+                    <a href="{{ request.scope.get('root_path', '') }}/weeks?page=1&per_page={{ per_page }}{% if year_filter %}&year={{ year_filter }}{% endif %}" 
                        class="page-link">1</a>
                     {% if start_page > 2 %}
                     <span class="page-link disabled">...</span>
@@ -782,7 +782,7 @@
                     {% if page_num == current_page %}
                     <span class="page-link active">{{ page_num }}</span>
                     {% else %}
-                    <a href="{{ request.scope.get('root_path', '') }}/dashboard?page={{ page_num }}&per_page={{ per_page }}{% if year_filter %}&year={{ year_filter }}{% endif %}" 
+                    <a href="{{ request.scope.get('root_path', '') }}/weeks?page={{ page_num }}&per_page={{ per_page }}{% if year_filter %}&year={{ year_filter }}{% endif %}" 
                        class="page-link">{{ page_num }}</a>
                     {% endif %}
                     {% endfor %}
@@ -791,13 +791,13 @@
                     {% if end_page < total_pages - 1 %}
                     <span class="page-link disabled">...</span>
                     {% endif %}
-                    <a href="{{ request.scope.get('root_path', '') }}/dashboard?page={{ total_pages }}&per_page={{ per_page }}{% if year_filter %}&year={{ year_filter }}{% endif %}" 
+                    <a href="{{ request.scope.get('root_path', '') }}/weeks?page={{ total_pages }}&per_page={{ per_page }}{% if year_filter %}&year={{ year_filter }}{% endif %}" 
                        class="page-link">{{ total_pages }}</a>
                     {% endif %}
                     
                     <!-- Next button -->
                     {% if current_page < total_pages %}
-                    <a href="{{ request.scope.get('root_path', '') }}/dashboard?page={{ current_page + 1 }}&per_page={{ per_page }}{% if year_filter %}&year={{ year_filter }}{% endif %}" 
+                    <a href="{{ request.scope.get('root_path', '') }}/weeks?page={{ current_page + 1 }}&per_page={{ per_page }}{% if year_filter %}&year={{ year_filter }}{% endif %}" 
                        class="page-link">Next →</a>
                     {% else %}
                     <span class="page-link disabled">Next →</span>

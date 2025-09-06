@@ -3,7 +3,7 @@
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import Dict, List, Optional, Union
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -76,20 +76,255 @@ class WidgetData(BaseModel):
 
 @router.get("/", response_class=HTMLResponse)
 async def home_page(request: Request):
-    """Serve the home page (dashboard or setup)."""
+    """Serve the home page (overview or setup)."""
     # Check if Radarr is configured
     if not settings.is_configured:
         base = request.scope.get("root_path", "")
         return RedirectResponse(url=f"{base}/setup")
 
-    # Always redirect to dashboard when configured
+    # Redirect to overview as the main landing page
     base = request.scope.get("root_path", "")
-    return RedirectResponse(url=f"{base}/dashboard")
+    return RedirectResponse(url=f"{base}/overview")
+
+
+async def aggregate_all_movies() -> List[dict]:
+    """Aggregate all movies from all weekly JSON files, handling duplicates."""
+    weekly_pages_dir = Path(settings.boxarr_data_directory) / "weekly_pages"
+    if not weekly_pages_dir.exists():
+        return []
+
+    # Dictionary to store unique movies with their appearance weeks
+    movies_by_key: Dict[str, dict] = {}
+
+    # Process all JSON files
+    for json_file in sorted(weekly_pages_dir.glob("*.json")):
+        if json_file.name == "current.json":
+            continue
+
+        try:
+            with open(json_file) as f:
+                metadata = json.load(f)
+
+            year = metadata.get("year")
+            week = metadata.get("week")
+            week_str = f"{year}W{week:02d}"
+
+            for movie in metadata.get("movies", []):
+                # Use TMDB ID as primary key, fallback to title+year
+                if movie.get("tmdb_id"):
+                    key = f"tmdb_{movie['tmdb_id']}"
+                else:
+                    key = f"{movie.get('title', 'unknown')}_{movie.get('year', 0)}"
+
+                if key in movies_by_key:
+                    # Movie already exists, add this week to its appearances
+                    movies_by_key[key]["weeks"].append(week_str)
+                    # Update with better data if this week has higher rank
+                    if movie.get("rank", 999) < movies_by_key[key]["best_rank"]:
+                        movies_by_key[key]["best_rank"] = movie.get("rank", 999)
+                        movies_by_key[key]["best_weekend_gross"] = movie.get(
+                            "weekend_gross", 0
+                        )
+                else:
+                    # New movie entry
+                    movie_copy = dict(movie)
+                    movie_copy["weeks"] = [week_str]
+                    movie_copy["best_rank"] = movie.get("rank", 999)
+                    movie_copy["best_weekend_gross"] = movie.get("weekend_gross", 0)
+                    movies_by_key[key] = movie_copy
+
+        except Exception as e:
+            logger.warning(f"Error reading {json_file}: {e}")
+            continue
+
+    # Convert to list and sort by best weekend gross (highest first)
+    movies_list = list(movies_by_key.values())
+    movies_list.sort(key=lambda x: x.get("best_weekend_gross", 0), reverse=True)
+
+    return movies_list
+
+
+@router.get("/overview", response_class=HTMLResponse)
+async def movie_overview_page(request: Request):
+    """Serve the movie overview page consolidating all movies from all weeks."""
+    # Check if configured - if not, redirect to setup
+    if not settings.is_configured:
+        base = request.scope.get("root_path", "")
+        return RedirectResponse(url=f"{base}/setup")
+
+    # Get query parameters for filtering
+    page = int(request.query_params.get("page", 1))
+    per_page = int(request.query_params.get("per_page", 50))
+    status_filter = request.query_params.get("status", "all")
+    year_filter_str = request.query_params.get("year", None)
+    search_query = request.query_params.get("search", "").strip().lower()
+
+    # Validate per_page
+    if per_page not in [20, 50, 100, 200]:
+        per_page = 50
+
+    # Aggregate movies from all weeks
+    all_movies = await aggregate_all_movies()
+
+    # Apply filters
+    filtered_movies = all_movies
+
+    # Status filter
+    if status_filter == "downloaded":
+        filtered_movies = [
+            m for m in filtered_movies if m.get("status") == "Downloaded"
+        ]
+    elif status_filter == "missing":
+        filtered_movies = [m for m in filtered_movies if m.get("status") == "Missing"]
+    elif status_filter == "not_in_radarr":
+        filtered_movies = [m for m in filtered_movies if not m.get("radarr_id")]
+
+    # Year filter
+    if year_filter_str and year_filter_str.isdigit():
+        year_filter = int(year_filter_str)
+        filtered_movies = [m for m in filtered_movies if m.get("year") == year_filter]
+    else:
+        year_filter = None
+
+    # Search filter
+    if search_query:
+        filtered_movies = [
+            m for m in filtered_movies if search_query in m.get("title", "").lower()
+        ]
+
+    # Get unique years for filter buttons
+    all_years = sorted(
+        list(set(m.get("year") for m in all_movies if m.get("year"))), reverse=True
+    )
+
+    # Calculate pagination
+    total_movies = len(filtered_movies)
+    total_pages = max(1, (total_movies + per_page - 1) // per_page)
+    page = max(1, min(page, total_pages))
+
+    start_idx = (page - 1) * per_page
+    end_idx = start_idx + per_page
+    paginated_movies = filtered_movies[start_idx:end_idx]
+
+    # Update real-time Radarr status if configured
+    if settings.radarr_api_key:
+        try:
+            from ...core.radarr import RadarrService
+
+            radarr_service = RadarrService()
+            all_radarr_movies = radarr_service.get_all_movies()
+            profiles = radarr_service.get_quality_profiles()
+            profiles_by_id = {p.id: p.name for p in profiles}
+
+            # Find upgrade profile ID
+            upgrade_profile_id = None
+            for p in profiles:
+                if p.name == settings.radarr_quality_profile_upgrade:
+                    upgrade_profile_id = p.id
+                    break
+
+            # Create lookup dicts
+            movie_dict = {movie.id: movie for movie in all_radarr_movies}
+            movie_dict_by_title = {
+                movie.title.lower(): movie for movie in all_radarr_movies
+            }
+
+            # Update movie statuses dynamically
+            for movie in paginated_movies:
+                radarr_movie = None
+
+                # First try to find by radarr_id if it exists
+                if movie.get("radarr_id"):
+                    radarr_movie = movie_dict.get(movie["radarr_id"])
+
+                # If not found by ID, try to find by title
+                if not radarr_movie:
+                    movie_title_lower = movie.get("title", "").lower()
+                    radarr_movie = movie_dict_by_title.get(movie_title_lower)
+
+                    if radarr_movie:
+                        movie["radarr_id"] = radarr_movie.id
+
+                if radarr_movie:
+                    # Update status
+                    if radarr_movie.hasFile:
+                        movie["status"] = "Downloaded"
+                        movie["status_color"] = "#48bb78"
+                        movie["status_icon"] = "✅"
+                    elif (
+                        radarr_movie.status == MovieStatus.RELEASED
+                        and radarr_movie.isAvailable
+                    ):
+                        movie["status"] = "Missing"
+                        movie["status_color"] = "#f56565"
+                        movie["status_icon"] = "❌"
+                    elif radarr_movie.status == MovieStatus.IN_CINEMAS:
+                        movie["status"] = "In Cinemas"
+                        movie["status_color"] = "#f6ad55"
+                        movie["status_icon"] = "🎬"
+                    else:
+                        movie["status"] = "Pending"
+                        movie["status_color"] = "#ed8936"
+                        movie["status_icon"] = "⏳"
+
+                    # Update quality profile
+                    movie["quality_profile_name"] = profiles_by_id.get(
+                        radarr_movie.qualityProfileId, "Unknown"
+                    )
+                    movie["quality_profile_id"] = radarr_movie.qualityProfileId
+                    movie["has_file"] = radarr_movie.hasFile
+
+                    # Check if can upgrade
+                    movie["can_upgrade_quality"] = bool(
+                        settings.boxarr_features_quality_upgrade
+                        and radarr_movie.qualityProfileId
+                        and upgrade_profile_id
+                        and radarr_movie.qualityProfileId != upgrade_profile_id
+                    )
+        except Exception as e:
+            logger.warning(f"Could not fetch current Radarr status: {e}")
+
+    # Count statistics
+    stats = {
+        "total": len(all_movies),
+        "in_radarr": sum(1 for m in all_movies if m.get("radarr_id")),
+        "downloaded": sum(1 for m in all_movies if m.get("status") == "Downloaded"),
+        "missing": sum(1 for m in all_movies if m.get("status") == "Missing"),
+        "not_in_radarr": sum(1 for m in all_movies if not m.get("radarr_id")),
+    }
+
+    # Get recent weeks for quick navigation
+    recent_weeks = await get_available_weeks()
+    recent_weeks = recent_weeks[:5]  # Show last 5 weeks
+
+    return templates.TemplateResponse(
+        "overview.html",
+        get_template_context(
+            request,
+            movies=paginated_movies,
+            total_movies=total_movies,
+            stats=stats,
+            recent_weeks=recent_weeks,
+            # Pagination
+            current_page=page,
+            total_pages=total_pages,
+            per_page=per_page,
+            # Filters
+            status_filter=status_filter,
+            year_filter=year_filter,
+            available_years=all_years,
+            search_query=search_query,
+            # Features
+            auto_add=settings.boxarr_features_auto_add,
+            quality_upgrade=settings.boxarr_features_quality_upgrade,
+        ),
+    )
 
 
 @router.get("/dashboard", response_class=HTMLResponse)
+@router.get("/weeks", response_class=HTMLResponse)
 async def dashboard_page(request: Request):
-    """Serve the dashboard page."""
+    """Serve the weekly view page (legacy dashboard)."""
     # Check if configured - if not, redirect to setup
     if not settings.is_configured:
         base = request.scope.get("root_path", "")

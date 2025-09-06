@@ -211,7 +211,8 @@
                 </a>
             </div>
             <div class="navbar-menu">
-                <a href="{{ request.scope.get('root_path', '') }}/dashboard" class="nav-link {% if request.path.endswith('/dashboard') %}active{% endif %}">Dashboard</a>
+                <a href="{{ request.scope.get('root_path', '') }}/overview" class="nav-link {% if request.path.endswith('/overview') %}active{% endif %}">Movies</a>
+                <a href="{{ request.scope.get('root_path', '') }}/weeks" class="nav-link {% if request.path.endswith('/dashboard') or request.path.endswith('/weeks') %}active{% endif %}">Weeks</a>
                 <a href="{{ request.scope.get('root_path', '') }}/setup" class="nav-link {% if request.path.endswith('/setup') %}active{% endif %}">Settings</a>
                 <!-- <a href="/docs" class="nav-link" target="_blank">API Docs</a> -->
                 <div class="theme-toggle" id="themeToggle">
