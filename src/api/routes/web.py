@@ -169,7 +169,7 @@ async def movie_overview_page(request: Request):
     # Update with current Radarr status if configured
     if settings.radarr_api_key:
         try:
-            from ...core.radarr import RadarrService, MovieStatus
+            from ...core.radarr import MovieStatus, RadarrService
 
             radarr_service = RadarrService()
             all_radarr_movies = radarr_service.get_all_movies()
