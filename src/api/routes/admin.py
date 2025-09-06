@@ -4,7 +4,7 @@ import asyncio
 import json
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict, List, Optional, AsyncGenerator
+from typing import Any, AsyncGenerator, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
