@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Movie Overview Page**: Consolidated view of all movies across all weeks (#26)
+  - **Unified Movie List**: See all movies from all weeks in a single view
+  - **Week Tracking**: Shows which weeks each movie appeared in top 10 with clickable badges
+  - **Advanced Filtering**: Filter by status (Downloaded/Missing/Not in Radarr), year, and search by title
+  - **Bulk Management**: Add multiple movies to Radarr or upgrade quality from one page
+  - **Deduplication**: Movies appearing in multiple weeks are shown once with week badges
+  - **Performance Stats**: Shows best box office performance and total weeks in top 10
+  - **Flexible Pagination**: Choose 20, 50, 100, or 200 movies per page
+  - **Quick Navigation**: Recent weeks section for easy access to weekly views
 - **Historical Range Update**: Bulk update multiple weeks of box office data in one operation (#27)
   - **Single/Range Mode Switcher**: Toggle between updating one week or a range of weeks
   - **Smart Week Calculation**: Automatic ISO week calculation across year boundaries
@@ -44,6 +53,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Status Updates**: Weekly pages now correctly update movie status by matching on title when radarr_id is missing
 
 ### Changed
+- **Navigation Structure**: Overview page is now the default landing page instead of weekly dashboard (#26)
+  - **Menu Reorganization**: "Movies" (overview) → "Weeks" (weekly view) → "Settings"
+  - **Route Updates**: `/overview` is home, `/weeks` replaces `/dashboard` (backward compatible)
+  - **Improved User Flow**: Land on consolidated view, drill down to weeks as needed
 - **CSS Architecture**: Consolidated all CSS variables into single stylesheet, removed duplication
 - **Theme Migration**: Legacy PURPLE and BLUE themes automatically migrate to LIGHT theme
 - **Dashboard Layout**: Removed old "6 cards + dropdown" system in favor of paginated display (#18)

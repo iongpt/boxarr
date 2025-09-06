@@ -35,10 +35,10 @@ def test_empty_url_base(monkeypatch):
     app = create_app()
     client = TestClient(app)
 
-    # Now should redirect to dashboard
+    # Now should redirect to overview
     response = client.get("/", follow_redirects=False)
     assert response.status_code == 307
-    assert response.headers["location"] == "/dashboard"
+    assert response.headers["location"] == "/overview"
 
 
 def test_url_base_boxarr(monkeypatch):
@@ -71,10 +71,10 @@ def test_url_base_boxarr(monkeypatch):
     app = create_app()
     client = TestClient(app)
 
-    # Now should redirect to dashboard
+    # Now should redirect to overview
     response = client.get("/boxarr/", follow_redirects=False)
     assert response.status_code == 307
-    assert response.headers["location"] == "/boxarr/dashboard"
+    assert response.headers["location"] == "/boxarr/overview"
 
     # Test widget endpoint includes correct URL
     response = client.get("/boxarr/api/widget")
@@ -99,10 +99,10 @@ def test_url_base_nested_path(monkeypatch):
     assert response.status_code == 200
     assert response.json()["status"] == "healthy"
 
-    # Test redirect with nested base path (configured, goes to dashboard)
+    # Test redirect with nested base path (configured, goes to overview)
     response = client.get("/apps/boxarr/", follow_redirects=False)
     assert response.status_code == 307
-    assert response.headers["location"] == "/apps/boxarr/dashboard"
+    assert response.headers["location"] == "/apps/boxarr/overview"
 
 
 def test_url_base_normalization(monkeypatch):

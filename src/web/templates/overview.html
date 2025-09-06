@@ -1,0 +1,687 @@
+{% extends "base.html" %}
+
+{% block title %}Movie Overview - Boxarr{% endblock %}
+
+{% block styles %}
+<style>
+/* Overview Page Specific Styles */
+.overview-header {
+    background: var(--card-bg);
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin-bottom: 2rem;
+    border: 1px solid var(--border-color);
+    box-shadow: var(--shadow);
+}
+
+.overview-title {
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+/* Stats Grid */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1rem;
+    margin: 1.5rem 0;
+    padding: 1rem;
+    background: var(--bg-color);
+    border-radius: 8px;
+}
+
+.stat-card {
+    text-align: center;
+    padding: 1rem;
+}
+
+.stat-value {
+    font-size: 2rem;
+    font-weight: bold;
+    color: var(--text-primary);
+    display: block;
+}
+
+.stat-label {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+/* Filter Controls */
+.filter-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+    padding: 1rem;
+    background: var(--card-bg);
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+}
+
+.filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.filter-label {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.filter-input {
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-color);
+    color: var(--text-primary);
+    font-size: 0.9rem;
+}
+
+.filter-buttons {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.filter-btn {
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--card-bg);
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 0.85rem;
+}
+
+.filter-btn:hover {
+    background: var(--bg-color);
+    transform: translateY(-2px);
+}
+
+.filter-btn.active {
+    background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+    color: white;
+    border: none;
+}
+
+/* Search Box */
+.search-box {
+    flex: 1;
+    min-width: 200px;
+}
+
+.search-input {
+    width: 100%;
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-color);
+    color: var(--text-primary);
+    font-size: 0.9rem;
+}
+
+/* Reuse movie grid styles from weekly.html */
+.movies-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 1.5rem;
+    margin-top: 2rem;
+}
+
+@media (min-width: 768px) {
+    .movies-grid { 
+        grid-template-columns: repeat(3, 1fr); 
+    }
+}
+
+@media (min-width: 1200px) {
+    .movies-grid { 
+        grid-template-columns: repeat(5, 1fr); 
+    }
+}
+
+/* Movie card styles (identical to weekly.html) */
+.movie-card {
+    background: var(--card-bg);
+    border-radius: 12px;
+    overflow: hidden;
+    transition: all 0.3s;
+    box-shadow: var(--shadow);
+    border: 1px solid var(--border-color);
+    position: relative;
+}
+
+.movie-card:hover {
+    transform: translateY(-8px);
+    box-shadow: var(--shadow-lg);
+}
+
+.rank-badge {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+    color: white;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    font-size: 0.9rem;
+    z-index: 1;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+
+/* Week badges showing which weeks the movie appeared in */
+.week-badges {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    z-index: 1;
+    max-height: 150px;
+    overflow-y: auto;
+}
+
+.week-badge {
+    background: rgba(255, 255, 255, 0.9);
+    color: var(--primary-color);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    white-space: nowrap;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+.poster-container {
+    position: relative;
+    aspect-ratio: 2/3;
+    background: linear-gradient(135deg, #e0e0e0, #f5f5f5);
+    overflow: hidden;
+}
+
+.poster-container img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.no-poster {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.no-poster-icon {
+    font-size: 2rem;
+    opacity: 0.5;
+}
+
+.no-poster-text {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    text-align: center;
+    padding: 0 1rem;
+}
+
+.movie-info {
+    padding: 1rem;
+}
+
+.movie-title {
+    font-size: 0.9rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    line-height: 1.3;
+    min-height: 2.6em;
+    color: var(--text-primary);
+}
+
+.movie-meta {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.75rem;
+}
+
+.movie-meta span {
+    display: block;
+    margin-bottom: 0.25rem;
+}
+
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.25rem 0.75rem;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    margin-bottom: 0.75rem;
+    width: 100%;
+    justify-content: center;
+    white-space: nowrap;
+}
+
+.status-badge.downloaded {
+    background: rgba(72, 187, 120, 0.1);
+    color: var(--success-color);
+}
+
+.status-badge.missing {
+    background: rgba(245, 101, 101, 0.1);
+    color: var(--error-color);
+}
+
+.status-badge.in-cinemas {
+    background: rgba(237, 137, 54, 0.1);
+    color: var(--warning-color);
+}
+
+.status-badge.not-in-radarr {
+    background: rgba(113, 128, 150, 0.1);
+    color: var(--text-secondary);
+}
+
+.quality-info {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.75rem;
+    padding: 0.5rem;
+    background: var(--bg-color);
+    border-radius: 6px;
+}
+
+.quality-profile {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.movie-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.action-btn {
+    padding: 0.5rem;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: 1px solid var(--border-color);
+    background: var(--card-bg);
+    color: var(--text-primary);
+    text-decoration: none;
+}
+
+.action-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow);
+}
+
+.action-btn.add-to-radarr {
+    background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+    color: white;
+    border: none;
+}
+
+.action-btn.upgrade {
+    background: linear-gradient(135deg, #f59e0b, #d97706);
+    color: white;
+    border: none;
+}
+
+.external-links {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.external-links .action-btn {
+    flex: 1;
+    background: var(--bg-color);
+}
+
+/* Pagination */
+.pagination {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 1rem;
+    margin: 2rem 0;
+    padding: 1rem;
+}
+
+.pagination-info {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.pagination-controls {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.page-btn {
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--card-bg);
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: all 0.2s;
+    text-decoration: none;
+}
+
+.page-btn:hover:not(:disabled) {
+    background: var(--bg-color);
+    transform: translateY(-2px);
+}
+
+.page-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.page-btn.active {
+    background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+    color: white;
+    border: none;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <!-- Overview Header -->
+    <div class="overview-header">
+        <h1 class="overview-title">
+            <span>🎬</span>
+            Movie Overview
+        </h1>
+        
+        <!-- Statistics -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <span class="stat-value">{{ stats.total }}</span>
+                <span class="stat-label">Total Movies</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-value">{{ stats.in_radarr }}</span>
+                <span class="stat-label">In Radarr</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-value">{{ stats.downloaded }}</span>
+                <span class="stat-label">Downloaded</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-value">{{ stats.missing }}</span>
+                <span class="stat-label">Missing</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-value">{{ stats.not_in_radarr }}</span>
+                <span class="stat-label">Not in Radarr</span>
+            </div>
+        </div>
+        
+        <!-- Recent Weeks Quick Links -->
+        {% if recent_weeks %}
+        <div style="margin-top: 1.5rem; padding: 1rem; background: var(--bg-color); border-radius: 8px;">
+            <div style="font-size: 0.9rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.75rem;">
+                Recent Weeks:
+            </div>
+            <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+                {% for week in recent_weeks %}
+                <a href="{{ request.scope.get('root_path', '') }}/{{ week.year }}W{{ "%02d"|format(week.week) }}" 
+                   style="padding: 0.5rem 1rem; background: var(--card-bg); border: 1px solid var(--border-color); 
+                          border-radius: 6px; text-decoration: none; color: var(--text-primary); 
+                          font-size: 0.85rem; transition: all 0.2s;"
+                   onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='var(--shadow)';"
+                   onmouseout="this.style.transform=''; this.style.boxShadow='';">
+                    <div style="font-weight: 600;">Week {{ week.week }}, {{ week.year }}</div>
+                    <div style="font-size: 0.75rem; color: var(--text-secondary);">{{ week.movie_count }} movies</div>
+                </a>
+                {% endfor %}
+                <a href="{{ request.scope.get('root_path', '') }}/weeks" 
+                   style="padding: 0.5rem 1rem; background: linear-gradient(135deg, var(--primary-color), var(--secondary-color)); 
+                          border-radius: 6px; text-decoration: none; color: white; 
+                          font-size: 0.85rem; transition: all 0.2s; display: flex; align-items: center;"
+                   onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='var(--shadow)';"
+                   onmouseout="this.style.transform=''; this.style.boxShadow='';">
+                    View All Weeks →
+                </a>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+    
+    <!-- Filter Controls -->
+    <div class="filter-controls">
+        <div class="filter-group">
+            <label class="filter-label">Status</label>
+            <div class="filter-buttons">
+                <a href="?status=all&year={{ year_filter or '' }}&search={{ search_query }}&per_page={{ per_page }}" 
+                   class="filter-btn {% if status_filter == 'all' %}active{% endif %}">All</a>
+                <a href="?status=downloaded&year={{ year_filter or '' }}&search={{ search_query }}&per_page={{ per_page }}" 
+                   class="filter-btn {% if status_filter == 'downloaded' %}active{% endif %}">Downloaded</a>
+                <a href="?status=missing&year={{ year_filter or '' }}&search={{ search_query }}&per_page={{ per_page }}" 
+                   class="filter-btn {% if status_filter == 'missing' %}active{% endif %}">Missing</a>
+                <a href="?status=not_in_radarr&year={{ year_filter or '' }}&search={{ search_query }}&per_page={{ per_page }}" 
+                   class="filter-btn {% if status_filter == 'not_in_radarr' %}active{% endif %}">Not in Radarr</a>
+            </div>
+        </div>
+        
+        <div class="filter-group">
+            <label class="filter-label">Year</label>
+            <select class="filter-input" onchange="filterByYear(this.value)">
+                <option value="">All Years</option>
+                {% for year in available_years %}
+                <option value="{{ year }}" {% if year_filter == year %}selected{% endif %}>{{ year }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        
+        <div class="filter-group">
+            <label class="filter-label">Per Page</label>
+            <select class="filter-input" onchange="changePerPage(this.value)">
+                <option value="20" {% if per_page == 20 %}selected{% endif %}>20</option>
+                <option value="50" {% if per_page == 50 %}selected{% endif %}>50</option>
+                <option value="100" {% if per_page == 100 %}selected{% endif %}>100</option>
+                <option value="200" {% if per_page == 200 %}selected{% endif %}>200</option>
+            </select>
+        </div>
+        
+        <div class="filter-group search-box">
+            <label class="filter-label">Search</label>
+            <form method="get" action="">
+                <input type="hidden" name="status" value="{{ status_filter }}">
+                <input type="hidden" name="year" value="{{ year_filter or '' }}">
+                <input type="hidden" name="per_page" value="{{ per_page }}">
+                <input type="text" 
+                       name="search" 
+                       class="search-input" 
+                       placeholder="Search movie titles..." 
+                       value="{{ search_query }}">
+            </form>
+        </div>
+    </div>
+    
+    <!-- Results Info -->
+    <div style="text-align: center; color: var(--text-secondary); margin: 1rem 0;">
+        Showing {{ movies|length }} of {{ total_movies }} movies
+        {% if search_query %}
+        matching "{{ search_query }}"
+        {% endif %}
+    </div>
+    
+    <!-- Movies Grid -->
+    <div class="movies-grid">
+        {% for movie in movies %}
+        <div class="movie-card" data-movie-id="{{ movie.radarr_id or '' }}">
+            <div class="rank-badge">#{{ movie.best_rank }}</div>
+            
+            <!-- Week badges showing when this movie appeared -->
+            {% if movie.weeks|length > 0 %}
+            <div class="week-badges">
+                {% for week in movie.weeks[:5] %}
+                <a href="{{ request.scope.get('root_path', '') }}/{{ week }}" class="week-badge" title="Week {{ week }}">{{ week }}</a>
+                {% endfor %}
+                {% if movie.weeks|length > 5 %}
+                <span class="week-badge">+{{ movie.weeks|length - 5 }} more</span>
+                {% endif %}
+            </div>
+            {% endif %}
+            
+            <div class="poster-container">
+                {% if movie.poster %}
+                <img src="{{ movie.poster }}" alt="{{ movie.title }}" loading="lazy">
+                {% else %}
+                <div class="no-poster">
+                    <div class="no-poster-icon">🎬</div>
+                    <div class="no-poster-text">{{ movie.title }}</div>
+                </div>
+                {% endif %}
+            </div>
+            
+            <div class="movie-info">
+                <h3 class="movie-title">{{ movie.title }}</h3>
+                
+                <div class="movie-meta">
+                    {% if movie.year %}<span>{{ movie.year }}</span>{% endif %}
+                    {% if movie.genres %}<span>{{ movie.genres }}</span>{% endif %}
+                    {% if movie.best_weekend_gross %}
+                    <span>Best: ${{ "{:,.0f}".format(movie.best_weekend_gross) }}</span>
+                    {% endif %}
+                    {% if movie.weeks|length > 1 %}
+                    <span>{{ movie.weeks|length }} weeks in top 10</span>
+                    {% endif %}
+                </div>
+                
+                <!-- Status Badge -->
+                {% if movie.radarr_id %}
+                    {% if movie.has_file %}
+                    <div class="status-badge downloaded" data-status="downloaded">
+                        ✓ Downloaded
+                    </div>
+                    {% elif movie.status == 'In Cinemas' %}
+                    <div class="status-badge in-cinemas" data-status="in-cinemas">
+                        🎬 In Cinemas
+                    </div>
+                    {% else %}
+                    <div class="status-badge missing" data-status="missing">
+                        ⬇ Missing
+                    </div>
+                    {% endif %}
+                {% else %}
+                <div class="status-badge not-in-radarr">
+                    ➕ Not in Radarr
+                </div>
+                {% endif %}
+                
+                <!-- Quality Info -->
+                {% if movie.quality_profile_name %}
+                <div class="quality-info">
+                    Quality: <span class="quality-profile">{{ movie.quality_profile_name }}</span>
+                </div>
+                {% endif %}
+                
+                <!-- Actions -->
+                <div class="movie-actions">
+                    {% if not movie.radarr_id %}
+                    <button class="action-btn add-to-radarr" onclick="addToRadarr('{{ movie.title }}', {{ movie.year or 'null' }}, this)">
+                        Add to Radarr
+                    </button>
+                    {% elif movie.can_upgrade_quality %}
+                    <button class="action-btn upgrade" onclick="upgradeQuality({{ movie.radarr_id }}, this)">
+                        Upgrade to Ultra-HD
+                    </button>
+                    {% endif %}
+                    
+                    {% if movie.imdb_id or movie.title %}
+                    <div class="external-links">
+                        {% if movie.imdb_id %}
+                        <a href="https://www.imdb.com/title/{{ movie.imdb_id }}" target="_blank" class="action-btn">
+                            IMDb
+                        </a>
+                        {% endif %}
+                        <a href="https://en.wikipedia.org/wiki/{{ movie.title.replace(' ', '_') }}" target="_blank" class="action-btn">
+                            Wikipedia
+                        </a>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    
+    <!-- Pagination -->
+    {% if total_pages > 1 %}
+    <div class="pagination">
+        <div class="pagination-info">
+            Page {{ current_page }} of {{ total_pages }}
+        </div>
+        <div class="pagination-controls">
+            {% if current_page > 1 %}
+            <a href="?page={{ current_page - 1 }}&status={{ status_filter }}&year={{ year_filter or '' }}&search={{ search_query }}&per_page={{ per_page }}" 
+               class="page-btn">← Previous</a>
+            {% endif %}
+            
+            {% for page_num in range(1, total_pages + 1) %}
+                {% if page_num == 1 or page_num == total_pages or (page_num >= current_page - 2 and page_num <= current_page + 2) %}
+                    <a href="?page={{ page_num }}&status={{ status_filter }}&year={{ year_filter or '' }}&search={{ search_query }}&per_page={{ per_page }}" 
+                       class="page-btn {% if page_num == current_page %}active{% endif %}">{{ page_num }}</a>
+                {% elif page_num == current_page - 3 or page_num == current_page + 3 %}
+                    <span>...</span>
+                {% endif %}
+            {% endfor %}
+            
+            {% if current_page < total_pages %}
+            <a href="?page={{ current_page + 1 }}&status={{ status_filter }}&year={{ year_filter or '' }}&search={{ search_query }}&per_page={{ per_page }}" 
+               class="page-btn">Next →</a>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+// JavaScript functions from base template will work here
+function filterByYear(year) {
+    const params = new URLSearchParams(window.location.search);
+    if (year) {
+        params.set('year', year);
+    } else {
+        params.delete('year');
+    }
+    params.set('page', '1');
+    window.location.search = params.toString();
+}
+
+function changePerPage(value) {
+    const params = new URLSearchParams(window.location.search);
+    params.set('per_page', value);
+    params.set('page', '1');
+    window.location.search = params.toString();
+}
+</script>
+{% endblock %}
