@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Historical Range Update**: Bulk update multiple weeks of box office data in one operation (#27)
+  - **Single/Range Mode Switcher**: Toggle between updating one week or a range of weeks
+  - **Smart Week Calculation**: Automatic ISO week calculation across year boundaries
+  - **Quick Presets**: One-click selections for Last 4 Weeks, Last 8 Weeks, This Year, Last Quarter
+  - **Real-time Progress Bar**: Visual progress indicator showing current week being processed
+  - **Sequential Processing**: Fetches weeks one-by-one with 500ms throttle to prevent overload
+  - **Comprehensive Summary**: Shows total weeks updated, movies found, and movies added
+  - **Error Tracking**: Lists failed weeks with detailed error messages
+  - **Duplicate Detection**: Shows count of existing weeks that will be updated
+  - **Cancel Functionality**: Stop processing mid-operation with user cancellation
+  - **Date Range Preview**: Shows actual calendar dates for selected week range
 - **Dark Mode Support**: Complete dark mode implementation with theme persistence (#24)
   - **Three Theme Options**: Light (☀️), Dark (🌙), and Auto (💻) modes
   - **System Preference Detection**: Auto mode follows OS dark/light preference
