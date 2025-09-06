@@ -674,6 +674,15 @@
                 <span class="btn-icon">📅</span> Update Historical Week
             </button>
             
+            <!-- Fix Missing Data Button (only shows when needed) -->
+            <button id="fixMissingDataBtn" class="action-btn fix-missing-data" 
+                    style="display: none; background: linear-gradient(135deg, #f59e0b, #ea580c); color: white;"
+                    onclick="fixMissingData()"
+                    title="Fix missing movie metadata (posters, genres, etc.)">
+                <span class="btn-icon">🔧</span> 
+                <span id="fixMissingDataText">Fix Missing Data</span>
+            </button>
+            
             {% if recent_weeks %}
             <a href="{{ request.scope.get('root_path', '') }}/{{ recent_weeks[0].year }}W{{ '%02d'|format(recent_weeks[0].week) }}" class="action-btn primary">
                 <span class="btn-icon">👁️</span> View Last Week
@@ -1398,6 +1407,9 @@ document.addEventListener('DOMContentLoaded', function() {
             element.addEventListener('change', updateRangeSummary);
         }
     });
+    
+    // Check for missing metadata on page load
+    checkMissingMetadata();
 });
 
 // Main update handler
@@ -1545,7 +1557,7 @@ async function deleteWeek(year, week) {
     }
     
     try {
-        const response = await fetch(apiUrl(`/api/weeks/${year}/W${week}/delete`), {
+        const response = await fetch(apiUrl(`/weeks/${year}/W${week}/delete`), {
             method: 'DELETE',
             headers: {'Content-Type': 'application/json'}
         });
@@ -1562,6 +1574,70 @@ async function deleteWeek(year, week) {
     } catch (error) {
         console.error('Error deleting week:', error);
         alert(`Error deleting week: ${error.message}`);
+    }
+}
+
+// Check for missing metadata
+async function checkMissingMetadata() {
+    try {
+        const response = await fetch(apiUrl('/admin/check-missing-metadata'));
+        const data = await response.json();
+        
+        if (data.has_issues) {
+            // Show the fix button with count
+            const btn = document.getElementById('fixMissingDataBtn');
+            const text = document.getElementById('fixMissingDataText');
+            if (btn && text) {
+                btn.style.display = 'inline-flex';
+                text.textContent = `Fix Missing Data (${data.unique_movies_missing_data} movies)`;
+                btn.title = `Fix ${data.unique_movies_missing_data} movies missing metadata across ${data.weeks_with_issues} weeks`;
+            }
+        }
+    } catch (error) {
+        console.error('Error checking missing metadata:', error);
+    }
+}
+
+// Fix missing metadata
+async function fixMissingData() {
+    if (!confirm('This will fetch TMDB data for all movies with missing posters or metadata. Continue?')) {
+        return;
+    }
+    
+    // Show progress modal
+    showProgress('Fixing missing movie metadata...');
+    addToProgressLog('Starting metadata repair process...');
+    
+    try {
+        const response = await fetch(apiUrl('/admin/repair-missing-metadata'), {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                dry_run: false,
+                rate_limit_delay: 250
+            })
+        });
+        
+        const data = await response.json();
+        
+        hideProgress();
+        
+        if (data.success) {
+            let message = `Successfully fixed ${data.fixed_movies} movies across ${data.updated_weeks} weeks!`;
+            if (data.errors && data.errors.length > 0) {
+                message += `\n\nSome movies could not be fixed:\n${data.errors.join('\n')}`;
+            }
+            alert(message);
+            
+            // Reload to reflect changes and hide the button
+            window.location.reload();
+        } else {
+            alert(`Failed to fix metadata: ${data.message || 'Unknown error'}`);
+        }
+    } catch (error) {
+        hideProgress();
+        console.error('Error fixing metadata:', error);
+        alert(`Error fixing metadata: ${error.message}`);
     }
 }
 
