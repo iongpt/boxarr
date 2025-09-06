@@ -826,26 +826,97 @@
 <div id="historicalModal" class="modal">
     <div class="modal-content">
         <div class="modal-header">
-            <h3>Update Historical Week</h3>
+            <h3>Update Historical Data</h3>
             <button class="modal-close" onclick="closeHistoricalUpdate()">&times;</button>
         </div>
+        
+        <!-- Mode Switcher -->
+        <div class="mode-switcher">
+            <button class="mode-btn active" data-mode="single" onclick="switchMode('single')">Single Week</button>
+            <button class="mode-btn" data-mode="range" onclick="switchMode('range')">Week Range</button>
+        </div>
+        
         <div class="modal-body">
-            <div class="form-group">
-                <label for="historicalYear">Year</label>
-                <select id="historicalYear" class="form-select">
-                    {% set current_year = 2025 %}
-                    {% for year in range(current_year, 2019, -1) %}
-                    <option value="{{ year }}" {% if year == current_year %}selected{% endif %}>{{ year }}</option>
-                    {% endfor %}
-                </select>
+            <!-- Single Week Mode -->
+            <div class="mode-panel" id="singleModePanel">
+                <div class="form-group">
+                    <label for="historicalYear">Year</label>
+                    <select id="historicalYear" class="form-select">
+                        {% set current_year = 2025 %}
+                        {% for year in range(current_year, 2019, -1) %}
+                        <option value="{{ year }}" {% if year == current_year %}selected{% endif %}>{{ year }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="historicalWeek">Week</label>
+                    <select id="historicalWeek" class="form-select">
+                        {% for week in range(1, 53) %}
+                        <option value="{{ week }}">Week {{ "%02d"|format(week) }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
             </div>
-            <div class="form-group">
-                <label for="historicalWeek">Week</label>
-                <select id="historicalWeek" class="form-select">
-                    {% for week in range(1, 53) %}
-                    <option value="{{ week }}">Week {{ "%02d"|format(week) }}</option>
-                    {% endfor %}
-                </select>
+            
+            <!-- Range Mode -->
+            <div class="mode-panel" id="rangeModePanel" style="display: none;">
+                <div class="range-inputs">
+                    <div class="range-group">
+                        <label>From</label>
+                        <div class="range-selects">
+                            <select id="startYear" class="form-select">
+                                {% set current_year = 2025 %}
+                                {% for year in range(current_year, 2019, -1) %}
+                                <option value="{{ year }}" {% if year == current_year %}selected{% endif %}>{{ year }}</option>
+                                {% endfor %}
+                            </select>
+                            <select id="startWeek" class="form-select">
+                                {% for week in range(1, 53) %}
+                                <option value="{{ week }}">W{{ "%02d"|format(week) }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                    <div class="range-group">
+                        <label>To</label>
+                        <div class="range-selects">
+                            <select id="endYear" class="form-select">
+                                {% set current_year = 2025 %}
+                                {% for year in range(current_year, 2019, -1) %}
+                                <option value="{{ year }}" {% if year == current_year %}selected{% endif %}>{{ year }}</option>
+                                {% endfor %}
+                            </select>
+                            <select id="endWeek" class="form-select">
+                                {% for week in range(1, 53) %}
+                                <option value="{{ week }}">W{{ "%02d"|format(week) }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Quick Presets -->
+                <div class="quick-presets">
+                    <label>Quick Select:</label>
+                    <div class="preset-buttons">
+                        <button class="preset-btn" onclick="setPreset('last4')">Last 4 Weeks</button>
+                        <button class="preset-btn" onclick="setPreset('last8')">Last 8 Weeks</button>
+                        <button class="preset-btn" onclick="setPreset('thisYear')">This Year</button>
+                        <button class="preset-btn" onclick="setPreset('lastQuarter')">Last Quarter</button>
+                    </div>
+                </div>
+                
+                <!-- Range Summary -->
+                <div class="range-summary" id="rangeSummary">
+                    <div class="summary-text">
+                        <span id="weekCount">0</span> weeks selected
+                        <span class="date-range" id="dateRange"></span>
+                    </div>
+                    <div class="existing-weeks-info" id="existingWeeksInfo" style="display: none;">
+                        <span class="warning-icon">⚠️</span>
+                        <span id="existingCount">0</span> weeks already exist and will be updated
+                    </div>
+                </div>
             </div>
             
             <!-- Current Behavior Section -->
@@ -871,7 +942,7 @@
         </div>
         <div class="modal-footer">
             <button class="action-btn secondary" onclick="closeHistoricalUpdate()">Cancel</button>
-            <button class="action-btn primary" onclick="updateHistoricalWeek()">Update Week</button>
+            <button class="action-btn primary" id="updateButton" onclick="handleUpdate()">Update Week</button>
         </div>
     </div>
 </div>
@@ -925,18 +996,564 @@
             <h3 id="progressTitle">Updating Box Office Data</h3>
         </div>
         <div class="progress-body">
-            <div class="progress-spinner">
+            <div class="progress-spinner" id="progressSpinner">
                 <div class="spinner"></div>
             </div>
             <div class="progress-status">
                 <p id="progressMessage">Fetching box office data from Box Office Mojo...</p>
                 <div class="progress-details" id="progressDetails"></div>
             </div>
+            
+            <!-- Multi-week Progress Bar -->
+            <div class="multi-week-progress" id="multiWeekProgress" style="display: none;">
+                <div class="progress-bar-container">
+                    <div class="progress-bar-bg">
+                        <div class="progress-bar-fill" id="progressBarFill" style="width: 0%"></div>
+                    </div>
+                    <div class="progress-text">
+                        <span id="progressCurrent">0</span> / <span id="progressTotal">0</span> weeks processed
+                    </div>
+                </div>
+                <div class="current-week-info" id="currentWeekInfo">
+                    Processing: <span id="currentWeekText"></span>
+                </div>
+            </div>
+            
             <div class="progress-log" id="progressLog"></div>
         </div>
         <div class="progress-footer" id="progressFooter" style="display: none;">
+            <button class="action-btn secondary" id="cancelButton" onclick="cancelRangeUpdate()" style="display: none;">Cancel</button>
             <button class="action-btn primary" onclick="closeProgressModal()">Close</button>
         </div>
     </div>
 </div>
+
+<!-- Range Update Summary Modal -->
+<div id="summaryModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Range Update Complete</h3>
+            <button class="modal-close" onclick="closeSummaryModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="summary-stats">
+                <div class="stat-card success">
+                    <div class="stat-value" id="summarySuccess">0</div>
+                    <div class="stat-label">Weeks Updated</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="summaryMovies">0</div>
+                    <div class="stat-label">Movies Found</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="summaryAdded">0</div>
+                    <div class="stat-label">Movies Added</div>
+                </div>
+            </div>
+            
+            <div class="failed-weeks" id="failedWeeks" style="display: none;">
+                <h4>Failed Weeks (<span id="failedCount">0</span>)</h4>
+                <ul id="failedList"></ul>
+            </div>
+            
+            <div class="summary-details" id="summaryDetails"></div>
+        </div>
+        <div class="modal-footer">
+            <button class="action-btn secondary" onclick="closeSummaryModal()">Close</button>
+            <button class="action-btn primary" onclick="location.reload()">Refresh Dashboard</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Historical Range Update Implementation
+class RangeProcessor {
+    constructor() {
+        this.weeks = [];
+        this.current = 0;
+        this.results = [];
+        this.cancelled = false;
+        this.existingWeeks = new Set();
+    }
+    
+    calculateWeeks(startYear, startWeek, endYear, endWeek) {
+        const weeks = [];
+        let current = new Date(startYear, 0, 1 + (startWeek - 1) * 7);
+        const end = new Date(endYear, 0, 1 + (endWeek - 1) * 7);
+        
+        while (current <= end) {
+            const year = current.getFullYear();
+            const week = this.getWeekNumber(current);
+            weeks.push({year, week});
+            current.setDate(current.getDate() + 7);
+        }
+        
+        return weeks;
+    }
+    
+    getWeekNumber(date) {
+        const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+        const dayNum = d.getUTCDay() || 7;
+        d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+        const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+        return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+    }
+    
+    async checkExistingWeeks() {
+        // In a real implementation, this would check the server
+        // For now, we'll check the DOM for existing week cards
+        const weekCards = document.querySelectorAll('.report-card');
+        weekCards.forEach(card => {
+            const h3 = card.querySelector('h3');
+            if (h3) {
+                const match = h3.textContent.match(/Week (\d+), (\d+)/);
+                if (match) {
+                    const week = parseInt(match[1]);
+                    const year = parseInt(match[2]);
+                    this.existingWeeks.add(`${year}W${week.toString().padStart(2, '0')}`);
+                }
+            }
+        });
+    }
+    
+    async processRange(startYear, startWeek, endYear, endWeek) {
+        this.weeks = this.calculateWeeks(startYear, startWeek, endYear, endWeek);
+        this.results = [];
+        this.cancelled = false;
+        
+        // Check existing weeks
+        await this.checkExistingWeeks();
+        
+        // Show progress UI
+        this.showProgressBar();
+        
+        for (let i = 0; i < this.weeks.length; i++) {
+            if (this.cancelled) {
+                break;
+            }
+            
+            const {year, week} = this.weeks[i];
+            const weekStr = `${year}W${week.toString().padStart(2, '0')}`;
+            
+            // Update progress
+            this.updateProgress(i, `Processing ${weekStr}...`);
+            
+            try {
+                const response = await fetch(apiUrl('/scheduler/update-week'), {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({year, week})
+                });
+                
+                const data = await response.json();
+                this.results.push({year, week, ...data});
+                
+                // Update progress bar
+                this.updateProgress(i + 1, `Completed ${weekStr}`);
+                
+                // Small delay between requests
+                if (i < this.weeks.length - 1) {
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                }
+            } catch (error) {
+                console.error(`Error processing week ${weekStr}:`, error);
+                this.results.push({
+                    year,
+                    week,
+                    success: false,
+                    error: error.message
+                });
+            }
+        }
+        
+        this.showSummary();
+    }
+    
+    showProgressBar() {
+        const modal = document.getElementById('progressModal');
+        const multiWeekProgress = document.getElementById('multiWeekProgress');
+        const progressSpinner = document.getElementById('progressSpinner');
+        const cancelButton = document.getElementById('cancelButton');
+        
+        modal.style.display = 'flex';
+        multiWeekProgress.style.display = 'block';
+        progressSpinner.style.display = 'block';
+        cancelButton.style.display = 'inline-block';
+        
+        document.getElementById('progressTotal').textContent = this.weeks.length;
+        document.getElementById('progressCurrent').textContent = '0';
+        document.getElementById('progressTitle').textContent = 'Updating Historical Range';
+    }
+    
+    updateProgress(current, message) {
+        const percent = (current / this.weeks.length) * 100;
+        document.getElementById('progressBarFill').style.width = `${percent}%`;
+        document.getElementById('progressCurrent').textContent = current;
+        document.getElementById('currentWeekText').textContent = message;
+        
+        // Add to log
+        const log = document.getElementById('progressLog');
+        const entry = document.createElement('div');
+        entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+        log.appendChild(entry);
+        log.scrollTop = log.scrollHeight;
+    }
+    
+    showSummary() {
+        // Hide progress modal
+        document.getElementById('progressModal').style.display = 'none';
+        
+        // Calculate summary stats
+        const successful = this.results.filter(r => r.success).length;
+        const failed = this.results.filter(r => !r.success);
+        const totalMovies = this.results.reduce((sum, r) => sum + (r.movies_found || 0), 0);
+        const totalAdded = this.results.reduce((sum, r) => sum + (r.movies_added || 0), 0);
+        
+        // Update summary modal
+        document.getElementById('summarySuccess').textContent = successful;
+        document.getElementById('summaryMovies').textContent = totalMovies;
+        document.getElementById('summaryAdded').textContent = totalAdded;
+        
+        // Show failed weeks if any
+        if (failed.length > 0) {
+            document.getElementById('failedWeeks').style.display = 'block';
+            document.getElementById('failedCount').textContent = failed.length;
+            const failedList = document.getElementById('failedList');
+            failedList.innerHTML = '';
+            failed.forEach(f => {
+                const li = document.createElement('li');
+                li.textContent = `${f.year}W${f.week.toString().padStart(2, '0')}: ${f.error || 'Unknown error'}`;
+                failedList.appendChild(li);
+            });
+        } else {
+            document.getElementById('failedWeeks').style.display = 'none';
+        }
+        
+        // Show summary modal
+        document.getElementById('summaryModal').style.display = 'flex';
+    }
+    
+    cancel() {
+        this.cancelled = true;
+        const log = document.getElementById('progressLog');
+        const entry = document.createElement('div');
+        entry.textContent = `[${new Date().toLocaleTimeString()}] Update cancelled by user`;
+        entry.style.color = 'var(--warning-color)';
+        log.appendChild(entry);
+    }
+}
+
+// Global instance
+const rangeProcessor = new RangeProcessor();
+
+// Mode switching
+let currentMode = 'single';
+
+function switchMode(mode) {
+    currentMode = mode;
+    
+    // Update button states
+    document.querySelectorAll('.mode-btn').forEach(btn => {
+        if (btn.dataset.mode === mode) {
+            btn.classList.add('active');
+        } else {
+            btn.classList.remove('active');
+        }
+    });
+    
+    // Show/hide panels
+    if (mode === 'single') {
+        document.getElementById('singleModePanel').style.display = 'block';
+        document.getElementById('rangeModePanel').style.display = 'none';
+        document.getElementById('updateButton').textContent = 'Update Week';
+    } else {
+        document.getElementById('singleModePanel').style.display = 'none';
+        document.getElementById('rangeModePanel').style.display = 'block';
+        document.getElementById('updateButton').textContent = 'Update Range';
+        updateRangeSummary();
+    }
+}
+
+// Range calculation and validation
+function updateRangeSummary() {
+    const startYear = parseInt(document.getElementById('startYear').value);
+    const startWeek = parseInt(document.getElementById('startWeek').value);
+    const endYear = parseInt(document.getElementById('endYear').value);
+    const endWeek = parseInt(document.getElementById('endWeek').value);
+    
+    const weeks = rangeProcessor.calculateWeeks(startYear, startWeek, endYear, endWeek);
+    document.getElementById('weekCount').textContent = weeks.length;
+    
+    // Calculate date range
+    const startDate = new Date(startYear, 0, 1 + (startWeek - 1) * 7);
+    const endDate = new Date(endYear, 0, 1 + (endWeek - 1) * 7 + 6);
+    
+    const dateRange = `${startDate.toLocaleDateString('en-US', {month: 'short', day: 'numeric', year: 'numeric'})} - ${endDate.toLocaleDateString('en-US', {month: 'short', day: 'numeric', year: 'numeric'})}`;
+    document.getElementById('dateRange').textContent = dateRange;
+    
+    // Check for existing weeks
+    rangeProcessor.checkExistingWeeks().then(() => {
+        const existingCount = weeks.filter(w => {
+            const weekStr = `${w.year}W${w.week.toString().padStart(2, '0')}`;
+            return rangeProcessor.existingWeeks.has(weekStr);
+        }).length;
+        
+        if (existingCount > 0) {
+            document.getElementById('existingWeeksInfo').style.display = 'flex';
+            document.getElementById('existingCount').textContent = existingCount;
+        } else {
+            document.getElementById('existingWeeksInfo').style.display = 'none';
+        }
+    });
+}
+
+// Quick presets
+function setPreset(preset) {
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentWeek = rangeProcessor.getWeekNumber(now);
+    
+    let startYear, startWeek, endYear, endWeek;
+    
+    switch(preset) {
+        case 'last4':
+            endYear = currentYear;
+            endWeek = currentWeek - 1; // Last complete week
+            if (endWeek < 1) {
+                endYear--;
+                endWeek = 52;
+            }
+            startWeek = endWeek - 3;
+            startYear = endYear;
+            if (startWeek < 1) {
+                startYear--;
+                startWeek = 52 + startWeek;
+            }
+            break;
+            
+        case 'last8':
+            endYear = currentYear;
+            endWeek = currentWeek - 1;
+            if (endWeek < 1) {
+                endYear--;
+                endWeek = 52;
+            }
+            startWeek = endWeek - 7;
+            startYear = endYear;
+            if (startWeek < 1) {
+                startYear--;
+                startWeek = 52 + startWeek;
+            }
+            break;
+            
+        case 'thisYear':
+            startYear = currentYear;
+            startWeek = 1;
+            endYear = currentYear;
+            endWeek = currentWeek - 1;
+            break;
+            
+        case 'lastQuarter':
+            const quarterEnd = Math.floor((currentWeek - 1) / 13) * 13;
+            endYear = currentYear;
+            endWeek = quarterEnd || 52;
+            if (endWeek === 52) endYear--;
+            startYear = endYear;
+            startWeek = Math.max(1, endWeek - 12);
+            break;
+    }
+    
+    // Set the values
+    document.getElementById('startYear').value = startYear;
+    document.getElementById('startWeek').value = startWeek;
+    document.getElementById('endYear').value = endYear;
+    document.getElementById('endWeek').value = endWeek;
+    
+    // Update summary
+    updateRangeSummary();
+}
+
+// Event listeners for range changes
+document.addEventListener('DOMContentLoaded', function() {
+    // Add event listeners for range selects
+    const rangeSelects = ['startYear', 'startWeek', 'endYear', 'endWeek'];
+    rangeSelects.forEach(id => {
+        const element = document.getElementById(id);
+        if (element) {
+            element.addEventListener('change', updateRangeSummary);
+        }
+    });
+});
+
+// Main update handler
+function handleUpdate() {
+    if (currentMode === 'single') {
+        updateHistoricalWeek();
+    } else {
+        updateHistoricalRange();
+    }
+}
+
+// Update historical range
+async function updateHistoricalRange() {
+    const startYear = parseInt(document.getElementById('startYear').value);
+    const startWeek = parseInt(document.getElementById('startWeek').value);
+    const endYear = parseInt(document.getElementById('endYear').value);
+    const endWeek = parseInt(document.getElementById('endWeek').value);
+    
+    // Validate range
+    if (startYear > endYear || (startYear === endYear && startWeek > endWeek)) {
+        alert('Invalid range: Start date must be before end date');
+        return;
+    }
+    
+    const weeks = rangeProcessor.calculateWeeks(startYear, startWeek, endYear, endWeek);
+    if (weeks.length > 52) {
+        if (!confirm(`This will update ${weeks.length} weeks. This may take several minutes. Continue?`)) {
+            return;
+        }
+    }
+    
+    // Close the modal
+    closeHistoricalUpdate();
+    
+    // Start processing
+    await rangeProcessor.processRange(startYear, startWeek, endYear, endWeek);
+}
+
+// Cancel range update
+function cancelRangeUpdate() {
+    rangeProcessor.cancel();
+    document.getElementById('cancelButton').style.display = 'none';
+    document.getElementById('progressFooter').style.display = 'block';
+}
+
+// Close summary modal
+function closeSummaryModal() {
+    document.getElementById('summaryModal').style.display = 'none';
+}
+
+// Original single-week functions (keeping existing functionality)
+function showHistoricalUpdate() {
+    document.getElementById('historicalModal').style.display = 'flex';
+}
+
+function closeHistoricalUpdate() {
+    document.getElementById('historicalModal').style.display = 'none';
+}
+
+function updateCurrentWeek() {
+    showProgress('Updating Last Week');
+    
+    fetch(apiUrl('/scheduler/trigger'), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'}
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showSuccess(`Updated successfully! Found ${data.movies_found || 0} movies.`);
+            setTimeout(() => location.reload(), 2000);
+        } else {
+            showError('Update failed: ' + data.message);
+        }
+    })
+    .catch(error => {
+        showError('Update failed: ' + error.message);
+    });
+}
+
+function updateHistoricalWeek() {
+    const year = document.getElementById('historicalYear').value;
+    const week = document.getElementById('historicalWeek').value;
+    
+    closeHistoricalUpdate();
+    showProgress(`Updating Week ${week}, ${year}`);
+    
+    fetch(apiUrl('/scheduler/update-week'), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({year: parseInt(year), week: parseInt(week)})
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showSuccess(`Updated successfully! Found ${data.movies_found || 0} movies.`);
+            setTimeout(() => location.reload(), 2000);
+        } else {
+            showError('Update failed: ' + data.message);
+        }
+    })
+    .catch(error => {
+        showError('Update failed: ' + error.message);
+    });
+}
+
+function closeHistoricalWeekModal() {
+    document.getElementById('historicalWeekModal').style.display = 'none';
+}
+
+function fetchHistoricalWeek() {
+    // This function is referenced but needs implementation
+    updateHistoricalWeek();
+}
+
+function deleteWeek(year, week) {
+    if (!confirm(`Are you sure you want to delete Week ${week}, ${year}?`)) {
+        return;
+    }
+    
+    // Implementation would go here
+    alert('Delete functionality not yet implemented');
+}
+
+function changePageSize(size) {
+    const url = new URL(window.location);
+    url.searchParams.set('per_page', size);
+    url.searchParams.set('page', '1');
+    window.location = url;
+}
+
+// Progress modal functions
+function showProgress(message) {
+    const modal = document.getElementById('progressModal');
+    const progressMessage = document.getElementById('progressMessage');
+    const multiWeekProgress = document.getElementById('multiWeekProgress');
+    const progressSpinner = document.getElementById('progressSpinner');
+    
+    modal.style.display = 'flex';
+    progressMessage.textContent = message;
+    multiWeekProgress.style.display = 'none';
+    progressSpinner.style.display = 'block';
+}
+
+function showSuccess(message) {
+    const modal = document.getElementById('progressModal');
+    const progressMessage = document.getElementById('progressMessage');
+    const progressFooter = document.getElementById('progressFooter');
+    const progressSpinner = document.getElementById('progressSpinner');
+    
+    progressMessage.innerHTML = `<span style="color: var(--success-color);">✅ ${message}</span>`;
+    progressSpinner.style.display = 'none';
+    progressFooter.style.display = 'block';
+}
+
+function showError(message) {
+    const modal = document.getElementById('progressModal');
+    const progressMessage = document.getElementById('progressMessage');
+    const progressFooter = document.getElementById('progressFooter');
+    const progressSpinner = document.getElementById('progressSpinner');
+    
+    progressMessage.innerHTML = `<span style="color: var(--error-color);">❌ ${message}</span>`;
+    progressSpinner.style.display = 'none';
+    progressFooter.style.display = 'block';
+}
+
+function closeProgressModal() {
+    document.getElementById('progressModal').style.display = 'none';
+    document.getElementById('progressFooter').style.display = 'none';
+}
+</script>
 {% endblock %}
