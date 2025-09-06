@@ -1539,13 +1539,30 @@ function fetchHistoricalWeek() {
     updateHistoricalWeek();
 }
 
-function deleteWeek(year, week) {
+async function deleteWeek(year, week) {
     if (!confirm(`Are you sure you want to delete Week ${week}, ${year}?`)) {
         return;
     }
     
-    // Implementation would go here
-    alert('Delete functionality not yet implemented');
+    try {
+        const response = await fetch(apiUrl(`/api/weeks/${year}/W${week}/delete`), {
+            method: 'DELETE',
+            headers: {'Content-Type': 'application/json'}
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            alert(`Successfully deleted Week ${week}, ${year}`);
+            // Reload the page to reflect the changes
+            window.location.reload();
+        } else {
+            alert(`Failed to delete week: ${data.message || 'Unknown error'}`);
+        }
+    } catch (error) {
+        console.error('Error deleting week:', error);
+        alert(`Error deleting week: ${error.message}`);
+    }
 }
 
 function changePageSize(size) {
