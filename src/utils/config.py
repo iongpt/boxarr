@@ -101,7 +101,7 @@ class Settings(BaseSettings):
 
     # UI Configuration
     boxarr_ui_theme: ThemeEnum = Field(default=ThemeEnum.LIGHT, description="UI theme")
-    
+
     @validator("boxarr_ui_theme", pre=True)
     def migrate_legacy_theme(cls, v):
         """Migrate legacy theme values to new theme system."""
@@ -110,7 +110,7 @@ class Settings(BaseSettings):
         if v in ["blue", "BLUE", ThemeEnum.BLUE]:
             return ThemeEnum.LIGHT
         return v
-    
+
     boxarr_ui_cards_per_row_mobile: int = Field(
         default=1, ge=1, le=3, description="Cards per row on mobile"
     )
