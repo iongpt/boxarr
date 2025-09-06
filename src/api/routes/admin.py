@@ -65,7 +65,9 @@ async def check_missing_metadata():
             )
 
         # Scan all JSON files
-        unique_movies: Dict[str, Dict[str, Any]] = {}  # title -> {has_poster, has_tmdb, weeks: []}
+        unique_movies: Dict[str, Dict[str, Any]] = (
+            {}
+        )  # title -> {has_poster, has_tmdb, weeks: []}
         total_movies = 0
         total_occurrences_missing = 0
         weeks_with_issues = set()
@@ -137,7 +139,9 @@ async def repair_missing_metadata(request: RepairRequest):
             # Phase 1: Collect unique movies missing data
             yield f"data: {json.dumps({'stage': 'scanning', 'message': 'Scanning for movies with missing metadata...'})}\n\n"
 
-            unique_movies: Dict[str, Dict[str, Any]] = {}  # title -> {sample_data, weeks: []}
+            unique_movies: Dict[str, Dict[str, Any]] = (
+                {}
+            )  # title -> {sample_data, weeks: []}
 
             json_files = list(weekly_pages_dir.glob("*.json"))
             for idx, json_file in enumerate(json_files, 1):
