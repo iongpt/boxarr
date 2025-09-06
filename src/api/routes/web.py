@@ -165,47 +165,47 @@ async def movie_overview_page(request: Request):
 
     # Aggregate movies from all weeks
     all_movies = await aggregate_all_movies()
-    
+
     # Update with current Radarr status if configured
     if settings.radarr_api_key:
         try:
             from ...core.radarr import RadarrService, MovieStatus
-            
+
             radarr_service = RadarrService()
             all_radarr_movies = radarr_service.get_all_movies()
             profiles = radarr_service.get_quality_profiles()
             profiles_by_id = {p.id: p.name for p in profiles}
-            
+
             # Find upgrade profile ID
             upgrade_profile_id = None
             for p in profiles:
                 if p.name == settings.radarr_quality_profile_upgrade:
                     upgrade_profile_id = p.id
                     break
-            
+
             # Create lookup dicts - by ID and by title for matching
             movie_dict = {movie.id: movie for movie in all_radarr_movies}
             movie_dict_by_title = {
                 movie.title.lower(): movie for movie in all_radarr_movies
             }
-            
+
             # Update movie statuses dynamically
             for movie in all_movies:
                 radarr_movie = None
-                
+
                 # First try to find by radarr_id if it exists
                 if movie.get("radarr_id"):
                     radarr_movie = movie_dict.get(movie["radarr_id"])
-                
+
                 # If not found by ID (or no ID), try to find by title
                 if not radarr_movie:
                     movie_title_lower = movie.get("title", "").lower()
                     radarr_movie = movie_dict_by_title.get(movie_title_lower)
-                    
+
                     # If found by title, update the radarr_id
                     if radarr_movie:
                         movie["radarr_id"] = radarr_movie.id
-                
+
                 if radarr_movie:
                     # Update status from Radarr
                     if radarr_movie.hasFile:
@@ -227,14 +227,14 @@ async def movie_overview_page(request: Request):
                         movie["status"] = "Pending"
                         movie["status_color"] = "#ed8936"
                         movie["status_icon"] = "⏳"
-                    
+
                     # Update other metadata
                     movie["quality_profile_name"] = profiles_by_id.get(
                         radarr_movie.qualityProfileId, "Unknown"
                     )
                     movie["quality_profile_id"] = radarr_movie.qualityProfileId
                     movie["has_file"] = radarr_movie.hasFile
-                    
+
                     # Check if can upgrade
                     movie["can_upgrade_quality"] = bool(
                         settings.boxarr_features_quality_upgrade
@@ -251,7 +251,7 @@ async def movie_overview_page(request: Request):
                     movie["radarr_id"] = None
                     movie["has_file"] = False
                     movie["can_upgrade_quality"] = False
-                    
+
         except Exception as e:
             logger.warning(f"Error fetching Radarr status for overview: {e}")
             # Continue with data from JSON files if Radarr fails

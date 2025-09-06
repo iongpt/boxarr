@@ -124,6 +124,7 @@ async def check_missing_metadata():
 @router.post("/repair-missing-metadata")
 async def repair_missing_metadata(request: RepairRequest):
     """Repair missing TMDB metadata for movies with streaming progress updates."""
+
     async def generate_progress() -> AsyncGenerator[str, None]:
         try:
             if not settings.radarr_api_key:
@@ -135,7 +136,7 @@ async def repair_missing_metadata(request: RepairRequest):
 
             # Phase 1: Collect unique movies missing data
             yield f"data: {json.dumps({'stage': 'scanning', 'message': 'Scanning for movies with missing metadata...'})}\n\n"
-            
+
             unique_movies = {}  # title -> {sample_data, weeks: []}
 
             json_files = list(weekly_pages_dir.glob("*.json"))
@@ -158,9 +159,9 @@ async def repair_missing_metadata(request: RepairRequest):
                                             "weeks": [],
                                         }
                                     unique_movies[title]["weeks"].append(week_key)
-                    
+
                     if idx % 10 == 0:
-                        message = f'Scanned {idx}/{len(json_files)} weeks...'
+                        message = f"Scanned {idx}/{len(json_files)} weeks..."
                         yield f"data: {json.dumps({'stage': 'scanning', 'progress': idx, 'total': len(json_files), 'message': message})}\n\n"
                 except Exception as e:
                     logger.warning(f"Error reading {json_file}: {e}")
@@ -171,33 +172,39 @@ async def repair_missing_metadata(request: RepairRequest):
                 return
 
             # Phase 2: Fetch TMDB data for each unique movie
-            message = f'Found {len(unique_movies)} unique movies to process...'
+            message = f"Found {len(unique_movies)} unique movies to process..."
             yield f"data: {json.dumps({'stage': 'fetching', 'message': message})}\n\n"
-            
+
             tmdb_cache = {}
             errors = []
             total_movies = len(unique_movies)
 
             for idx, title in enumerate(unique_movies, 1):
                 try:
-                    message = f'Fetching TMDB data for "{title}" ({idx}/{total_movies})...'
+                    message = (
+                        f'Fetching TMDB data for "{title}" ({idx}/{total_movies})...'
+                    )
                     yield f"data: {json.dumps({'stage': 'fetching', 'progress': idx, 'total': total_movies, 'message': message})}\n\n"
-                    
+
                     # Search for movie in TMDB via Radarr
                     search_results = radarr_service.search_movie(title)
                     if search_results and len(search_results) > 0:
                         # Select the best match from search results
                         # Prefer: 1) Movies with posters, 2) Newer movies
                         tmdb_movie = search_results[0]
-                        
+
                         # Try to find a better match with a poster
                         for result in search_results:
                             # Prefer movies with posters
-                            if result.get("remotePoster") and not tmdb_movie.get("remotePoster"):
+                            if result.get("remotePoster") and not tmdb_movie.get(
+                                "remotePoster"
+                            ):
                                 tmdb_movie = result
                             # If both have posters or both don't, prefer newer movie
-                            elif (bool(result.get("remotePoster")) == bool(tmdb_movie.get("remotePoster"))) and \
-                                 result.get("year", 0) > tmdb_movie.get("year", 0):
+                            elif (
+                                bool(result.get("remotePoster"))
+                                == bool(tmdb_movie.get("remotePoster"))
+                            ) and result.get("year", 0) > tmdb_movie.get("year", 0):
                                 tmdb_movie = result
                         # Only cache if we have meaningful data (at least a poster or tmdb_id)
                         if tmdb_movie.get("remotePoster") or tmdb_movie.get("tmdbId"):
@@ -218,9 +225,13 @@ async def repair_missing_metadata(request: RepairRequest):
                                     else None
                                 ),
                             }
-                            logger.info(f"Found TMDB data for '{title}' (year: {tmdb_movie.get('year')}, has poster: {bool(tmdb_movie.get('remotePoster'))})")
+                            logger.info(
+                                f"Found TMDB data for '{title}' (year: {tmdb_movie.get('year')}, has poster: {bool(tmdb_movie.get('remotePoster'))})"
+                            )
                         else:
-                            logger.warning(f"TMDB result for '{title}' has no poster or ID, skipping")
+                            logger.warning(
+                                f"TMDB result for '{title}' has no poster or ID, skipping"
+                            )
 
                         # Rate limiting
                         await asyncio.sleep(request.rate_limit_delay / 1000.0)
@@ -243,7 +254,7 @@ async def repair_missing_metadata(request: RepairRequest):
 
             # Phase 3: Update all affected week files
             yield f"data: {json.dumps({'stage': 'updating', 'message': 'Updating week files with new metadata...'})}\n\n"
-            
+
             weeks_to_update = set()
             for title, movie_data in unique_movies.items():
                 if title in tmdb_cache:
@@ -252,13 +263,13 @@ async def repair_missing_metadata(request: RepairRequest):
 
             updated_weeks = 0
             total_weeks = len(weeks_to_update)
-            
+
             for idx, week_key in enumerate(weeks_to_update, 1):
                 json_file = weekly_pages_dir / f"{week_key}.json"
                 try:
-                    message = f'Updating week {week_key} ({idx}/{total_weeks})...'
+                    message = f"Updating week {week_key} ({idx}/{total_weeks})..."
                     yield f"data: {json.dumps({'stage': 'updating', 'progress': idx, 'total': total_weeks, 'message': message})}\n\n"
-                    
+
                     with open(json_file) as f:
                         data = json.load(f)
 
@@ -285,15 +296,15 @@ async def repair_missing_metadata(request: RepairRequest):
                     logger.error(f"Error updating {json_file}: {e}")
                     errors.append(f"Failed to update week {week_key}")
 
-            message = f'Fixed {len(tmdb_cache)} movies across {updated_weeks} weeks'
+            message = f"Fixed {len(tmdb_cache)} movies across {updated_weeks} weeks"
             yield f"data: {json.dumps({'stage': 'complete', 'success': True, 'message': message, 'fixed_movies': len(tmdb_cache), 'updated_weeks': updated_weeks, 'errors': errors})}\n\n"
-            
+
         except HTTPException as he:
             yield f"data: {json.dumps({'error': str(he.detail)})}\n\n"
         except Exception as e:
             logger.error(f"Error repairing metadata: {e}")
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
-    
+
     return StreamingResponse(
         generate_progress(),
         media_type="text/event-stream",
