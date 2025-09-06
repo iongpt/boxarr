@@ -35,6 +35,17 @@ def url_for(request: Request, path: str) -> str:
 templates.env.globals["url_for"] = url_for
 
 
+def get_template_context(request: Request, **kwargs) -> dict:
+    """Get base template context with common values."""
+    context = {
+        "request": request,
+        "version": __version__,
+        "theme": settings.boxarr_ui_theme.value,
+    }
+    context.update(kwargs)
+    return context
+
+
 class WeekInfo(BaseModel):
     """Week information model."""
 
@@ -178,29 +189,28 @@ async def dashboard_page(request: Request):
 
     return templates.TemplateResponse(
         "dashboard.html",
-        {
-            "request": request,
-            "weeks": weeks,
-            "recent_weeks": recent_weeks,
-            "older_weeks": older_weeks,
-            "total_weeks": total_weeks,
-            "radarr_configured": bool(settings.radarr_api_key),
-            "scheduler_enabled": settings.boxarr_scheduler_enabled,
-            "auto_add": settings.boxarr_features_auto_add,
-            "quality_upgrade": settings.boxarr_features_quality_upgrade,
-            "next_update": next_update,
-            "version": __version__,
-            "auto_add_filters_active": auto_add_filters_active,
-            "filter_descriptions": filter_descriptions,
+        get_template_context(
+            request,
+            weeks=weeks,
+            recent_weeks=recent_weeks,
+            older_weeks=older_weeks,
+            total_weeks=total_weeks,
+            radarr_configured=bool(settings.radarr_api_key),
+            scheduler_enabled=settings.boxarr_scheduler_enabled,
+            auto_add=settings.boxarr_features_auto_add,
+            quality_upgrade=settings.boxarr_features_quality_upgrade,
+            next_update=next_update,
+            auto_add_filters_active=auto_add_filters_active,
+            filter_descriptions=filter_descriptions,
             # Pagination data
-            "current_page": page,
-            "total_pages": total_pages,
-            "per_page": per_page,
-            "paginated_weeks": paginated_weeks,
-            "available_years": available_years,
-            "year_filter": year_filter,
-            "total_all_weeks": len(all_weeks),
-        },
+            current_page=page,
+            total_pages=total_pages,
+            per_page=per_page,
+            paginated_weeks=paginated_weeks,
+            available_years=available_years,
+            year_filter=year_filter,
+            total_all_weeks=len(all_weeks),
+        ),
     )
 
 
@@ -237,31 +247,31 @@ async def setup_page(request: Request):
 
     return templates.TemplateResponse(
         "setup.html",
-        {
-            "request": request,
-            "radarr_configured": bool(settings.radarr_api_key),
-            "is_configured": bool(settings.radarr_api_key),
+        get_template_context(
+            request,
+            radarr_configured=bool(settings.radarr_api_key),
+            is_configured=bool(settings.radarr_api_key),
             # Current settings for prefilling
-            "radarr_url": str(settings.radarr_url),
-            "radarr_api_key": settings.radarr_api_key,  # Show actual API key for editing
-            "root_folder": str(settings.radarr_root_folder),
-            "quality_profile_default": settings.radarr_quality_profile_default,
-            "quality_profile_upgrade": settings.radarr_quality_profile_upgrade,
-            "scheduler_enabled": settings.boxarr_scheduler_enabled,
-            "scheduler_cron": settings.boxarr_scheduler_cron,
-            "scheduler_day": current_day,
-            "scheduler_time": current_time,
-            "auto_add": settings.boxarr_features_auto_add,
-            "quality_upgrade": settings.boxarr_features_quality_upgrade,
+            radarr_url=str(settings.radarr_url),
+            radarr_api_key=settings.radarr_api_key,  # Show actual API key for editing
+            root_folder=str(settings.radarr_root_folder),
+            quality_profile_default=settings.radarr_quality_profile_default,
+            quality_profile_upgrade=settings.radarr_quality_profile_upgrade,
+            scheduler_enabled=settings.boxarr_scheduler_enabled,
+            scheduler_cron=settings.boxarr_scheduler_cron,
+            scheduler_day=current_day,
+            scheduler_time=current_time,
+            auto_add=settings.boxarr_features_auto_add,
+            quality_upgrade=settings.boxarr_features_quality_upgrade,
             # New auto-add advanced options
-            "auto_add_limit": settings.boxarr_features_auto_add_limit,
-            "genre_filter_enabled": settings.boxarr_features_auto_add_genre_filter_enabled,
-            "genre_filter_mode": settings.boxarr_features_auto_add_genre_filter_mode,
-            "genre_whitelist": settings.boxarr_features_auto_add_genre_whitelist,
-            "genre_blacklist": settings.boxarr_features_auto_add_genre_blacklist,
-            "rating_filter_enabled": settings.boxarr_features_auto_add_rating_filter_enabled,
-            "rating_whitelist": settings.boxarr_features_auto_add_rating_whitelist,
-        },
+            auto_add_limit=settings.boxarr_features_auto_add_limit,
+            genre_filter_enabled=settings.boxarr_features_auto_add_genre_filter_enabled,
+            genre_filter_mode=settings.boxarr_features_auto_add_genre_filter_mode,
+            genre_whitelist=settings.boxarr_features_auto_add_genre_whitelist,
+            genre_blacklist=settings.boxarr_features_auto_add_genre_blacklist,
+            rating_filter_enabled=settings.boxarr_features_auto_add_rating_filter_enabled,
+            rating_whitelist=settings.boxarr_features_auto_add_rating_whitelist,
+        ),
     )
 
 
@@ -425,9 +435,9 @@ async def serve_weekly_page(request: Request, year: int, week: int):
 
     return templates.TemplateResponse(
         "weekly.html",
-        {
-            "request": request,
-            "week_data": {
+        get_template_context(
+            request,
+            week_data={
                 "year": year,
                 "week": week,
                 "friday": friday,
@@ -435,11 +445,11 @@ async def serve_weekly_page(request: Request, year: int, week: int):
                 "movies": movies,
                 "generated_at": generated_at,
             },
-            "auto_add": settings.boxarr_features_auto_add,
-            "scheduler_enabled": settings.boxarr_scheduler_enabled,
-            "previous_week": f"{prev_year}W{prev_week_num:02d}" if prev_week else None,
-            "next_week": f"{next_year}W{next_week_num:02d}" if next_week else None,
-        },
+            auto_add=settings.boxarr_features_auto_add,
+            scheduler_enabled=settings.boxarr_scheduler_enabled,
+            previous_week=f"{prev_year}W{prev_week_num:02d}" if prev_week else None,
+            next_week=f"{next_year}W{next_week_num:02d}" if next_week else None,
+        ),
     )
 
 

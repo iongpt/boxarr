@@ -288,6 +288,20 @@
             </div>
             {% endif %}
 
+            <!-- UI Settings Section -->
+            <div class="form-section">
+                <h2 class="section-title">UI Settings</h2>
+                <div class="form-group">
+                    <label for="uiTheme" class="form-label">Theme</label>
+                    <select name="boxarr_ui_theme" id="uiTheme" class="form-select">
+                        <option value="light" {% if theme == 'light' or theme == 'purple' or theme == 'blue' %}selected{% endif %}>☀️ Light</option>
+                        <option value="dark" {% if theme == 'dark' %}selected{% endif %}>🌙 Dark</option>
+                        <option value="auto" {% if theme == 'auto' %}selected{% endif %}>💻 Follow System</option>
+                    </select>
+                    <small class="text-muted">Choose your preferred theme or let it follow your system settings</small>
+                </div>
+            </div>
+
             <div class="button-row">
                 {% if is_configured %}
                 <a href="{{ request.scope.get('root_path', '') }}/" class="btn btn-secondary">← Back to Dashboard</a>

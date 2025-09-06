@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Dark Mode Support**: Complete dark mode implementation with theme persistence (#24)
+  - **Three Theme Options**: Light (☀️), Dark (🌙), and Auto (💻) modes
+  - **System Preference Detection**: Auto mode follows OS dark/light preference
+  - **Instant Theme Switching**: Real-time updates without page reload
+  - **Persistent Preferences**: Server-side config and client-side localStorage
+  - **Accessibility Focused**: WCAG AA compliant contrast ratios
+  - **Purple Gradient Preserved**: Signature branding maintained in both themes
 - **Improved Dashboard Pagination**: Complete overhaul of weekly card display system (#18)
   - **Proper Pagination**: Navigate through pages with Previous/Next buttons and page numbers
   - **Configurable Page Size**: Choose to display 10, 20, 50, or 100 cards per page (default: 10)
@@ -26,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Status Updates**: Weekly pages now correctly update movie status by matching on title when radarr_id is missing
 
 ### Changed
+- **CSS Architecture**: Consolidated all CSS variables into single stylesheet, removed duplication
+- **Theme Migration**: Legacy PURPLE and BLUE themes automatically migrate to LIGHT theme
 - **Dashboard Layout**: Removed old "6 cards + dropdown" system in favor of paginated display (#18)
 - **Historical Fetch Modals**: Removed confusing auto-add override option, now shows current settings with link to Settings page
 - **Improved Logging**: Added detailed logging showing why movies are filtered out during auto-add

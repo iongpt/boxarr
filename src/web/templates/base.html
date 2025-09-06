@@ -1,40 +1,32 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-server-theme="{{ theme|default('light') }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Boxarr - Box Office Tracking for Radarr{% endblock %}</title>
+    <link rel="stylesheet" href="{{ request.scope.get('root_path', '') }}/static/css/style.css?v=3">
+    <script>
+        /* Theme initialization - prevent FOUC */
+        (function() {
+            const stored = localStorage.getItem('boxarr-theme-preference');
+            const serverTheme = document.documentElement.dataset.serverTheme || 'light';
+            let theme;
+            
+            if (stored === 'light' || stored === 'dark') {
+                theme = stored;
+            } else if (stored === 'auto' || (!stored && serverTheme === 'auto')) {
+                theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+            } else {
+                theme = serverTheme === 'dark' ? 'dark' : 'light';
+            }
+            
+            document.documentElement.setAttribute('data-theme', theme);
+        })();
+    </script>
     <style>
-        /* Unified Base Styles */
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
+        /* Theme initialization - prevent FOUC */
         :root {
-            --primary-color: #667eea;
-            --primary-rgb: 102, 126, 234;
-            --secondary-color: #764ba2;
-            --success-color: #48bb78;
-            --error-color: #f56565;
-            --warning-color: #ed8936;
-            --bg-color: #f7fafc;
-            --card-bg: #ffffff;
-            --text-primary: #2d3748;
-            --text-secondary: #718096;
-            --border-color: #e2e8f0;
-            --shadow: 0 1px 3px rgba(0,0,0,0.1);
-            --shadow-lg: 0 10px 25px rgba(0,0,0,0.1);
-        }
-        
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            background: var(--bg-color);
-            color: var(--text-primary);
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
+            color-scheme: light dark;
         }
         
         /* Unified Navigation */
@@ -222,6 +214,17 @@
                 <a href="{{ request.scope.get('root_path', '') }}/dashboard" class="nav-link {% if request.path.endswith('/dashboard') %}active{% endif %}">Dashboard</a>
                 <a href="{{ request.scope.get('root_path', '') }}/setup" class="nav-link {% if request.path.endswith('/setup') %}active{% endif %}">Settings</a>
                 <!-- <a href="/docs" class="nav-link" target="_blank">API Docs</a> -->
+                <div class="theme-toggle" id="themeToggle">
+                    <button class="theme-toggle-btn" data-theme="light" onclick="themeManager.setTheme('light')" title="Light mode">
+                        ☀️
+                    </button>
+                    <button class="theme-toggle-btn" data-theme="dark" onclick="themeManager.setTheme('dark')" title="Dark mode">
+                        🌙
+                    </button>
+                    <button class="theme-toggle-btn" data-theme="auto" onclick="themeManager.setTheme('auto')" title="Follow system">
+                        💻
+                    </button>
+                </div>
                 <div class="connection-status" id="connectionStatus">
                     <span class="status-dot" id="statusDot"></span>
                     <span class="status-text" id="statusText">Connecting...</span>
@@ -240,6 +243,7 @@
         </div>
     </footer>
 
+    <script src="{{ request.scope.get('root_path', '') }}/static/js/theme-manager.js?v=1"></script>
     <script src="{{ request.scope.get('root_path', '') }}/static/js/app.js?v=2"></script>
     {% block scripts %}{% endblock %}
 </body>
