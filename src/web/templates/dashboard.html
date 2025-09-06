@@ -1068,6 +1068,19 @@
 
 {% block scripts %}
 <script>
+// Ensure apiUrl function is available (fallback if app.js hasn't loaded yet)
+if (typeof apiUrl === 'undefined') {
+    window.apiUrl = function(endpoint) {
+        // Get base path from request scope or default to empty
+        const basePath = '{{ request.scope.get("root_path", "") }}';
+        // Ensure endpoint starts with /
+        if (!endpoint.startsWith('/')) {
+            endpoint = '/' + endpoint;
+        }
+        return basePath + '/api' + endpoint;
+    };
+}
+
 // Historical Range Update Implementation
 class RangeProcessor {
     constructor() {
