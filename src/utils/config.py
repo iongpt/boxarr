@@ -13,9 +13,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class ThemeEnum(str, Enum):
     """Available UI themes."""
 
-    PURPLE = "purple"
-    BLUE = "blue"
+    LIGHT = "light"
     DARK = "dark"
+    AUTO = "auto"
+    # Legacy values for backward compatibility
+    PURPLE = "purple"  # Will be mapped to LIGHT
+    BLUE = "blue"  # Will be mapped to LIGHT
 
 
 class MonitorEnum(str, Enum):
@@ -97,7 +100,17 @@ class Settings(BaseSettings):
     )
 
     # UI Configuration
-    boxarr_ui_theme: ThemeEnum = Field(default=ThemeEnum.PURPLE, description="UI theme")
+    boxarr_ui_theme: ThemeEnum = Field(default=ThemeEnum.LIGHT, description="UI theme")
+
+    @validator("boxarr_ui_theme", pre=True)
+    def migrate_legacy_theme(cls, v):
+        """Migrate legacy theme values to new theme system."""
+        if v in ["purple", "PURPLE", ThemeEnum.PURPLE]:
+            return ThemeEnum.LIGHT
+        if v in ["blue", "BLUE", ThemeEnum.BLUE]:
+            return ThemeEnum.LIGHT
+        return v
+
     boxarr_ui_cards_per_row_mobile: int = Field(
         default=1, ge=1, le=3, description="Cards per row on mobile"
     )
