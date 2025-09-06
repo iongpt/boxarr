@@ -246,6 +246,18 @@ async def movie_overview_page(request: Request):
                         movie["radarr_id"] = radarr_movie.id
 
                 if radarr_movie:
+                    # Update all movie metadata from Radarr
+                    movie["poster"] = radarr_movie.poster_url
+                    movie["year"] = radarr_movie.year
+                    movie["genres"] = ", ".join(radarr_movie.genres[:2]) if radarr_movie.genres else None
+                    movie["overview"] = (
+                        radarr_movie.overview[:150] + "..."
+                        if radarr_movie.overview and len(radarr_movie.overview) > 150
+                        else radarr_movie.overview
+                    )
+                    movie["imdb_id"] = radarr_movie.imdbId
+                    movie["tmdb_id"] = radarr_movie.tmdbId
+                    
                     # Update status
                     if radarr_movie.hasFile:
                         movie["status"] = "Downloaded"
@@ -580,6 +592,18 @@ async def serve_weekly_page(request: Request, year: int, week: int):
                         movie["radarr_id"] = radarr_movie.id
 
                 if radarr_movie:
+                    # Update all movie metadata from Radarr
+                    movie["poster"] = radarr_movie.poster_url
+                    movie["year"] = radarr_movie.year
+                    movie["genres"] = ", ".join(radarr_movie.genres[:2]) if radarr_movie.genres else None
+                    movie["overview"] = (
+                        radarr_movie.overview[:150] + "..."
+                        if radarr_movie.overview and len(radarr_movie.overview) > 150
+                        else radarr_movie.overview
+                    )
+                    movie["imdb_id"] = radarr_movie.imdbId
+                    movie["tmdb_id"] = radarr_movie.tmdbId
+                    
                     # Update status
                     if radarr_movie.hasFile:
                         movie["status"] = "Downloaded"
