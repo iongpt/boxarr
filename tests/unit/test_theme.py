@@ -1,8 +1,10 @@
 """Unit tests for theme functionality."""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
-from src.utils.config import ThemeEnum, Settings
+
+from src.utils.config import Settings, ThemeEnum
 
 
 class TestThemeEnum:
@@ -88,8 +90,9 @@ class TestThemeTemplateContext:
 
     def test_get_template_context_includes_theme(self):
         """Test that get_template_context includes theme."""
-        from src.api.routes.web import get_template_context
         from fastapi import Request
+
+        from src.api.routes.web import get_template_context
 
         # Mock request
         mock_request = MagicMock(spec=Request)
@@ -107,8 +110,9 @@ class TestThemeTemplateContext:
 
     def test_get_template_context_default_theme(self):
         """Test that get_template_context uses default theme if not set."""
-        from src.api.routes.web import get_template_context
         from fastapi import Request
+
+        from src.api.routes.web import get_template_context
 
         mock_request = MagicMock(spec=Request)
 
