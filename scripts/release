@@ -77,7 +77,11 @@ fi
 # Commit version changes
 echo -e "${YELLOW}Committing version changes...${NC}"
 git add pyproject.toml src/version.py
-git commit -m "Release version $VERSION_NUMBER"
+if ! git diff --cached --quiet; then
+    git commit -m "Release version $VERSION_NUMBER"
+else
+    echo -e "${YELLOW}Version files already up to date, skipping commit${NC}"
+fi
 
 # Push to main
 echo -e "${YELLOW}Pushing to main branch...${NC}"
