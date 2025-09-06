@@ -167,6 +167,98 @@ When enabled, Boxarr will automatically:
   - Blacklist: Exclude movies with selected genres
 - **Age Rating Filter**: Control content by MPAA ratings (G, PG, PG-13, R, NC-17, NR)
 
+## Reverse Proxy Configuration
+
+Boxarr supports running behind a reverse proxy at a custom path (e.g., `/boxarr` instead of `/`). This is useful when you want to access multiple services through a single domain.
+
+### Setting the URL Base
+
+The URL base is configured via the `BOXARR_URL_BASE` environment variable. **Do not include leading or trailing slashes.**
+
+#### Docker Compose Example
+
+```yaml
+version: '3.8'
+
+services:
+  boxarr:
+    image: ghcr.io/iongpt/boxarr:latest
+    container_name: boxarr
+    ports:
+      - 8888:8888
+    volumes:
+      - ./config:/config
+    environment:
+      - TZ=America/New_York
+      - BOXARR_URL_BASE=boxarr  # Access at http://your-server/boxarr/
+    restart: unless-stopped
+```
+
+#### Command Line Example
+
+```bash
+BOXARR_URL_BASE=boxarr python -m src.main
+```
+
+### Nginx Configuration
+
+```nginx
+location /boxarr/ {
+    proxy_pass http://localhost:8888/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Prefix /boxarr;
+    
+    # WebSocket support (for real-time updates)
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+}
+```
+
+### Traefik Configuration
+
+```yaml
+# Docker labels for Traefik
+labels:
+  - "traefik.enable=true"
+  - "traefik.http.routers.boxarr.rule=Host(`your-domain.com`) && PathPrefix(`/boxarr`)"
+  - "traefik.http.routers.boxarr.middlewares=boxarr-stripprefix"
+  - "traefik.http.middlewares.boxarr-stripprefix.stripprefix.prefixes=/boxarr"
+  - "traefik.http.services.boxarr.loadbalancer.server.port=8888"
+```
+
+### Caddy Configuration
+
+```caddy
+your-domain.com {
+    handle_path /boxarr* {
+        reverse_proxy localhost:8888
+    }
+}
+```
+
+### Important Notes
+
+1. **Configuration is read-only in UI**: For safety, the URL base can only be set via environment variable, not through the web interface. This prevents accidental lockouts.
+
+2. **Restart required**: After setting or changing `BOXARR_URL_BASE`, you must restart Boxarr for the changes to take effect.
+
+3. **Accessing the application**: 
+   - Without URL base: `http://your-server:8888/`
+   - With URL base "boxarr": `http://your-server:8888/boxarr/`
+   - Behind reverse proxy: `https://your-domain.com/boxarr/`
+
+4. **Recovery**: If you're locked out due to incorrect configuration:
+   ```bash
+   # Reset to root path
+   BOXARR_URL_BASE="" python -m src.main
+   
+   # Or edit your docker-compose.yml and remove the BOXARR_URL_BASE line
+   ```
+
 ## API Endpoints
 
 Boxarr provides a REST API for integration:

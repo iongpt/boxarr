@@ -100,6 +100,46 @@
                 </div>
             </div>
 
+            <!-- Server Settings Section -->
+            <div class="form-section">
+                <h2 class="section-title">Server Settings</h2>
+                
+                <div class="form-group">
+                    <label for="urlBase" class="form-label">URL Base (for Reverse Proxy)</label>
+                    <input type="text" id="urlBase" class="form-input" 
+                           value="{{ url_base|default('') }}" 
+                           readonly
+                           style="background-color: var(--bg-secondary); opacity: 0.7; cursor: not-allowed;">
+                    
+                    <div class="alert" style="margin-top: 10px; padding: 12px; background: var(--bg-info); color: var(--text-primary); border-left: 3px solid var(--primary-color); border-radius: 4px;">
+                        <strong>ℹ️ Current URL Base:</strong> 
+                        {% if url_base %}
+                            <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 3px; color: var(--text-primary);">/{{ url_base }}/</code> - The app is accessible at <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 3px; color: var(--text-primary);">http://your-server/{{ url_base }}/</code>
+                        {% else %}
+                            <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 3px; color: var(--text-primary);">/</code> (root) - The app is accessible at <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 3px; color: var(--text-primary);">http://your-server/</code>
+                        {% endif %}
+                    </div>
+                    
+                    <div style="margin-top: 10px; padding: 12px; background: var(--bg-secondary); color: var(--text-primary); border-radius: 4px; border: 1px solid var(--border-color);">
+                        <strong>📝 How to Configure:</strong>
+                        <p style="margin: 8px 0; color: var(--text-secondary);">To run Boxarr behind a reverse proxy, set the <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 3px; color: var(--text-primary);">BOXARR_URL_BASE</code> environment variable:</p>
+                        
+                        <div style="background: var(--bg-tertiary); color: var(--text-primary); padding: 10px; border-radius: 4px; margin: 8px 0; font-family: monospace; font-size: 0.9em; border: 1px solid var(--border-color);">
+                            <div style="color: var(--text-muted);"># Docker Compose:</div>
+                            <div>environment:</div>
+                            <div>&nbsp;&nbsp;- BOXARR_URL_BASE=boxarr</div>
+                        </div>
+                        
+                        <div style="background: var(--bg-tertiary); color: var(--text-primary); padding: 10px; border-radius: 4px; margin: 8px 0; font-family: monospace; font-size: 0.9em; border: 1px solid var(--border-color);">
+                            <div style="color: var(--text-muted);"># Command line:</div>
+                            <div>BOXARR_URL_BASE=boxarr python -m src.main</div>
+                        </div>
+                        
+                        <small class="text-muted">Do not include leading or trailing slashes. After setting, restart Boxarr to apply changes.</small>
+                    </div>
+                </div>
+            </div>
+
             <!-- Automation Settings Section -->
             <div class="form-section">
                 <h2 class="section-title">Automation Settings</h2>

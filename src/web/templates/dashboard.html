@@ -1618,26 +1618,76 @@ async function fixMissingData() {
             })
         });
         
-        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
         
-        hideProgress();
+        // Handle Server-Sent Events stream
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
         
-        if (data.success) {
-            let message = `Successfully fixed ${data.fixed_movies} movies across ${data.updated_weeks} weeks!`;
-            if (data.errors && data.errors.length > 0) {
-                message += `\n\nSome movies could not be fixed:\n${data.errors.join('\n')}`;
-            }
-            alert(message);
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
             
-            // Reload to reflect changes and hide the button
-            window.location.reload();
-        } else {
-            alert(`Failed to fix metadata: ${data.message || 'Unknown error'}`);
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+            
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    try {
+                        const data = JSON.parse(line.slice(6));
+                        
+                        if (data.error) {
+                            addToProgressLog(`Error: ${data.error}`, 'error');
+                            showError(`Failed: ${data.error}`);
+                            return;
+                        }
+                        
+                        // Update progress based on stage
+                        if (data.stage === 'scanning') {
+                            const progressText = data.progress ? ` (${data.progress}/${data.total})` : '';
+                            addToProgressLog(`Scanning: ${data.message}${progressText}`);
+                        } else if (data.stage === 'fetching') {
+                            addToProgressLog(data.message);
+                            // Update main progress message with current movie
+                            document.getElementById('progressMessage').textContent = data.message;
+                        } else if (data.stage === 'updating') {
+                            addToProgressLog(data.message);
+                            document.getElementById('progressMessage').textContent = data.message;
+                        } else if (data.stage === 'complete') {
+                            if (data.success) {
+                                showSuccess(data.message);
+                                
+                                if (data.errors && data.errors.length > 0) {
+                                    addToProgressLog('', 'info');
+                                    addToProgressLog('Some movies could not be fixed:', 'warning');
+                                    data.errors.forEach(err => addToProgressLog(`  - ${err}`, 'warning'));
+                                }
+                                
+                                // Add reload button
+                                setTimeout(() => {
+                                    addToProgressLog('', 'info');
+                                    addToProgressLog('Refreshing page to show updated data...', 'success');
+                                    setTimeout(() => window.location.reload(), 2000);
+                                }, 1000);
+                            } else {
+                                showError(data.message || 'Unknown error');
+                            }
+                            return;
+                        }
+                    } catch (e) {
+                        console.error('Error parsing SSE data:', e, line);
+                    }
+                }
+            }
         }
     } catch (error) {
-        hideProgress();
         console.error('Error fixing metadata:', error);
-        alert(`Error fixing metadata: ${error.message}`);
+        addToProgressLog(`Error: ${error.message}`, 'error');
+        showError(`Error fixing metadata: ${error.message}`);
     }
 }
 

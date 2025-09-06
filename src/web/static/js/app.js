@@ -980,6 +980,9 @@ function reloadScheduler() {
         const schedulerDay = document.getElementById('schedulerDay');
         const schedulerTime = document.getElementById('schedulerTime');
         
+        // URL base is now configured via environment variable only - don't save it
+        // config.boxarr_url_base = document.getElementById('urlBase')?.value || '';
+        
         // Handle checkboxes explicitly (unchecked ones don't appear in FormData)
         config.boxarr_scheduler_enabled = document.getElementById('schedulerEnabled')?.checked || false;
         config.boxarr_features_auto_add = document.getElementById('autoAdd')?.checked || false;
