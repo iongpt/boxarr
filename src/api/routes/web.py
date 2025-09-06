@@ -37,10 +37,15 @@ templates.env.globals["url_for"] = url_for
 
 def get_template_context(request: Request, **kwargs) -> dict:
     """Get base template context with common values."""
+    # Handle both string and enum values for theme
+    theme = settings.boxarr_ui_theme
+    if hasattr(theme, "value"):
+        theme = theme.value
+
     context = {
         "request": request,
         "version": __version__,
-        "theme": settings.boxarr_ui_theme.value,
+        "theme": theme,
     }
     context.update(kwargs)
     return context
