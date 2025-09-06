@@ -1,10 +1,23 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-server-theme="{{ theme|default('light') }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Boxarr Setup{% endblock %}</title>
     <link rel="stylesheet" href="{{ request.scope.get('root_path', '') }}/static/css/style.css">
+    <script>
+        // Apply theme immediately to prevent flash
+        (function() {
+            const stored = localStorage.getItem('boxarr-theme-preference');
+            let theme = stored || '{{ theme|default("light") }}';
+            
+            if (theme === 'auto') {
+                theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+            }
+            
+            document.documentElement.setAttribute('data-theme', theme);
+        })();
+    </script>
 </head>
 <body class="setup-page">
     <script>
@@ -293,7 +306,7 @@
                 <h2 class="section-title">UI Settings</h2>
                 <div class="form-group">
                     <label for="uiTheme" class="form-label">Theme</label>
-                    <select name="boxarr_ui_theme" id="uiTheme" class="form-select">
+                    <select name="boxarr_ui_theme" id="uiTheme" class="form-select" onchange="if(window.themeManager) themeManager.setTheme(this.value)">
                         <option value="light" {% if theme == 'light' or theme == 'purple' or theme == 'blue' %}selected{% endif %}>☀️ Light</option>
                         <option value="dark" {% if theme == 'dark' %}selected{% endif %}>🌙 Dark</option>
                         <option value="auto" {% if theme == 'auto' %}selected{% endif %}>💻 Follow System</option>
@@ -321,6 +334,19 @@
         </form>
     </div>
 
+<script src="{{ request.scope.get('root_path', '') }}/static/js/theme-manager.js?v=1"></script>
 <script src="{{ request.scope.get('root_path', '') }}/static/js/app.js?v=2"></script>
+<script>
+// Sync theme select with current preference
+document.addEventListener('DOMContentLoaded', function() {
+    if (window.themeManager) {
+        const preference = themeManager.getPreference();
+        const themeSelect = document.getElementById('uiTheme');
+        if (themeSelect && preference) {
+            themeSelect.value = preference;
+        }
+    }
+});
+</script>
 </body>
 </html>
