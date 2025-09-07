@@ -246,6 +246,21 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- Ignore Re-releases -->
+                    <div class="filter-section" style="margin-top: 1.5rem; margin-bottom: 1.5rem;">
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="ignoreRereleasesEnabled" name="boxarr_features_auto_add_ignore_rereleases"
+                                   class="checkbox-input" {% if ignore_rereleases %}checked{% endif %}>
+                            <div>
+                                <label for="ignoreRereleasesEnabled" class="checkbox-label main">Ignore Re-releases</label>
+                                <div class="checkbox-label description">
+                                    Skip older movies when adding from past weeks. Only adds movies released in the selected year or the previous year.
+                                    For example, when fetching week 15 of 2021, only movies from 2020-2021 will be added.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 
                 <div class="checkbox-group">

@@ -152,3 +152,15 @@ This project is not affiliated with Box Office Mojo, IMDb, or Radarr. It's an in
 ---
 
 Made with ❤️ for the self-hosting community
+### Auto-Add Filters
+
+Boxarr includes several optional filters to fine-tune automatic additions:
+
+- **Top X Limit**: Only add the top N movies from the weekly chart (default 10)
+- **Genre Filter**: Whitelist or blacklist specific genres before adding
+- **Age Rating Filter**: Only add movies within selected certifications (e.g., G/PG/PG‑13/R)
+- **Ignore Re-releases**: Skip movies released before the previous year for the selected week
+
+**[View detailed Auto-Add Filters documentation →](https://github.com/iongpt/boxarr/wiki/Configuration-Guide#advanced-filtering)**
+
+The Dashboard shows "Filters active" when any of these are enabled for quick status visibility.

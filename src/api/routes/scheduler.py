@@ -333,6 +333,30 @@ async def update_specific_week(request: UpdateWeekRequest):  # noqa: C901
                     if search:
                         movie_info = search[0]
 
+                        # Optional: Ignore re-releases (older than selected year - 1)
+                        if settings.boxarr_features_auto_add_ignore_rereleases:
+                            try:
+                                movie_year = None
+                                if isinstance(movie_info, dict):
+                                    # Prefer explicit year field if present
+                                    movie_year = movie_info.get("year")
+                                    # Fall back to releaseDate (YYYY-MM-DD)
+                                    if not movie_year:
+                                        rd = movie_info.get("releaseDate") or movie_info.get(
+                                            "inCinemas"
+                                        )
+                                        if isinstance(rd, str) and len(rd) >= 4:
+                                            movie_year = int(rd[:4])
+                                if movie_year and int(movie_year) < (year - 1):
+                                    logger.info(
+                                        f"Skipping '{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
+                                        f"release year {movie_year} older than cutoff {(year - 1)}"
+                                    )
+                                    continue
+                            except Exception:
+                                # Be permissive if metadata is missing or malformed
+                                pass
+
                         # Apply genre filter if enabled
                         movie_genres = movie_info.get("genres", [])
                         if settings.boxarr_features_auto_add_genre_filter_enabled:
