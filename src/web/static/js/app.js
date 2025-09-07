@@ -772,13 +772,14 @@ function reloadScheduler() {
         }
     }
     
-    window.loadAvailableRootFolders = function() {
+    window.loadAvailableRootFolders = function(preserveSelection = false) {
+        const folderSelect = document.getElementById('newMappingFolder');
+        const previous = preserveSelection && folderSelect ? folderSelect.value : '';
         fetch(apiUrl('/movies/root-folders/available'))
             .then(response => response.json())
             .then(data => {
                 availableRootFolders = data.folders || [];
                 // Update the new mapping folder dropdown
-                const folderSelect = document.getElementById('newMappingFolder');
                 if (folderSelect) {
                     folderSelect.innerHTML = '<option value="">Select folder...</option>';
                     availableRootFolders.forEach(folder => {
@@ -787,6 +788,9 @@ function reloadScheduler() {
                         option.textContent = folder;
                         folderSelect.appendChild(option);
                     });
+                    if (previous && availableRootFolders.includes(previous)) {
+                        folderSelect.value = previous;
+                    }
                 }
             })
             .catch(error => {
@@ -882,33 +886,89 @@ function reloadScheduler() {
             return;
         }
         
-        const html = rootFolderMappings.map((mapping, index) => {
+        // Add table header with tooltips (only once, before first item)
+        const tableHeader = rootFolderMappings.length > 0 ? `
+            <div style="display: grid; grid-template-columns: 2fr auto 2fr 100px 120px; gap: 1rem; padding: 0.5rem 0.75rem; margin-bottom: 0.5rem; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); border-bottom: 1px solid var(--border-color);">
+                <div title="Movie genres that trigger this rule">Genres</div>
+                <div></div>
+                <div title="Destination folder in Radarr">Target Folder</div>
+                <div title="Higher priority rules take precedence">Priority</div>
+                <div title="Reorder or remove rules" style="text-align: center;">Actions</div>
+            </div>
+        ` : '';
+        
+        const rulesHtml = rootFolderMappings.map((mapping, index) => {
             // Check if folder exists in available folders
             const folderExists = availableRootFolders.includes(mapping.root_folder);
             const warningIcon = !folderExists && availableRootFolders.length > 0 ? 
-                `<span style="color: #ffa500; margin-left: 0.5rem;" title="Warning: This folder may not exist in Radarr">⚠</span>` : '';
+                `<span style="color: #ffa500; margin-left: 0.25rem;" title="Warning: This folder may not exist in Radarr">⚠</span>` : '';
             
             return `
-            <div class="mapping-rule" style="display: flex; align-items: center; padding: 0.75rem; margin-bottom: 0.5rem; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 4px;">
-                <div style="flex: 1;">
-                    <div style="display: flex; align-items: center; gap: 1rem;">
-                        <span style="font-weight: 500; color: var(--text-primary);">${mapping.genres.join(', ')}</span>
-                        <span style="color: var(--text-muted);">→</span>
-                        <span style="color: var(--primary-color);">${mapping.root_folder}</span>
-                        ${warningIcon}
-                        <span style="padding: 0.25rem 0.5rem; background: var(--bg-tertiary); border-radius: 3px; font-size: 0.85rem; color: var(--text-secondary);">Priority: ${mapping.priority}</span>
-                    </div>
+            <div class="mapping-rule" style="display: grid; grid-template-columns: 2fr auto 2fr 100px 120px; gap: 1rem; align-items: center; padding: 0.75rem; margin-bottom: 0.5rem; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; transition: background 0.2s;">
+                <div style="font-weight: 500; color: var(--text-primary);">
+                    ${mapping.genres.join(', ')}
                 </div>
-                <div style="display: flex; gap: 0.25rem;">
-                    ${index > 0 ? `<button type="button" class="btn btn-sm" onclick="moveMapping(${mapping.id}, 'up')" title="Move Up" style="padding: 0.25rem 0.5rem; color: var(--text-primary);">↑</button>` : ''}
-                    ${index < rootFolderMappings.length - 1 ? `<button type="button" class="btn btn-sm" onclick="moveMapping(${mapping.id}, 'down')" title="Move Down" style="padding: 0.25rem 0.5rem; color: var(--text-primary);">↓</button>` : ''}
-                    <button type="button" class="btn btn-sm" onclick="removeRootFolderMapping(${mapping.id})" title="Delete" style="padding: 0.25rem 0.5rem; background-color: #dc3545; color: white; border: 1px solid #dc3545;">✕</button>
+                <div style="color: var(--text-muted); text-align: center;">
+                    →
+                </div>
+                <div style="display: flex; align-items: center; color: var(--primary-color);">
+                    <span>${mapping.root_folder}</span>
+                    ${warningIcon}
+                </div>
+                <div>
+                    <span style="display: inline-block; padding: 0.25rem 0.5rem; background: var(--bg-tertiary); border-radius: 4px; font-size: 0.85rem; color: var(--text-secondary); font-weight: 500;">
+                        ${mapping.priority}
+                    </span>
+                </div>
+                <div style="display: flex; gap: 0.25rem; justify-content: flex-end;">
+                    ${index > 0 ? 
+                        `<button type="button" class="btn btn-sm" onclick="moveMapping(${mapping.id}, 'up')" 
+                                title="Move rule up (higher priority)" 
+                                style="padding: 0.375rem 0.5rem; background: var(--bg-secondary); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 4px; transition: all 0.2s;">
+                            ↑
+                        </button>` : 
+                        `<div style="width: 35px;"></div>`
+                    }
+                    ${index < rootFolderMappings.length - 1 ? 
+                        `<button type="button" class="btn btn-sm" onclick="moveMapping(${mapping.id}, 'down')" 
+                                title="Move rule down (lower priority)" 
+                                style="padding: 0.375rem 0.5rem; background: var(--bg-secondary); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 4px; transition: all 0.2s;">
+                            ↓
+                        </button>` : 
+                        `<div style="width: 35px;"></div>`
+                    }
+                    <button type="button" class="btn btn-sm" onclick="removeRootFolderMapping(${mapping.id})" 
+                            title="Remove this rule" 
+                            style="padding: 0.375rem 0.5rem; background: #dc3545; color: white; border: 1px solid #dc3545; border-radius: 4px; transition: all 0.2s;">
+                        ✕
+                    </button>
                 </div>
             </div>
             `;
         }).join('');
         
+        const helpText = rootFolderMappings.length > 0 ? `
+            <div style="margin-top: 1rem; padding: 0.75rem; background: var(--bg-tertiary); border-radius: 4px; font-size: 0.85rem; color: var(--text-muted);">
+                <span style="margin-right: 0.5rem;">ℹ️</span>
+                Rules are evaluated from top to bottom. When a movie matches multiple rules, the one with the highest priority wins.
+            </div>
+        ` : '';
+        
+        const html = tableHeader + rulesHtml + helpText;
+        
         container.innerHTML = html;
+        
+        // Add hover effects to buttons after rendering
+        container.querySelectorAll('button').forEach(btn => {
+            if (!btn.style.background.includes('#dc3545')) {
+                btn.addEventListener('mouseenter', function() {
+                    this.style.background = 'var(--bg-tertiary)';
+                });
+                btn.addEventListener('mouseleave', function() {
+                    this.style.background = 'var(--bg-secondary)';
+                });
+            }
+        });
     }
     
     window.collectRootFolderMappings = function() {
@@ -1423,5 +1483,20 @@ function reloadScheduler() {
     if (document.getElementById('schedulerDebugContent')) {
         refreshSchedulerStatus();
     }
+
+    // Advanced Settings toggler
+    window.toggleAdvancedSettings = function () {
+        const content = document.getElementById('advancedSettingsContent');
+        const chevron = document.getElementById('advancedSettingsChevron');
+        if (!content || !chevron) return;
+        const open = content.style.display !== 'none';
+        content.style.display = open ? 'none' : 'block';
+        chevron.textContent = open ? '▸' : '▾';
+    };
+
+    // Refresh root folders near the mapping select
+    window.refreshRootFolders = function () {
+        loadAvailableRootFolders(true);
+    };
 
 })();

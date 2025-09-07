@@ -174,50 +174,38 @@ async def save_configuration(config: SaveConfigRequest):
             )
 
         # Add root folder config if provided
-        # Special handling: if the config is disabled with empty mappings,
-        # check if we should preserve existing config instead
+        # Semantics:
+        # - If field present: respect posted 'enabled'. For mappings:
+        #   - if posted list is empty and existing has rules, preserve existing rules but apply posted 'enabled'
+        #   - else, save exactly what was posted
+        # - If field absent: preserve existing config untouched
         if config.radarr_root_folder_config:
-            # Check if this is the default "disabled" state
-            is_default_disabled = (
-                not config.radarr_root_folder_config.enabled
-                and len(config.radarr_root_folder_config.mappings) == 0
-            )
-            
-            # If it's the default disabled state, check if we have existing config
-            if is_default_disabled:
-                # Check if there's existing config that should be preserved
-                current_settings = settings
-                if current_settings.radarr_root_folder_config.enabled or current_settings.radarr_root_folder_config.mappings:
-                    # Preserve existing config by re-adding it
-                    logger.debug("Preserving existing root folder config as UI sent default disabled state")
-                    radarr_config["root_folder_config"] = {
-                        "enabled": current_settings.radarr_root_folder_config.enabled,
-                        "mappings": [
-                            {
-                                "genres": mapping.genres,
-                                "root_folder": mapping.root_folder,
-                                "priority": mapping.priority,
-                            }
-                            for mapping in current_settings.radarr_root_folder_config.mappings
-                        ],
-                    }
-                else:
-                    # No existing config, safe to save the disabled state
-                    radarr_config["root_folder_config"] = {
-                        "enabled": False,
-                        "mappings": [],
-                    }
-            else:
-                # Not the default state, save the provided config
+            posted = config.radarr_root_folder_config
+            current = settings.radarr_root_folder_config
+
+            if len(posted.mappings) == 0 and len(current.mappings) > 0:
+                # Keep rules, apply posted enabled flag (allows disabling without losing rules)
                 radarr_config["root_folder_config"] = {
-                    "enabled": config.radarr_root_folder_config.enabled,
+                    "enabled": posted.enabled,
                     "mappings": [
                         {
-                            "genres": mapping.genres,
-                            "root_folder": mapping.root_folder,
-                            "priority": mapping.priority,
+                            "genres": m.genres,
+                            "root_folder": m.root_folder,
+                            "priority": m.priority,
                         }
-                        for mapping in config.radarr_root_folder_config.mappings
+                        for m in current.mappings
+                    ],
+                }
+            else:
+                radarr_config["root_folder_config"] = {
+                    "enabled": posted.enabled,
+                    "mappings": [
+                        {
+                            "genres": m.genres,
+                            "root_folder": m.root_folder,
+                            "priority": m.priority,
+                        }
+                        for m in posted.mappings
                     ],
                 }
         else:

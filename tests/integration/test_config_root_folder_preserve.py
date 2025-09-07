@@ -115,13 +115,13 @@ def test_save_should_preserve_existing_mappings_when_feature_not_in_use(tmp_path
     # Re-read config file
     current = _read_current_config(tmp_path)
 
-    # Desired behavior: preserve existing enabled mapping unless explicitly changed.
-    # This assertion will FAIL with current code, highlighting the critical regression.
+    # Desired behavior: when UI posts disabled+empty, preserve existing rules
+    # but respect the requested disabled state.
     assert (
         current.get("radarr", {})
         .get("root_folder_config", {})
         .get("enabled")
-        is True
+        is False
     )
     mappings = (
         current.get("radarr", {})
@@ -129,4 +129,3 @@ def test_save_should_preserve_existing_mappings_when_feature_not_in_use(tmp_path
         .get("mappings", [])
     )
     assert mappings and mappings[0].get("root_folder") == "/movies/horror"
-
