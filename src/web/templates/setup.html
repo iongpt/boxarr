@@ -102,44 +102,68 @@
 
             <!-- Root Folder Mapping Section -->
             <div id="rootFolderMappingSection" class="form-section {% if is_configured %}show{% endif %}">
-                <h2 class="section-title">Root Folder Mappings (Optional)</h2>
+                <h2 class="section-title">Genre-Based Root Folders (Optional)</h2>
                 <p class="text-muted" style="margin-bottom: 1rem;">Automatically organize movies into different folders based on their genres.</p>
                 
                 <div class="checkbox-group">
                     <input type="checkbox" id="rootFolderMappingEnabled" name="root_folder_mapping_enabled" class="checkbox-input"
                            onchange="toggleRootFolderMapping()">
                     <div>
-                        <label for="rootFolderMappingEnabled" class="checkbox-label main">Enable Genre-Based Root Folders</label>
-                        <div class="checkbox-label description">Automatically place movies in specific folders based on their genres</div>
+                        <label for="rootFolderMappingEnabled" class="checkbox-label main">Enable Genre-Based Organization</label>
+                        <div class="checkbox-label description">Movies will be automatically placed in folders based on their genres</div>
                     </div>
                 </div>
 
-                <div id="rootFolderMappingControls" style="display: none; margin-top: 1rem;">
-                    <div class="checkbox-group" style="margin-bottom: 1rem;">
-                        <input type="checkbox" id="allowManualOverride" name="allow_manual_override" class="checkbox-input" checked>
-                        <div>
-                            <label for="allowManualOverride" class="checkbox-label main">Allow Manual Override</label>
-                            <div class="checkbox-label description">Let users manually select a different folder when adding movies</div>
+                <div id="rootFolderMappingControls" style="display: none; margin-top: 1.5rem;">
+                    <!-- Add New Rule Widget -->
+                    <div style="background: var(--bg-secondary); padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem;">
+                        <h4 style="margin: 0 0 1rem 0; color: var(--text-primary);">Add New Rule</h4>
+                        <div style="display: grid; grid-template-columns: 2fr 2fr 1fr auto; gap: 0.5rem; align-items: end;">
+                            <div>
+                                <label class="form-label" style="font-size: 0.85rem;">Select Genres</label>
+                                <select id="newMappingGenres" multiple style="width: 100%; min-height: 38px; padding: 0.25rem; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 4px;">
+                                    {% set common_genres = ['Action', 'Adventure', 'Animation', 'Comedy', 'Crime', 'Documentary', 
+                                                           'Drama', 'Family', 'Fantasy', 'History', 'Horror', 'Music', 
+                                                           'Mystery', 'Romance', 'Science Fiction', 'TV Movie', 'Thriller', 'War', 'Western'] %}
+                                    {% for genre in common_genres %}
+                                    <option value="{{ genre }}">{{ genre }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div>
+                                <label class="form-label" style="font-size: 0.85rem;">Root Folder</label>
+                                <select id="newMappingFolder" style="width: 100%; padding: 0.5rem; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 4px;">
+                                    <option value="">Select folder...</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="form-label" style="font-size: 0.85rem;">Priority</label>
+                                <input type="number" id="newMappingPriority" value="10" min="0" max="100" style="width: 100%; padding: 0.5rem; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 4px;">
+                            </div>
+                            <button type="button" class="btn btn-primary" onclick="addRootFolderMapping()" style="padding: 0.5rem 1rem;">
+                                Add Rule
+                            </button>
+                        </div>
+                        <small class="text-muted" style="display: block; margin-top: 0.5rem;">Tip: Higher priority rules take precedence when a movie matches multiple rules</small>
+                    </div>
+
+                    <!-- Existing Rules List -->
+                    <div style="background: var(--bg-secondary); padding: 1rem; border-radius: 8px;">
+                        <h4 style="margin: 0 0 1rem 0; color: var(--text-primary);">Active Rules</h4>
+                        <div id="mappingsList">
+                            <div class="empty-state" style="text-align: center; padding: 2rem; color: var(--text-muted);">
+                                No rules configured yet. Add your first rule above!
+                            </div>
                         </div>
                     </div>
 
-                    <div class="mapping-container">
-                        <h3 style="margin-bottom: 0.5rem; color: var(--text-primary);">Genre Mappings</h3>
-                        <div id="mappingsList" class="mappings-list">
-                            <!-- Mappings will be added here dynamically -->
-                        </div>
-                        <button type="button" class="btn btn-secondary" onclick="addRootFolderMapping()" style="margin-top: 0.5rem;">
-                            ➕ Add Mapping
-                        </button>
-                    </div>
-
-                    <div class="alert" style="margin-top: 1rem; padding: 12px; background: var(--bg-info); color: var(--text-primary); border-left: 3px solid var(--primary-color); border-radius: 4px;">
+                    <!-- Help Text -->
+                    <div class="alert" style="margin-top: 1rem; padding: 12px; background: var(--bg-tertiary); color: var(--text-primary); border-left: 3px solid var(--primary-color); border-radius: 4px;">
                         <strong>ℹ️ How it works:</strong>
-                        <ul style="margin: 8px 0; padding-left: 20px;">
-                            <li>Movies will be placed in folders based on their genres</li>
-                            <li>If a movie matches multiple mappings, the one with highest priority wins</li>
+                        <ul style="margin: 8px 0 0 0; padding-left: 20px; font-size: 0.9rem;">
+                            <li>When adding a movie, Boxarr checks its genres against your rules</li>
+                            <li>If multiple rules match, the one with highest priority wins</li>
                             <li>Movies without matching genres use the default root folder</li>
-                            <li>Example: Horror movies → /movies/horror, War movies → /movies/war</li>
                         </ul>
                     </div>
                 </div>

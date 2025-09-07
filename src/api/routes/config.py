@@ -68,7 +68,6 @@ async def get_root_folder_configuration():
         "default_root_folder": str(current_settings.radarr_root_folder),
         "config": {
             "enabled": current_settings.radarr_root_folder_config.enabled,
-            "allow_manual_override": current_settings.radarr_root_folder_config.allow_manual_override,
             "mappings": [
                 {
                     "genres": mapping.genres,
@@ -178,7 +177,6 @@ async def save_configuration(config: SaveConfigRequest):
         if config.radarr_root_folder_config:
             radarr_config["root_folder_config"] = {
                 "enabled": config.radarr_root_folder_config.enabled,
-                "allow_manual_override": config.radarr_root_folder_config.allow_manual_override,
                 "mappings": [
                     {
                         "genres": mapping.genres,

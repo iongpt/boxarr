@@ -11,7 +11,6 @@ radarr:
   # Root folder mapping configuration
   root_folder_config:
     enabled: true  # Enable genre-based root folder mapping
-    allow_manual_override: true  # Allow users to select different folder when adding movies
     
     # Define mappings from genres to root folders
     # Movies will be placed based on their genres
@@ -104,8 +103,3 @@ boxarr:
 # 3. Configure the mappings in this file
 # 4. Enable the feature in Boxarr setup page
 #
-# Manual override:
-# When allow_manual_override is true, users can:
-# - See the suggested folder based on genres
-# - Choose a different folder from a dropdown
-# - Override the automatic selection if needed

@@ -59,33 +59,19 @@ class RootFolderManager:
     def determine_root_folder(
         self,
         genres: Optional[List[str]] = None,
-        manual_override: Optional[str] = None,
         movie_title: Optional[str] = None,
     ) -> str:
         """
-        Determine the appropriate root folder for a movie.
+        Determine the appropriate root folder for a movie based on genres.
 
         Args:
             genres: List of movie genres
-            manual_override: Manual root folder selection (highest priority)
             movie_title: Movie title for logging purposes
 
         Returns:
             The determined root folder path
         """
-        # Priority 1: Manual override
-        if manual_override and settings.radarr_root_folder_config.allow_manual_override:
-            if self.validate_root_folder(manual_override):
-                logger.info(
-                    f"Using manual root folder override for {movie_title or 'movie'}: {manual_override}"
-                )
-                return manual_override
-            else:
-                logger.warning(
-                    f"Manual root folder {manual_override} not available in Radarr, falling back to genre mapping"
-                )
-
-        # Priority 2: Genre-based mapping
+        # Genre-based mapping
         if genres and settings.radarr_root_folder_config.enabled:
             mapped_folder = settings.get_root_folder_for_genres(genres)
             if mapped_folder != str(settings.radarr_root_folder):  # If not default
@@ -101,7 +87,7 @@ class RootFolderManager:
                         f"falling back to default"
                     )
 
-        # Priority 3: Default root folder
+        # Default root folder
         default_folder = str(settings.radarr_root_folder)
         logger.debug(
             f"Using default root folder for {movie_title or 'movie'}: {default_folder}"

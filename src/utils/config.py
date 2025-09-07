@@ -52,9 +52,6 @@ class RootFolderConfig(BaseModel):
     """Configuration for root folder mappings."""
 
     enabled: bool = Field(default=False, description="Enable root folder mappings")
-    allow_manual_override: bool = Field(
-        default=True, description="Allow manual root folder selection per movie"
-    )
     mappings: List[RootFolderMapping] = Field(
         default_factory=list, description="List of genre to root folder mappings"
     )
@@ -258,10 +255,6 @@ class Settings(BaseSettings):
                             config = RootFolderConfig()
                             if "enabled" in value:
                                 config.enabled = value["enabled"]
-                            if "allow_manual_override" in value:
-                                config.allow_manual_override = value[
-                                    "allow_manual_override"
-                                ]
                             if "mappings" in value and isinstance(
                                 value["mappings"], list
                             ):

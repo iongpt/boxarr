@@ -490,7 +490,6 @@ class BoxarrScheduler:
                     movie_genres = movie_info.get("genres", [])
                     root_folder = root_folder_manager.determine_root_folder(
                         genres=movie_genres,
-                        manual_override=None,  # No manual override in auto-add
                         movie_title=movie_info.get("title", "Unknown"),
                     )
 

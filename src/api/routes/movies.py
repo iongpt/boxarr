@@ -51,8 +51,6 @@ class AddMovieRequest(BaseModel):
     title: Optional[str] = None
     movie_title: Optional[str] = None
     tmdb_id: Optional[int] = None
-    root_folder: Optional[str] = None  # Optional root folder override
-    genres: Optional[List[str]] = None  # Movie genres for auto-mapping
 
 
 @router.get("/root-folders/available")
@@ -72,7 +70,6 @@ async def get_available_root_folders():
             "folders": folders,
             "stats": stats,
             "mappings_enabled": settings.radarr_root_folder_config.enabled,
-            "allow_manual_override": settings.radarr_root_folder_config.allow_manual_override,
         }
     except Exception as e:
         logger.error(f"Error getting root folders: {e}")
@@ -291,16 +288,15 @@ async def add_movie_to_radarr(request: AddMovieRequest):
                 search_results[0],
             )
 
-        # Determine root folder
+        # Determine root folder based on genres
         root_folder_manager = RootFolderManager(radarr_service)
 
-        # Use genres from request or from movie data
-        genres = request.genres or movie_data.get("genres", [])
+        # Get genres from movie data
+        genres = movie_data.get("genres", [])
 
         # Determine appropriate root folder
         root_folder = root_folder_manager.determine_root_folder(
             genres=genres,
-            manual_override=request.root_folder,
             movie_title=movie_data.get("title", "Unknown"),
         )
 
