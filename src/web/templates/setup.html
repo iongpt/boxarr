@@ -100,114 +100,9 @@
                 </div>
             </div>
 
-            <!-- Root Folder Mapping Section -->
-            <div id="rootFolderMappingSection" class="form-section {% if is_configured %}show{% endif %}">
-                <h2 class="section-title">Genre-Based Root Folders (Optional)</h2>
-                <p class="text-muted" style="margin-bottom: 1rem;">Automatically organize movies into different folders based on their genres.</p>
-                
-                <div class="checkbox-group">
-                    <input type="checkbox" id="rootFolderMappingEnabled" name="root_folder_mapping_enabled" class="checkbox-input"
-                           onchange="toggleRootFolderMapping()">
-                    <div>
-                        <label for="rootFolderMappingEnabled" class="checkbox-label main">Enable Genre-Based Organization</label>
-                        <div class="checkbox-label description">Movies will be automatically placed in folders based on their genres</div>
-                    </div>
-                </div>
+            
 
-                <div id="rootFolderMappingControls" style="display: none; margin-top: 1.5rem;">
-                    <!-- Add New Rule Widget -->
-                    <div style="background: var(--bg-secondary); padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem;">
-                        <h4 style="margin: 0 0 1rem 0; color: var(--text-primary);">Add New Rule</h4>
-                        <div style="display: grid; grid-template-columns: 2fr 2fr 1fr auto; gap: 0.5rem; align-items: end;">
-                            <div>
-                                <label class="form-label" style="font-size: 0.85rem;">Select Genres</label>
-                                <select id="newMappingGenres" multiple style="width: 100%; min-height: 38px; padding: 0.25rem; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 4px;">
-                                    {% set common_genres = ['Action', 'Adventure', 'Animation', 'Comedy', 'Crime', 'Documentary', 
-                                                           'Drama', 'Family', 'Fantasy', 'History', 'Horror', 'Music', 
-                                                           'Mystery', 'Romance', 'Science Fiction', 'TV Movie', 'Thriller', 'War', 'Western'] %}
-                                    {% for genre in common_genres %}
-                                    <option value="{{ genre }}">{{ genre }}</option>
-                                    {% endfor %}
-                                </select>
-                            </div>
-                            <div>
-                                <label class="form-label" style="font-size: 0.85rem;">Root Folder</label>
-                                <select id="newMappingFolder" style="width: 100%; padding: 0.5rem; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 4px;">
-                                    <option value="">Select folder...</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="form-label" style="font-size: 0.85rem;">Priority</label>
-                                <input type="number" id="newMappingPriority" value="10" min="0" max="100" style="width: 100%; padding: 0.5rem; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 4px;">
-                            </div>
-                            <button type="button" class="btn btn-primary" onclick="addRootFolderMapping()" style="padding: 0.5rem 1rem;">
-                                Add Rule
-                            </button>
-                        </div>
-                        <small class="text-muted" style="display: block; margin-top: 0.5rem;">Tip: Higher priority rules take precedence when a movie matches multiple rules</small>
-                    </div>
-
-                    <!-- Existing Rules List -->
-                    <div style="background: var(--bg-secondary); padding: 1rem; border-radius: 8px;">
-                        <h4 style="margin: 0 0 1rem 0; color: var(--text-primary);">Active Rules</h4>
-                        <div id="mappingsList">
-                            <div class="empty-state" style="text-align: center; padding: 2rem; color: var(--text-muted);">
-                                No rules configured yet. Add your first rule above!
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Help Text -->
-                    <div class="alert" style="margin-top: 1rem; padding: 12px; background: var(--bg-tertiary); color: var(--text-primary); border-left: 3px solid var(--primary-color); border-radius: 4px;">
-                        <strong>ℹ️ How it works:</strong>
-                        <ul style="margin: 8px 0 0 0; padding-left: 20px; font-size: 0.9rem;">
-                            <li>When adding a movie, Boxarr checks its genres against your rules</li>
-                            <li>If multiple rules match, the one with highest priority wins</li>
-                            <li>Movies without matching genres use the default root folder</li>
-                        </ul>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Server Settings Section -->
-            <div class="form-section">
-                <h2 class="section-title">Server Settings</h2>
-                
-                <div class="form-group">
-                    <label for="urlBase" class="form-label">URL Base (for Reverse Proxy)</label>
-                    <input type="text" id="urlBase" class="form-input" 
-                           value="{{ url_base|default('') }}" 
-                           readonly
-                           style="background-color: var(--bg-secondary); opacity: 0.7; cursor: not-allowed;">
-                    
-                    <div class="alert" style="margin-top: 10px; padding: 12px; background: var(--bg-info); color: var(--text-primary); border-left: 3px solid var(--primary-color); border-radius: 4px;">
-                        <strong>ℹ️ Current URL Base:</strong> 
-                        {% if url_base %}
-                            <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 3px; color: var(--text-primary);">/{{ url_base }}/</code> - The app is accessible at <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 3px; color: var(--text-primary);">http://your-server/{{ url_base }}/</code>
-                        {% else %}
-                            <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 3px; color: var(--text-primary);">/</code> (root) - The app is accessible at <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 3px; color: var(--text-primary);">http://your-server/</code>
-                        {% endif %}
-                    </div>
-                    
-                    <div style="margin-top: 10px; padding: 12px; background: var(--bg-secondary); color: var(--text-primary); border-radius: 4px; border: 1px solid var(--border-color);">
-                        <strong>📝 How to Configure:</strong>
-                        <p style="margin: 8px 0; color: var(--text-secondary);">To run Boxarr behind a reverse proxy, set the <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 3px; color: var(--text-primary);">BOXARR_URL_BASE</code> environment variable:</p>
-                        
-                        <div style="background: var(--bg-tertiary); color: var(--text-primary); padding: 10px; border-radius: 4px; margin: 8px 0; font-family: monospace; font-size: 0.9em; border: 1px solid var(--border-color);">
-                            <div style="color: var(--text-muted);"># Docker Compose:</div>
-                            <div>environment:</div>
-                            <div>&nbsp;&nbsp;- BOXARR_URL_BASE=boxarr</div>
-                        </div>
-                        
-                        <div style="background: var(--bg-tertiary); color: var(--text-primary); padding: 10px; border-radius: 4px; margin: 8px 0; font-family: monospace; font-size: 0.9em; border: 1px solid var(--border-color);">
-                            <div style="color: var(--text-muted);"># Command line:</div>
-                            <div>BOXARR_URL_BASE=boxarr python -m src.main</div>
-                        </div>
-                        
-                        <small class="text-muted">Do not include leading or trailing slashes. After setting, restart Boxarr to apply changes.</small>
-                    </div>
-                </div>
-            </div>
+            
 
             <!-- Automation Settings Section -->
             <div class="form-section">
@@ -424,7 +319,146 @@
                 </div>
             </div>
 
-            <div class="button-row">
+            <!-- Advanced Settings (collapsible, default closed). Add margin-top and place right above buttons. -->
+            <div class="form-section" id="advancedSettingsSection" style="margin-top: 2rem;">
+                <div style="display:flex; align-items:center; justify-content:space-between; cursor:pointer;"
+                     onclick="(function(){ const s=document.getElementById('advancedSettingsContent'); const i=document.getElementById('advancedSettingsChevron'); if(s.style.display==='none'){s.style.display='block'; i.textContent='▾';} else {s.style.display='none'; i.textContent='▸';}})()">
+                    <h2 class="section-title" style="margin:0;">Advanced Settings</h2>
+                    <span id="advancedSettingsChevron" aria-hidden="true">▸</span>
+                </div>
+                <div id="advancedSettingsContent" style="display:none; margin-top:1rem;">
+                    <!-- Genre-Based Root Folders section moved here -->
+                    <div id="rootFolderMappingSection" class="form-section">
+                        <h3 class="section-title">Genre-Based Root Folders (Optional)</h3>
+                        <p class="text-muted" style="margin-bottom: 1rem;">Automatically organize movies into different folders based on their genres.</p>
+                        
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="rootFolderMappingEnabled" name="root_folder_mapping_enabled" class="checkbox-input"
+                                   {% if root_folder_mapping_enabled %}checked{% endif %}
+                                   onchange="toggleRootFolderMapping()">
+                            <div>
+                                <label for="rootFolderMappingEnabled" class="checkbox-label main">Enable Genre-Based Organization</label>
+                                <div class="checkbox-label description">Movies will be automatically placed in folders based on their genres</div>
+                            </div>
+                        </div>
+
+                        <div id="rootFolderMappingControls" style="display: {% if root_folder_mapping_enabled %}block{% else %}none{% endif %}; margin-top: 1.5rem;">
+                            <!-- Add New Rule Widget -->
+                            <div style="background: var(--bg-secondary); padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem;">
+                                <h4 style="margin: 0 0 1rem 0; color: var(--text-primary);">Add New Rule</h4>
+                                <div style="display: grid; grid-template-columns: 2fr 2fr 1fr auto; gap: 0.5rem; align-items: end;">
+                                    <div>
+                                        <label class="form-label" style="font-size: 0.85rem;">Select Genres</label>
+                                        <select id="newMappingGenres" multiple style="width: 100%; min-height: 38px; padding: 0.25rem; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 4px;">
+                                            {% set common_genres = ['Action', 'Adventure', 'Animation', 'Comedy', 'Crime', 'Documentary', 
+                                                                   'Drama', 'Family', 'Fantasy', 'History', 'Horror', 'Music', 
+                                                                   'Mystery', 'Romance', 'Science Fiction', 'TV Movie', 'Thriller', 'War', 'Western'] %}
+                                            {% for genre in common_genres %}
+                                            <option value="{{ genre }}">{{ genre }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="form-label" style="font-size: 0.85rem;">Root Folder</label>
+                                        <select id="newMappingFolder" style="width: 100%; padding: 0.5rem; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 4px;">
+                                            <option value="">Select folder...</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="form-label" style="font-size: 0.85rem;">Priority</label>
+                                        <input type="number" id="newMappingPriority" value="10" min="0" max="100" style="width: 100%; padding: 0.5rem; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 4px;">
+                                    </div>
+                                    <button type="button" class="btn btn-primary" onclick="addRootFolderMapping()" style="padding: 0.5rem 1rem;">
+                                        Add Rule
+                                    </button>
+                                </div>
+                                <small class="text-muted" style="display: block; margin-top: 0.5rem;">Tip: Higher priority rules take precedence when a movie matches multiple rules</small>
+                            </div>
+
+                            <!-- Existing Rules List -->
+                            <div style="background: var(--bg-secondary); padding: 1rem; border-radius: 8px;">
+                                <h4 style="margin: 0 0 1rem 0; color: var(--text-primary);">Active Rules</h4>
+                                <div id="mappingsList">
+                                    {% if root_folder_mappings and root_folder_mappings|length > 0 %}
+                                        {% for m in root_folder_mappings %}
+                                        <div class="mapping-rule" style="display: flex; align-items: center; padding: 0.75rem; margin-bottom: 0.5rem; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 4px;">
+                                            <div style="flex: 1;">
+                                                <div style="display: flex; align-items: center; gap: 1rem;">
+                                                    <span style="font-weight: 500; color: var(--text-primary);">{{ m.genres|join(', ') }}</span>
+                                                    <span style="color: var(--text-muted);">→</span>
+                                                    <span style="color: var(--primary-color);">{{ m.root_folder }}</span>
+                                                    <span style="padding: 0.25rem 0.5rem; background: var(--bg-tertiary); border-radius: 3px; font-size: 0.85rem; color: var(--text-secondary);">Priority: {{ m.priority }}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        {% endfor %}
+                                    {% else %}
+                                        <div class="empty-state" style="text-align: center; padding: 2rem; color: var(--text-muted);">
+                                            No rules configured yet. Add your first rule above!
+                                        </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+
+                            <!-- Help Text -->
+                            <div class="alert" style="margin-top: 1rem; padding: 12px; background: var(--bg-tertiary); color: var(--text-primary); border-left: 3px solid var(--primary-color); border-radius: 4px;">
+                                <strong>ℹ️ How it works:</strong>
+                                <ul style="margin: 8px 0 0 0; padding-left: 20px; font-size: 0.9rem;">
+                                    <li>When adding a movie, Boxarr checks its genres against your rules</li>
+                                    <li>If multiple rules match, the one with highest priority wins</li>
+                                    <li>Movies without matching genres use the default root folder</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- URL Base (Reverse Proxy) -->
+                    <div class="form-group" style="margin-top: 1.5rem;">
+                        <label for="urlBase" class="form-label">URL Base (for Reverse Proxy)</label>
+                        <input type="text" id="urlBase" class="form-input"
+                               value="{{ url_base|default('') }}"
+                               readonly
+                               style="background-color: var(--bg-secondary); opacity: 0.7; cursor: not-allowed;">
+
+                        <div class="alert" style="margin-top: 10px; padding: 12px; background: var(--bg-info); color: var(--text-primary); border-left: 3px solid var(--primary-color); border-radius: 4px;">
+                            <strong>ℹ️ Current URL Base:</strong>
+                            {% if url_base %}
+                                <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 3px; color: var(--text-primary);">/{{ url_base }}/</code>
+                                – The app is accessible at
+                                <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 3px; color: var(--text-primary);">http://your-server/{{ url_base }}/</code>
+                            {% else %}
+                                <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 3px; color: var(--text-primary);">/</code>
+                                (root) – The app is accessible at
+                                <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 3px; color: var(--text-primary);">http://your-server/</code>
+                            {% endif %}
+                        </div>
+
+                        <div style="margin-top: 10px; padding: 12px; background: var(--bg-secondary); color: var(--text-primary); border-radius: 4px; border: 1px solid var(--border-color);">
+                            <strong>📝 How to Configure:</strong>
+                            <p style="margin: 8px 0; color: var(--text-secondary);">
+                                To run Boxarr behind a reverse proxy, set the
+                                <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 3px; color: var(--text-primary);">BOXARR_URL_BASE</code>
+                                environment variable:
+                            </p>
+
+                            <div style="background: var(--bg-tertiary); color: var(--text-primary); padding: 10px; border-radius: 4px; margin: 8px 0; font-family: monospace; font-size: 0.9em; border: 1px solid var(--border-color);">
+                                <div style="color: var(--text-muted);"># Docker Compose:</div>
+                                <div>environment:</div>
+                                <div>&nbsp;&nbsp;- BOXARR_URL_BASE=boxarr</div>
+                            </div>
+
+                            <div style="background: var(--bg-tertiary); color: var(--text-primary); padding: 10px; border-radius: 4px; margin: 8px 0; font-family: monospace; font-size: 0.9em; border: 1px solid var(--border-color);">
+                                <div style="color: var(--text-muted);"># Command line:</div>
+                                <div>BOXARR_URL_BASE=boxarr python -m src.main</div>
+                            </div>
+
+                            <small class="text-muted">Do not include leading or trailing slashes. After setting, restart Boxarr to apply changes.</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="button-row" style="margin-top: 1.5rem;">
                 {% if is_configured %}
                 <a href="{{ request.scope.get('root_path', '') }}/" class="btn btn-secondary">← Back to Dashboard</a>
                 {% else %}
@@ -440,6 +474,8 @@
             </div>
             
             <div id="saveMessage"></div>
+
+
         </form>
     </div>
 
@@ -455,6 +491,41 @@ document.addEventListener('DOMContentLoaded', function() {
             themeSelect.value = preference;
         }
     }
+    
+    // Initialize root folder mappings from server data
+    {% if root_folder_mappings %}
+    window.rootFolderMappings = [
+        {% for mapping in root_folder_mappings %}
+        {
+            id: {{ loop.index }},
+            genres: {{ mapping.genres | tojson }},
+            root_folder: {{ mapping.root_folder | tojson }},
+            priority: {{ mapping.priority }}
+        }{% if not loop.last %},{% endif %}
+        {% endfor %}
+    ];
+    window.mappingIdCounter = {{ root_folder_mappings|length }};
+    
+    // Store original config to detect changes
+    window.originalRootFolderConfig = {
+        enabled: {{ root_folder_mapping_enabled|lower }},
+        mappings: JSON.parse(JSON.stringify(window.rootFolderMappings))
+    };
+    
+    // Load available root folders and render existing mappings
+    if (document.getElementById('rootFolderMappingEnabled')?.checked) {
+        window.loadAvailableRootFolders();
+        window.renderMappingsList();
+    }
+    {% else %}
+    // No existing mappings, but initialize empty arrays
+    window.rootFolderMappings = [];
+    window.mappingIdCounter = 0;
+    window.originalRootFolderConfig = {
+        enabled: {{ root_folder_mapping_enabled|lower }},
+        mappings: []
+    };
+    {% endif %}
 });
 </script>
 </body>

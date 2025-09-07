@@ -174,18 +174,67 @@ async def save_configuration(config: SaveConfigRequest):
             )
 
         # Add root folder config if provided
+        # Special handling: if the config is disabled with empty mappings,
+        # check if we should preserve existing config instead
         if config.radarr_root_folder_config:
-            radarr_config["root_folder_config"] = {
-                "enabled": config.radarr_root_folder_config.enabled,
-                "mappings": [
-                    {
-                        "genres": mapping.genres,
-                        "root_folder": mapping.root_folder,
-                        "priority": mapping.priority,
+            # Check if this is the default "disabled" state
+            is_default_disabled = (
+                not config.radarr_root_folder_config.enabled
+                and len(config.radarr_root_folder_config.mappings) == 0
+            )
+            
+            # If it's the default disabled state, check if we have existing config
+            if is_default_disabled:
+                # Check if there's existing config that should be preserved
+                current_settings = settings
+                if current_settings.radarr_root_folder_config.enabled or current_settings.radarr_root_folder_config.mappings:
+                    # Preserve existing config by re-adding it
+                    logger.debug("Preserving existing root folder config as UI sent default disabled state")
+                    radarr_config["root_folder_config"] = {
+                        "enabled": current_settings.radarr_root_folder_config.enabled,
+                        "mappings": [
+                            {
+                                "genres": mapping.genres,
+                                "root_folder": mapping.root_folder,
+                                "priority": mapping.priority,
+                            }
+                            for mapping in current_settings.radarr_root_folder_config.mappings
+                        ],
                     }
-                    for mapping in config.radarr_root_folder_config.mappings
-                ],
-            }
+                else:
+                    # No existing config, safe to save the disabled state
+                    radarr_config["root_folder_config"] = {
+                        "enabled": False,
+                        "mappings": [],
+                    }
+            else:
+                # Not the default state, save the provided config
+                radarr_config["root_folder_config"] = {
+                    "enabled": config.radarr_root_folder_config.enabled,
+                    "mappings": [
+                        {
+                            "genres": mapping.genres,
+                            "root_folder": mapping.root_folder,
+                            "priority": mapping.priority,
+                        }
+                        for mapping in config.radarr_root_folder_config.mappings
+                    ],
+                }
+        else:
+            # No root folder config provided at all - preserve existing if any
+            current_settings = settings
+            if current_settings.radarr_root_folder_config.enabled or current_settings.radarr_root_folder_config.mappings:
+                radarr_config["root_folder_config"] = {
+                    "enabled": current_settings.radarr_root_folder_config.enabled,
+                    "mappings": [
+                        {
+                            "genres": mapping.genres,
+                            "root_folder": mapping.root_folder,
+                            "priority": mapping.priority,
+                        }
+                        for mapping in current_settings.radarr_root_folder_config.mappings
+                    ],
+                }
 
         config_data = {
             "radarr": radarr_config,

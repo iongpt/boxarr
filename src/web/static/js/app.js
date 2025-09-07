@@ -753,6 +753,8 @@ function reloadScheduler() {
     let rootFolderMappings = [];
     let availableRootFolders = [];
     let mappingIdCounter = 0;
+    let rootFolderMappingModified = false;
+    let originalRootFolderConfig = null;
     
     window.toggleRootFolderMapping = function() {
         const checkbox = document.getElementById('rootFolderMappingEnabled');
@@ -760,6 +762,7 @@ function reloadScheduler() {
         
         if (checkbox && controls) {
             controls.style.display = checkbox.checked ? 'block' : 'none';
+            rootFolderMappingModified = true; // Mark as modified when toggled
             
             // Load available root folders if enabling
             if (checkbox.checked) {
@@ -831,6 +834,7 @@ function reloadScheduler() {
         };
         
         rootFolderMappings.push(mapping);
+        rootFolderMappingModified = true; // Mark as modified when adding
         
         // Reset form
         genresSelect.selectedIndex = -1;
@@ -845,6 +849,7 @@ function reloadScheduler() {
     
     window.removeRootFolderMapping = function(mappingId) {
         rootFolderMappings = rootFolderMappings.filter(m => m.id !== mappingId);
+        rootFolderMappingModified = true; // Mark as modified when removing
         renderMappingsList();
     }
     
@@ -860,6 +865,7 @@ function reloadScheduler() {
             [rootFolderMappings[index + 1], rootFolderMappings[index]];
         }
         
+        rootFolderMappingModified = true; // Mark as modified when reordering
         renderMappingsList();
     }
     
@@ -876,23 +882,31 @@ function reloadScheduler() {
             return;
         }
         
-        const html = rootFolderMappings.map((mapping, index) => `
+        const html = rootFolderMappings.map((mapping, index) => {
+            // Check if folder exists in available folders
+            const folderExists = availableRootFolders.includes(mapping.root_folder);
+            const warningIcon = !folderExists && availableRootFolders.length > 0 ? 
+                `<span style="color: #ffa500; margin-left: 0.5rem;" title="Warning: This folder may not exist in Radarr">⚠</span>` : '';
+            
+            return `
             <div class="mapping-rule" style="display: flex; align-items: center; padding: 0.75rem; margin-bottom: 0.5rem; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 4px;">
                 <div style="flex: 1;">
                     <div style="display: flex; align-items: center; gap: 1rem;">
                         <span style="font-weight: 500; color: var(--text-primary);">${mapping.genres.join(', ')}</span>
                         <span style="color: var(--text-muted);">→</span>
                         <span style="color: var(--primary-color);">${mapping.root_folder}</span>
+                        ${warningIcon}
                         <span style="padding: 0.25rem 0.5rem; background: var(--bg-tertiary); border-radius: 3px; font-size: 0.85rem; color: var(--text-secondary);">Priority: ${mapping.priority}</span>
                     </div>
                 </div>
                 <div style="display: flex; gap: 0.25rem;">
-                    ${index > 0 ? `<button type="button" class="btn btn-sm" onclick="moveMapping(${mapping.id}, 'up')" title="Move Up" style="padding: 0.25rem 0.5rem;">↑</button>` : ''}
-                    ${index < rootFolderMappings.length - 1 ? `<button type="button" class="btn btn-sm" onclick="moveMapping(${mapping.id}, 'down')" title="Move Down" style="padding: 0.25rem 0.5rem;">↓</button>` : ''}
-                    <button type="button" class="btn btn-sm btn-danger" onclick="removeRootFolderMapping(${mapping.id})" title="Delete" style="padding: 0.25rem 0.5rem;">✕</button>
+                    ${index > 0 ? `<button type="button" class="btn btn-sm" onclick="moveMapping(${mapping.id}, 'up')" title="Move Up" style="padding: 0.25rem 0.5rem; color: var(--text-primary);">↑</button>` : ''}
+                    ${index < rootFolderMappings.length - 1 ? `<button type="button" class="btn btn-sm" onclick="moveMapping(${mapping.id}, 'down')" title="Move Down" style="padding: 0.25rem 0.5rem; color: var(--text-primary);">↓</button>` : ''}
+                    <button type="button" class="btn btn-sm" onclick="removeRootFolderMapping(${mapping.id})" title="Delete" style="padding: 0.25rem 0.5rem; background-color: #dc3545; color: white; border: 1px solid #dc3545;">✕</button>
                 </div>
             </div>
-        `).join('');
+            `;
+        }).join('');
         
         container.innerHTML = html;
     }
@@ -1184,21 +1198,24 @@ function reloadScheduler() {
             }
         }
         
-        // Collect root folder mappings if enabled
-        const rootFolderMappingEnabled = document.getElementById('rootFolderMappingEnabled')?.checked || false;
-        if (rootFolderMappingEnabled) {
-            const mappings = collectRootFolderMappings();
-            
-            config.radarr_root_folder_config = {
-                enabled: true,
-                mappings: mappings
-            };
-        } else {
-            config.radarr_root_folder_config = {
-                enabled: false,
-                mappings: []
-            };
+        // Collect root folder mappings only if modified
+        if (rootFolderMappingModified) {
+            const rootFolderMappingEnabled = document.getElementById('rootFolderMappingEnabled')?.checked || false;
+            if (rootFolderMappingEnabled) {
+                const mappings = collectRootFolderMappings();
+                
+                config.radarr_root_folder_config = {
+                    enabled: true,
+                    mappings: mappings
+                };
+            } else {
+                config.radarr_root_folder_config = {
+                    enabled: false,
+                    mappings: []
+                };
+            }
         }
+        // If not modified, don't include radarr_root_folder_config in the payload
         
         // Convert scheduler day and time to cron format
         if (schedulerDay && schedulerTime) {
@@ -1301,6 +1318,30 @@ function reloadScheduler() {
         
         // Setup page specific initialization
         if (isCurrentPath('/setup')) {
+            // Rehydrate root-folder mapping UI from server state
+            loadAvailableRootFolders();
+            fetch(apiUrl('/config/root-folders'))
+                .then(r => r.json())
+                .then(data => {
+                    const cfg = data?.config || { enabled: false, mappings: [] };
+                    originalRootFolderConfig = cfg;
+                    const checkbox = document.getElementById('rootFolderMappingEnabled');
+                    if (checkbox) {
+                        checkbox.checked = !!cfg.enabled;
+                        const controls = document.getElementById('rootFolderMappingControls');
+                        if (controls) controls.style.display = checkbox.checked ? 'block' : 'none';
+                    }
+                    // Build client list from server mappings
+                    rootFolderMappings = (cfg.mappings || []).map(m => ({
+                        id: ++mappingIdCounter,
+                        genres: m.genres || [],
+                        root_folder: m.root_folder,
+                        priority: parseInt(m.priority || 0)
+                    }));
+                    renderMappingsList();
+                    rootFolderMappingModified = false; // freshly loaded state
+                })
+                .catch(() => { /* ignore */ });
             const radarrUrl = document.getElementById('radarrUrl');
             const radarrApiKey = document.getElementById('radarrApiKey');
             const saveBtn = document.getElementById('saveBtn');

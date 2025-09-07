@@ -336,9 +336,14 @@ class Settings(BaseSettings):
 
         # Find matching mappings
         matches = []
+        # Normalize movie genres to lowercase for case-insensitive matching
+        normalized_movie_genres = {g.lower().strip() for g in genres}
+        
         for mapping in self.radarr_root_folder_config.mappings:
+            # Normalize mapping genres to lowercase for comparison
+            normalized_mapping_genres = {g.lower().strip() for g in mapping.genres}
             # Check if any of the movie's genres match the mapping's genres
-            matching_genres = set(genres) & set(mapping.genres)
+            matching_genres = normalized_movie_genres & normalized_mapping_genres
             if matching_genres:
                 matches.append((mapping, len(matching_genres)))
 

@@ -605,6 +605,16 @@ async def setup_page(request: Request):
             root_folder=str(settings.radarr_root_folder),
             quality_profile_default=settings.radarr_quality_profile_default,
             quality_profile_upgrade=settings.radarr_quality_profile_upgrade,
+            # Root folder mapping configuration
+            root_folder_mapping_enabled=settings.radarr_root_folder_config.enabled,
+            root_folder_mappings=[
+                {
+                    "genres": mapping.genres,
+                    "root_folder": mapping.root_folder,
+                    "priority": mapping.priority,
+                }
+                for mapping in settings.radarr_root_folder_config.mappings
+            ],
             scheduler_enabled=settings.boxarr_scheduler_enabled,
             scheduler_cron=settings.boxarr_scheduler_cron,
             scheduler_day=current_day,
