@@ -1,11 +1,10 @@
 """Integration test to ensure Settings UI rehydrates root-folder mappings.
 
-This test encodes the reported bug: after enabling and saving rules, navigating
-back to Settings shows the feature disabled and no rules. The desired behavior
-is that the checkbox is checked and existing rules are visible/loaded.
-
-Current implementation does not prefill the checkbox nor load existing rules, so
-this test is expected to FAIL, making the regression explicit.
+This test guards against a previously reported regression where, after enabling
+and saving rules, navigating back to Settings showed the feature disabled and no
+rules. The desired behavior is that the checkbox is checked and existing rules
+are visible/loaded. The current implementation satisfies this and the test
+should pass.
 """
 
 from pathlib import Path

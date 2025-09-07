@@ -28,6 +28,7 @@ Boxarr monitors the weekly box office top 10 and integrates with your Radarr ins
 - **📊 Weekly Box Office Tracking** - Automatically fetches top 10 movies from Box Office Mojo
 - **🔄 Radarr Integration** - Seamlessly checks and adds movies to your library
 - **🎯 Smart Matching** - Intelligently matches box office titles with Radarr entries
+- **🗂️ Genre‑Based Root Folders** - Automatically place movies into different Radarr root folders based on their genres (e.g., Horror → /movies/horror)
 - **⚡ Auto-Add Movies** - Optionally adds missing movies automatically with advanced filtering:
   - Limit to top X movies (1-10)
   - Filter by genre (whitelist/blacklist)
@@ -94,6 +95,7 @@ python -m src.main
    - Ultra-HD upgrade profile for selective upgrades
    - Auto-add movies toggle
    - Update schedule (e.g., Tuesday at 11 PM)
+   - Optional: Enable Genre‑Based Root Folders in Advanced Settings
 5. **Save and start tracking!**
 
 ## Using Boxarr
@@ -134,7 +136,7 @@ Select from your existing Radarr quality profiles:
 When enabled, Boxarr will automatically:
 1. Search for unmatched movies in TMDB
 2. Apply configured filters (genre, rating, top X limit)
-3. Add filtered movies to Radarr with your default profile
+3. Add filtered movies to Radarr with your default profile and determine the destination folder using your Genre‑Based Root Folder rules (if enabled)
 4. Mark them as monitored and trigger automatic search
 
 #### Advanced Filtering Options
@@ -143,6 +145,23 @@ When enabled, Boxarr will automatically:
   - Whitelist: Only add movies with selected genres
   - Blacklist: Exclude movies with selected genres
 - **Age Rating Filter**: Control content by MPAA ratings (G, PG, PG-13, R, NC-17, NR)
+
+### Genre‑Based Root Folders
+
+Boxarr can automatically choose the Radarr root folder for each added movie based on its genres. This helps you separate content like Horror, Family, or Action/Sci‑Fi into different storage locations.
+
+How it works:
+- You define rules that map one or more genres to a specific root folder.
+- When adding a movie (manually, via auto‑add, scheduler, or historical updates), Boxarr picks the best rule by:
+  - Priority (higher wins), then
+  - Number of matching genres.
+- If no rule matches or the mapped folder isn’t available in Radarr, Boxarr falls back to your default root folder and logs a warning.
+
+Configure it in Settings → Advanced → “Genre‑Based Root Folders,” or see an example YAML in `config/example-root-folders.yaml`.
+
+Notes:
+- Rules are case‑insensitive.
+- If you temporarily disable the feature, existing rules are preserved and can be re‑enabled later.
 
 ## Reverse Proxy Configuration
 

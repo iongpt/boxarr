@@ -1,6 +1,8 @@
 """Unit tests for genre→root-folder mapping logic.
 
-These focus on Settings.get_root_folder_for_genres, independent of Radarr.
+These focus on ``Settings.get_root_folder_for_genres`` independent of Radarr.
+The current implementation supports case-insensitive matching and priority
+tie‑breaking; these tests verify that behavior.
 """
 
 from src.utils.config import (
@@ -51,11 +53,10 @@ def test_mapping_selects_highest_priority_then_best_match_count():
 
 
 def test_mapping_is_case_insensitive_expected_behavior():
-    """Expected behavior: genre matching should be case-insensitive.
+    """Genre matching is case-insensitive.
 
-    Current implementation is case-sensitive, so this test exposes the issue
-    by asserting the desired behavior. It should FAIL until the matching logic
-    normalizes case for both configured and input genres.
+    Verifies mapping logic normalizes both configured and input genres and
+    selects the correct target folder regardless of case.
     """
     mappings = [
         RootFolderMapping(

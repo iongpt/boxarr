@@ -1,12 +1,12 @@
 """Integration test highlighting config overwrite risk for root-folder mappings.
 
-This represents the critical issue: a Save call that includes
-`radarr_root_folder_config: {enabled: false, mappings: []}` can wipe existing
-genre→root-folder rules, even if the user didn't intend to change them.
+This protects against an earlier bug where a Save call including
+``radarr_root_folder_config: {enabled: false, mappings: []}`` could wipe existing
+genre→root-folder rules even if the user didn’t intend to change them.
 
 The desired behavior (asserted here) is to preserve existing mappings unless the
-user explicitly modifies them. This test is expected to FAIL with current code,
-making the regression visible.
+user explicitly modifies them. The server now preserves rules and the test
+should pass.
 """
 
 import os
