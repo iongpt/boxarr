@@ -1,11 +1,17 @@
 # Boxarr - Box Office Tracking for Radarr
 
+<div align="center">
+  <img src="src/web/static/boxar-logo.png" alt="Boxarr Logo" width="200"/>
+  **Automatically track and add trending box office movies to your Radarr library.**
+</div>
+
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Docker](https://img.shields.io/badge/docker-ready-brightgreen.svg)](https://www.docker.com/)
 [![Wiki](https://img.shields.io/badge/wiki-documentation-blue)](https://github.com/iongpt/boxarr/wiki)
 
-**Automatically track and add trending box office movies to your Radarr library.**
+
+
 
 Boxarr monitors weekly box office charts and seamlessly integrates with Radarr to ensure your media library always has what people want to watch. No more manual searching for popular movies - Boxarr handles it automatically.
 
