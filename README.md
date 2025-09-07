@@ -23,19 +23,40 @@ Boxarr monitors weekly box office charts and seamlessly integrates with Radarr t
 - **Smart Automation** - Automatically add movies based on your preferences
 - **Family Friendly** - Keep your media server stocked with what people actually want to watch
 
+## 🤔 Why Not Overseerr?
+
+Overseerr is excellent for request-based libraries where users actively request content. Boxarr serves a different purpose:
+
+- **Automatic vs Request-Based**: Boxarr automatically adds mainstream hits without anyone having to request them
+- **Box Office Focus**: Tracks actual commercial success, not just user requests
+- **Zero User Interaction**: Works silently in the background, no user accounts or requests needed
+- **Complementary Tool**: Use both! Overseerr for specific requests, Boxarr for mainstream coverage
+
+## 📋 Why Not Radarr Lists?
+
+While Radarr lists are useful, Boxarr offers unique advantages:
+
+- **Box Office = Mainstream Appeal**: Tracks movies with proven commercial success, ensuring broad appeal
+- **Unbiased Selection**: Based on actual revenue data, not curator preferences or ratings
+- **Weekly Updates**: Fresh data every week, not dependent on list maintainer updates  
+- **Duplicate Prevention**: Uses Radarr API to check existing movies before adding
+- **Historical Tracking**: Build a library of movies that were culturally significant at release
+
+Boxarr ensures your library includes the mainstream movies that dominated theaters - the films people are most likely to want to watch.
+
 ## 📚 Documentation
 
 **[View the full documentation in our Wiki](https://github.com/iongpt/boxarr/wiki)** for detailed guides, configuration options, and troubleshooting.
 
 ## ✨ Key Features
 
-- **📊 Weekly Box Office Tracking** - Automatically fetches top 10 movies from Box Office Mojo
-- **🔄 Radarr Integration** - Seamlessly checks and adds movies to your library
-- **🎯 Smart Matching** - Intelligently matches box office titles with Radarr entries
+- **📊 [Weekly Box Office Tracking](https://github.com/iongpt/boxarr/wiki/Box-Office-Tracking)** - Automatically fetches top 10 movies from Box Office Mojo
+- **🔄 [Radarr Integration](https://github.com/iongpt/boxarr/wiki/Configuration-Guide#radarr-connection)** - Seamlessly checks and adds movies to your library
 - **🗂️ [Genre‑Based Root Folders](https://github.com/iongpt/boxarr/wiki/Genre-Based-Root-Folders)** - Organize movies into folders by genre
-- **⚡ [Auto-Add Movies](https://github.com/iongpt/boxarr/wiki/Configuration-Guide#auto-add-movies)** - Automatically add trending movies with smart filters
-- **📅 Scheduled Updates** - Runs weekly on your preferred schedule
-- **🎨 Beautiful Web UI** - Clean, responsive interface for all devices
+- **⚡ [Auto-Add Movies](https://github.com/iongpt/boxarr/wiki/Configuration-Guide#automation-settings)** - Automatically add trending movies with smart filters
+- **🔍 [Advanced Custom Filtering](https://github.com/iongpt/boxarr/wiki/Configuration-Guide#filter-settings)** - Fine-tune selections with genre, rating, and release year filters
+- **📅 [Scheduled Updates](https://github.com/iongpt/boxarr/wiki/Configuration-Guide#automation-settings)** - Runs weekly on your preferred schedule
+- **🎨 [Beautiful Web UI](https://github.com/iongpt/boxarr/wiki/Home#-visual-tour)** - Clean, responsive interface for all devices
 - **🚀 [Easy Setup](https://github.com/iongpt/boxarr/wiki/Initial-Setup)** - Simple web-based configuration wizard
 
 ## 📋 Requirements
@@ -112,7 +133,6 @@ environment:
 
 Boxarr provides a REST API for integration and automation.
 
-- **API Documentation**: `http://localhost:8888/api/docs`
 - **[Full API Reference →](https://github.com/iongpt/boxarr/wiki/API-Reference)**
 
 ## 📸 Screenshots
@@ -140,7 +160,7 @@ Boxarr provides a REST API for integration and automation.
 
 ## Contributing
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+We welcome contributions! Please see our [Contributing Guide](https://github.com/iongpt/boxarr/wiki/Contributing) for guidelines.
 
 ## License
 
@@ -159,15 +179,3 @@ This project is not affiliated with Box Office Mojo, IMDb, or Radarr. It's an in
 ---
 
 Made with ❤️ for the self-hosting community
-### Auto-Add Filters
-
-Boxarr includes several optional filters to fine-tune automatic additions:
-
-- **Top X Limit**: Only add the top N movies from the weekly chart (default 10)
-- **Genre Filter**: Whitelist or blacklist specific genres before adding
-- **Age Rating Filter**: Only add movies within selected certifications (e.g., G/PG/PG‑13/R)
-- **Ignore Re-releases**: Skip movies released before the previous year for the selected week
-
-**[View detailed Auto-Add Filters documentation →](https://github.com/iongpt/boxarr/wiki/Configuration-Guide#advanced-filtering)**
-
-The Dashboard shows "Filters active" when any of these are enabled for quick status visibility.
