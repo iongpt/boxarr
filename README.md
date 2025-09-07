@@ -3,43 +3,43 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Docker](https://img.shields.io/badge/docker-ready-brightgreen.svg)](https://www.docker.com/)
+[![Wiki](https://img.shields.io/badge/wiki-documentation-blue)](https://github.com/iongpt/boxarr/wiki)
 
-## Why Boxarr?
+**Automatically track and add trending box office movies to your Radarr library.**
 
-> *"I run a Jellyfin server for my extended family and kept getting complaints about missing mainstream movies. I set up a request system to let them request movies, but they don't bother - they just complain. While I have Radarr, manually searching for trending movies is time-consuming. So I created Boxarr, which automatically fetches all the mainstream box office hits. I configure it to grab movies in 1080p to save space, then upgrade the ones I personally want to watch to UHD directly from the Boxarr UI. It runs automatically every Tuesday at 11 PM, ensuring my library always has what people actually want to watch."*
+Boxarr monitors weekly box office charts and seamlessly integrates with Radarr to ensure your media library always has what people want to watch. No more manual searching for popular movies - Boxarr handles it automatically.
 
-**Boxarr solves the problem of keeping your media library current with popular movies without manual intervention.** It automatically tracks what's trending at the box office and ensures your Radarr library has the movies people actually want to watch.
+## 🎯 Why Boxarr?
 
-## Requirements
+- **Stay Current** - Never miss trending movies that everyone's talking about
+- **Save Time** - No more manually searching for and adding popular films  
+- **Smart Automation** - Automatically add movies based on your preferences
+- **Family Friendly** - Keep your media server stocked with what people actually want to watch
 
-**Boxarr requires a working Radarr installation.** It's designed as a companion tool that extends Radarr's functionality by automatically adding trending movies from the box office.
+## 📚 Documentation
 
-### Prerequisites
-- **Radarr** v3.0+ installed and configured
-- **Docker** (recommended) or Python 3.10+
-- Network access to Box Office Mojo for data fetching
+**[View the full documentation in our Wiki](https://github.com/iongpt/boxarr/wiki)** for detailed guides, configuration options, and troubleshooting.
 
-## What is Boxarr?
-
-Boxarr monitors the weekly box office top 10 and integrates with your Radarr instance to automatically add trending movies to your collection. It provides a beautiful web interface to view current and historical box office data while managing your movie library.
-
-### Key Features
+## ✨ Key Features
 
 - **📊 Weekly Box Office Tracking** - Automatically fetches top 10 movies from Box Office Mojo
 - **🔄 Radarr Integration** - Seamlessly checks and adds movies to your library
 - **🎯 Smart Matching** - Intelligently matches box office titles with Radarr entries
-- **🗂️ Genre‑Based Root Folders** - Automatically place movies into different Radarr root folders based on their genres (e.g., Horror → /movies/horror)
-- **⚡ Auto-Add Movies** - Optionally adds missing movies automatically with advanced filtering:
-  - Limit to top X movies (1-10)
-  - Filter by genre (whitelist/blacklist)
-  - Filter by age rating (G, PG, PG-13, R, etc.)
+- **🗂️ [Genre‑Based Root Folders](https://github.com/iongpt/boxarr/wiki/Genre-Based-Root-Folders)** - Organize movies into folders by genre
+- **⚡ [Auto-Add Movies](https://github.com/iongpt/boxarr/wiki/Configuration-Guide#auto-add-movies)** - Automatically add trending movies with smart filters
 - **📅 Scheduled Updates** - Runs weekly on your preferred schedule
 - **🎨 Beautiful Web UI** - Clean, responsive interface for all devices
-- **🚀 Easy Setup** - No configuration files needed - just a simple web wizard
+- **🚀 [Easy Setup](https://github.com/iongpt/boxarr/wiki/Initial-Setup)** - Simple web-based configuration wizard
 
-## Quick Start
+## 📋 Requirements
 
-### Using Docker (Recommended)
+- **Radarr** v3.0+ (required)
+- **Docker** (recommended) or Python 3.10+
+- Network access to Box Office Mojo
+
+## 🚀 Quick Start
+
+### Docker (Recommended)
 
 ```bash
 docker run -d \
@@ -69,247 +69,67 @@ services:
       - TZ=America/New_York  # Optional: Set your timezone
 ```
 
-### Manual Installation
+**[View full installation guide →](https://github.com/iongpt/boxarr/wiki/Installation-Guide)**
 
-```bash
-# Clone the repository
-git clone https://github.com/iongpt/boxarr.git
-cd boxarr
+## ⚙️ Initial Setup
 
-# Install dependencies
-pip install -r requirements.txt
+1. Open your browser to `http://localhost:8888`
+2. Enter your Radarr URL and API key
+3. Configure quality profiles and preferences
+4. Save and start tracking!
 
-# Run the application
-python -m src.main
-```
+**[View detailed setup guide →](https://github.com/iongpt/boxarr/wiki/Initial-Setup)**
 
-## First-Time Setup
+## 📖 Configuration & Features
 
-1. **Open your browser** to `http://localhost:8888`
-2. **Enter Radarr details** in the setup wizard:
-   - Radarr URL (e.g., `http://localhost:7878`)
-   - API Key (found in Radarr → Settings → General → Security)
-3. **Test the connection** to fetch quality profiles
-4. **Configure your preferences**:
-   - Default quality profile for new movies (e.g., HD-1080p to save space)
-   - Ultra-HD upgrade profile for selective upgrades
-   - Auto-add movies toggle
-   - Update schedule (e.g., Tuesday at 11 PM)
-   - Optional: Enable Genre‑Based Root Folders in Advanced Settings
-5. **Save and start tracking!**
+- **[Box Office Tracking](https://github.com/iongpt/boxarr/wiki/Box-Office-Tracking)** - How weekly tracking works
+- **[Configuration Guide](https://github.com/iongpt/boxarr/wiki/Configuration-Guide)** - All settings explained
+- **[Auto-Add Movies](https://github.com/iongpt/boxarr/wiki/Configuration-Guide#auto-add-movies)** - Automatic movie additions with filters
+- **[Genre-Based Root Folders](https://github.com/iongpt/boxarr/wiki/Genre-Based-Root-Folders)** - Smart content organization
+- **[API Reference](https://github.com/iongpt/boxarr/wiki/API-Reference)** - REST API documentation
 
-## Using Boxarr
+## 🔧 Advanced Configuration
 
-### Dashboard
-The main dashboard shows all tracked weeks with the ability to:
-- Browse historical box office data
-- Delete old weeks to save space
-- Navigate quickly to recent weeks
-- Access settings and configuration
+### Reverse Proxy Support
 
-### Weekly View
-Each week displays:
-- Movie posters with box office rankings
-- Current Radarr status (Downloaded, Missing, In Cinemas)
-- Box office earnings and theater counts
-- Quick actions to add movies or upgrade quality
-
-### Settings
-All configuration can be managed through the web interface:
-- Update Radarr connection details
-- Change quality profiles
-- Toggle auto-add functionality
-- Modify update schedule
-- Test connections
-
-## Configuration Options
-
-### Scheduling
-By default, Boxarr updates every Tuesday at 11 PM. You can customize this in Settings.
-
-### Quality Profiles
-Select from your existing Radarr quality profiles:
-- **Default Profile**: Used when adding new movies (e.g., HD-1080p to save storage)
-- **Upgrade Profile**: Available for one-click quality upgrades (e.g., Ultra-HD for favorites)
-
-### Auto-Add Movies
-When enabled, Boxarr will automatically:
-1. Search for unmatched movies in TMDB
-2. Apply configured filters (genre, rating, top X limit)
-3. Add filtered movies to Radarr with your default profile and determine the destination folder using your Genre‑Based Root Folder rules (if enabled)
-4. Mark them as monitored and trigger automatic search
-
-#### Advanced Filtering Options
-- **Top X Limit**: Add only the highest-ranking movies (1-10)
-- **Genre Filtering**: 
-  - Whitelist: Only add movies with selected genres
-  - Blacklist: Exclude movies with selected genres
-- **Age Rating Filter**: Control content by MPAA ratings (G, PG, PG-13, R, NC-17, NR)
-
-### Genre‑Based Root Folders
-
-Boxarr can automatically choose the Radarr root folder for each added movie based on its genres. This helps you separate content like Horror, Family, or Action/Sci‑Fi into different storage locations.
-
-How it works:
-- You define rules that map one or more genres to a specific root folder.
-- Rules are an ordered list (top → bottom). When adding a movie (manually, via auto‑add, scheduler, or historical updates), Boxarr evaluates rules from top to bottom and applies the first matching rule.
-- If no rule matches or the mapped folder isn’t available in Radarr, Boxarr falls back to your default root folder and logs a warning.
-
-Configure it in Settings → Advanced → “Genre‑Based Root Folders,” or see an example YAML in `config/example-root-folders.yaml`.
-
-Notes:
-- Rules are case‑insensitive.
-- The numeric “priority” displayed equals the rule’s position (starting at 0) and is managed automatically by reordering the list; it’s not editable when adding a rule.
-- If you temporarily disable the feature, existing rules are preserved and can be re‑enabled later.
-
-## Reverse Proxy Configuration
-
-Boxarr supports running behind a reverse proxy at a custom path (e.g., `/boxarr` instead of `/`). This is useful when you want to access multiple services through a single domain.
-
-### Setting the URL Base
-
-The URL base is configured via the `BOXARR_URL_BASE` environment variable. **Do not include leading or trailing slashes.**
-
-#### Docker Compose Example
+Boxarr can run behind reverse proxies (nginx, Traefik, Caddy) with custom URL base support.
 
 ```yaml
-version: '3.8'
-
-services:
-  boxarr:
-    image: ghcr.io/iongpt/boxarr:latest
-    container_name: boxarr
-    ports:
-      - 8888:8888
-    volumes:
-      - ./config:/config
-    environment:
-      - TZ=America/New_York
-      - BOXARR_URL_BASE=boxarr  # Access at http://your-server/boxarr/
-    restart: unless-stopped
+environment:
+  - BOXARR_URL_BASE=boxarr  # Access at /boxarr/
 ```
 
-#### Command Line Example
+**[View reverse proxy setup guide →](https://github.com/iongpt/boxarr/wiki/Configuration-Guide#reverse-proxy-configuration)**
 
-```bash
-BOXARR_URL_BASE=boxarr python -m src.main
-```
+### API Access
 
-### Nginx Configuration
-
-```nginx
-location /boxarr/ {
-    proxy_pass http://localhost:8888/;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_set_header X-Forwarded-Prefix /boxarr;
-    
-    # WebSocket support (for real-time updates)
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-}
-```
-
-### Traefik Configuration
-
-```yaml
-# Docker labels for Traefik
-labels:
-  - "traefik.enable=true"
-  - "traefik.http.routers.boxarr.rule=Host(`your-domain.com`) && PathPrefix(`/boxarr`)"
-  - "traefik.http.routers.boxarr.middlewares=boxarr-stripprefix"
-  - "traefik.http.middlewares.boxarr-stripprefix.stripprefix.prefixes=/boxarr"
-  - "traefik.http.services.boxarr.loadbalancer.server.port=8888"
-```
-
-### Caddy Configuration
-
-```caddy
-your-domain.com {
-    handle_path /boxarr* {
-        reverse_proxy localhost:8888
-    }
-}
-```
-
-### Important Notes
-
-1. **Configuration is read-only in UI**: For safety, the URL base can only be set via environment variable, not through the web interface. This prevents accidental lockouts.
-
-2. **Restart required**: After setting or changing `BOXARR_URL_BASE`, you must restart Boxarr for the changes to take effect.
-
-3. **Accessing the application**: 
-   - Without URL base: `http://your-server:8888/`
-   - With URL base "boxarr": `http://your-server:8888/boxarr/`
-   - Behind reverse proxy: `https://your-domain.com/boxarr/`
-
-4. **Recovery**: If you're locked out due to incorrect configuration:
-   ```bash
-   # Reset to root path
-   BOXARR_URL_BASE="" python -m src.main
-   
-   # Or edit your docker-compose.yml and remove the BOXARR_URL_BASE line
-   ```
-
-## API Endpoints
-
-Boxarr provides a REST API for integration:
+Boxarr provides a REST API for integration and automation.
 
 - **API Documentation**: `http://localhost:8888/api/docs`
-- **Current Box Office**: `GET /api/boxoffice/current`
-- **Add Movie**: `POST /api/movies/add`
-- **Trigger Update**: `POST /api/trigger-update`
+- **[Full API Reference →](https://github.com/iongpt/boxarr/wiki/API-Reference)**
 
-## Screenshots
+## 📸 Screenshots
 
-### Dashboard View
-![Boxarr Dashboard](docs/dashboard.png)
+<table>
+  <tr>
+    <td align="center">
+      <img src="docs/dashboard.png" width="400"/>
+      <br><b>Dashboard View</b>
+    </td>
+    <td align="center">
+      <img src="docs/week-view.png" width="400"/>
+      <br><b>Weekly Box Office</b>
+    </td>
+  </tr>
+</table>
 
-Track all your weekly box office reports in one place. See at a glance which movies are matched with your Radarr library and when the next automatic update will run.
+## 🆘 Help & Support
 
-### Weekly Box Office View
-![Boxarr Week View](docs/week-view.png)
-
-Beautiful movie cards showing current box office rankings, download status, quality profiles, and quick action buttons. Upgrade quality or add missing movies with a single click.
-
-### Advanced Auto-Add Filters
-![Advanced Auto-Add Filters](docs/images/auto-add-filters.png)
-
-Fine-tune which movies are automatically added with powerful filtering options:
-- **Top X Limit**: Only add the highest-ranking movies (1-10)
-- **Genre Filtering**: Whitelist or blacklist specific genres
-- **Age Rating Filter**: Control content by MPAA ratings
-
-## Troubleshooting
-
-### Cannot Connect to Radarr
-- Verify Radarr is running and accessible
-- Check the API key is correct
-- Ensure Boxarr can reach Radarr's network
-
-### Movies Not Matching
-- Movie titles may differ between Box Office Mojo and Radarr
-- Check the logs at `/config/logs/boxarr.log`
-- Use the "Add to Radarr" button for manual addition
-
-### Scheduler Not Running
-- Verify scheduler is enabled in Settings
-- Check timezone configuration
-- Review logs for any scheduler errors
-
-### Web Interface Not Loading
-- Ensure port 8888 is not in use
-- Check Docker container is running: `docker ps`
-- View logs: `docker logs boxarr`
-
-## Support
-
-- **Issues**: [GitHub Issues](https://github.com/iongpt/boxarr/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/iongpt/boxarr/discussions)
-- **Wiki**: [Documentation Wiki](https://github.com/iongpt/boxarr/wiki)
+- **[Documentation Wiki](https://github.com/iongpt/boxarr/wiki)** - Full documentation
+- **[FAQ](https://github.com/iongpt/boxarr/wiki/FAQ)** - Frequently asked questions
+- **[Troubleshooting Guide](https://github.com/iongpt/boxarr/wiki/Troubleshooting)** - Common issues and solutions
+- **[GitHub Discussions](https://github.com/iongpt/boxarr/discussions)** - Community support
+- **[Report Issues](https://github.com/iongpt/boxarr/issues)** - Bug reports and feature requests
 
 ## Contributing
 
