@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Boxarr Setup{% endblock %}</title>
+    <link rel="icon" type="image/jpeg" href="{{ request.scope.get('root_path', '') }}/static/boxar-logo.jpeg">
     <link rel="stylesheet" href="{{ request.scope.get('root_path', '') }}/static/css/style.css">
     <script>
         // Apply theme immediately to prevent flash
@@ -26,7 +27,8 @@
     </script>
     <div class="setup-container">
         <div class="setup-header">
-            <h1 class="setup-title">🎬 Welcome to Boxarr!</h1>
+            <img src="{{ request.scope.get('root_path', '') }}/static/boxar-logo.jpeg" alt="Boxarr Logo" style="height: 64px; width: auto; margin-bottom: 1rem; display: block; margin-left: auto; margin-right: auto;">
+            <h1 class="setup-title">Welcome to Boxarr!</h1>
             <p class="setup-subtitle">Let's get you set up with your Radarr connection.</p>
         </div>
         
