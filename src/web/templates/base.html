@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Boxarr - Box Office Tracking for Radarr{% endblock %}</title>
-    <link rel="icon" type="image/jpeg" href="{{ request.scope.get('root_path', '') }}/static/boxar-logo.jpeg">
+    <link rel="icon" type="image/png" href="{{ request.scope.get('root_path', '') }}/static/boxar-logo.png">
     <link rel="stylesheet" href="{{ request.scope.get('root_path', '') }}/static/css/style.css?v=3">
     <script>
         /* Theme initialization - prevent FOUC */
@@ -211,7 +211,7 @@
     <nav class="navbar">
         <div class="navbar-container">
             <div class="navbar-brand">
-                <h1><img src="{{ request.scope.get('root_path', '') }}/static/boxar-logo.jpeg" alt="Boxarr Logo" class="navbar-logo"> Boxarr</h1>
+                <h1><img src="{{ request.scope.get('root_path', '') }}/static/boxar-logo.png" alt="Boxarr Logo" class="navbar-logo"> Boxarr</h1>
                 <span class="version-badge">v{{ version|default('0.4.1-dev-dirty') }}</span>
                 <a href="#" id="updateNotification" class="update-notification" target="_blank">
                     <span class="update-icon">⬆️</span>
