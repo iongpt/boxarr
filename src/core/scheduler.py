@@ -20,6 +20,7 @@ from .json_generator import WeeklyDataGenerator
 from .matcher import MatchResult, MovieMatcher
 from .models import MovieStatus
 from .radarr import RadarrService
+from .root_folder_manager import RootFolderManager
 
 logger = get_logger(__name__)
 
@@ -484,18 +485,26 @@ class BoxarrScheduler:
                             )
                             continue
 
-                    # Add the movie with default profile
+                    # Determine root folder based on genres
+                    root_folder_manager = RootFolderManager(self.radarr_service)
+                    movie_genres = movie_info.get("genres", [])
+                    root_folder = root_folder_manager.determine_root_folder(
+                        genres=movie_genres,
+                        movie_title=movie_info.get("title", "Unknown"),
+                    )
+
+                    # Add the movie with determined root folder
                     added_movie = await self._run_in_executor(
                         self.radarr_service.add_movie,
                         movie_info["tmdbId"],
                         default_profile.id,
-                        str(settings.radarr_root_folder),
+                        root_folder,
                         True,  # monitored
                         True,  # search for movie
                     )
                     logger.info(
                         f"Auto-added movie to Radarr: {added_movie.title} "
-                        f"with profile '{default_profile.name}'"
+                        f"with profile '{default_profile.name}' in folder '{root_folder}'"
                     )
                     added_movies.append(added_movie.title)
                 else:

@@ -8,6 +8,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from ...core.root_folder_manager import RootFolderManager
 from ...core.scheduler import BoxarrScheduler
 from ...utils.config import settings
 from ...utils.logger import get_logger
@@ -321,6 +322,9 @@ async def update_specific_week(request: UpdateWeekRequest):  # noqa: C901
                         f"Processing {len(unmatched)} movies for auto-add with filters"
                     )
 
+                # Prepare root folder manager (uses Radarr folders for validation)
+                root_folder_manager = RootFolderManager(radarr_service)
+
                 for result in unmatched:
                     # Search for movie in TMDB
                     search = radarr_service.search_movie_tmdb(
@@ -330,8 +334,8 @@ async def update_specific_week(request: UpdateWeekRequest):  # noqa: C901
                         movie_info = search[0]
 
                         # Apply genre filter if enabled
+                        movie_genres = movie_info.get("genres", [])
                         if settings.boxarr_features_auto_add_genre_filter_enabled:
-                            movie_genres = movie_info.get("genres", [])
 
                             if (
                                 settings.boxarr_features_auto_add_genre_filter_mode
@@ -379,11 +383,19 @@ async def update_specific_week(request: UpdateWeekRequest):  # noqa: C901
                                 )
                                 continue
 
+                        # Determine destination root folder based on genres (with validation)
+                        chosen_root = root_folder_manager.determine_root_folder(
+                            genres=movie_genres,
+                            movie_title=movie_info.get(
+                                "title", result.box_office_movie.title
+                            ),
+                        )
+
                         # Add the movie
                         movie = radarr_service.add_movie(
                             tmdb_id=movie_info["tmdbId"],
                             quality_profile_id=None,  # Uses default from settings
-                            root_folder=str(settings.radarr_root_folder),
+                            root_folder=chosen_root,
                             monitored=True,
                             search_for_movie=True,
                         )

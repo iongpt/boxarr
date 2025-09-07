@@ -3,10 +3,10 @@
 import os
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import yaml
-from pydantic import Field, HttpUrl, validator
+from pydantic import BaseModel, Field, HttpUrl, validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -36,6 +36,25 @@ class MinimumAvailabilityEnum(str, Enum):
     IN_CINEMAS = "inCinemas"
     RELEASED = "released"
     PRE_DB = "preDb"
+
+
+class RootFolderMapping(BaseModel):
+    """Mapping of genres to root folders."""
+
+    genres: List[str] = Field(description="List of genres for this mapping")
+    root_folder: str = Field(description="Root folder path for these genres")
+    priority: int = Field(
+        default=0, description="Priority for overlapping genres (higher wins)"
+    )
+
+
+class RootFolderConfig(BaseModel):
+    """Configuration for root folder mappings."""
+
+    enabled: bool = Field(default=False, description="Enable root folder mappings")
+    mappings: List[RootFolderMapping] = Field(
+        default_factory=list, description="List of genre to root folder mappings"
+    )
 
 
 class Settings(BaseSettings):
@@ -72,6 +91,10 @@ class Settings(BaseSettings):
     )
     radarr_search_for_movie: bool = Field(
         default=True, description="Search for movie after adding"
+    )
+    radarr_root_folder_config: RootFolderConfig = Field(
+        default_factory=RootFolderConfig,
+        description="Configuration for root folder mappings",
     )
 
     # Boxarr Server Configuration
@@ -227,9 +250,23 @@ class Settings(BaseSettings):
                 elif section == "radarr" and isinstance(values, dict):
                     # Map radarr section directly
                     for key, value in values.items():
-                        attr_name = f"radarr_{key}"
-                        if hasattr(self, attr_name):
-                            setattr(self, attr_name, value)
+                        if key == "root_folder_config" and isinstance(value, dict):
+                            # Handle root folder config specially
+                            config = RootFolderConfig()
+                            if "enabled" in value:
+                                config.enabled = value["enabled"]
+                            if "mappings" in value and isinstance(
+                                value["mappings"], list
+                            ):
+                                config.mappings = [
+                                    RootFolderMapping(**mapping)
+                                    for mapping in value["mappings"]
+                                ]
+                            setattr(self, "radarr_root_folder_config", config)
+                        else:
+                            attr_name = f"radarr_{key}"
+                            if hasattr(self, attr_name):
+                                setattr(self, attr_name, value)
                 elif section == "boxarr" and isinstance(values, dict):
                     # Process boxarr nested configuration
                     for key, value in values.items():
@@ -281,6 +318,37 @@ class Settings(BaseSettings):
                     # Top-level attributes (like log_level)
                     if hasattr(self, section):
                         setattr(self, section, values)
+
+    def get_root_folder_for_genres(
+        self, genres: List[str], default: Optional[str] = None
+    ) -> str:
+        """Determine the appropriate root folder based on movie genres.
+
+        Order-first semantics: evaluate rules from top to bottom and return the
+        first rule that matches any of the movie's genres. The numeric
+        ``priority`` field is treated as a stored index only and MUST NOT affect
+        selection.
+
+        Args:
+            genres: List of movie genres
+            default: Default root folder to use if no mapping matches
+
+        Returns:
+            The determined root folder path
+        """
+        if not self.radarr_root_folder_config.enabled:
+            return default or str(self.radarr_root_folder)
+
+        # Normalize movie genres to lowercase for case-insensitive matching
+        normalized_movie_genres = {g.lower().strip() for g in genres}
+
+        # Evaluate in list order; first match wins
+        for mapping in self.radarr_root_folder_config.mappings:
+            normalized_mapping_genres = {g.lower().strip() for g in mapping.genres}
+            if normalized_movie_genres & normalized_mapping_genres:
+                return mapping.root_folder
+
+        return default or str(self.radarr_root_folder)
 
     @property
     def is_configured(self) -> bool:

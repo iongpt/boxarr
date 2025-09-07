@@ -497,6 +497,19 @@ class RadarrService:
         result = response.json()
         return result if isinstance(result, list) else []
 
+    def get_root_folder_paths(self) -> List[str]:
+        """
+        Get just the paths of configured root folders.
+
+        Returns:
+            List of root folder paths
+
+        Raises:
+            RadarrError: If request fails
+        """
+        folders = self.get_root_folders()
+        return [f["path"] for f in folders if "path" in f]
+
     def search_movie_tmdb(self, title: str) -> List[Dict[str, Any]]:
         """
         Search for a movie on TMDB via Radarr.

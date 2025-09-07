@@ -10,26 +10,6 @@
 
 **Boxarr solves the problem of keeping your media library current with popular movies without manual intervention.** It automatically tracks what's trending at the box office and ensures your Radarr library has the movies people actually want to watch.
 
-## Screenshots
-
-### Dashboard View
-![Boxarr Dashboard](docs/dashboard.png)
-
-Track all your weekly box office reports in one place. See at a glance which movies are matched with your Radarr library and when the next automatic update will run.
-
-### Weekly Box Office View
-![Boxarr Week View](docs/week-view.png)
-
-Beautiful movie cards showing current box office rankings, download status, quality profiles, and quick action buttons. Upgrade quality or add missing movies with a single click.
-
-### Advanced Auto-Add Filters
-![Advanced Auto-Add Filters](docs/images/auto-add-filters.png)
-
-Fine-tune which movies are automatically added with powerful filtering options:
-- **Top X Limit**: Only add the highest-ranking movies (1-10)
-- **Genre Filtering**: Whitelist or blacklist specific genres
-- **Age Rating Filter**: Control content by MPAA ratings
-
 ## Requirements
 
 **Boxarr requires a working Radarr installation.** It's designed as a companion tool that extends Radarr's functionality by automatically adding trending movies from the box office.
@@ -48,6 +28,7 @@ Boxarr monitors the weekly box office top 10 and integrates with your Radarr ins
 - **📊 Weekly Box Office Tracking** - Automatically fetches top 10 movies from Box Office Mojo
 - **🔄 Radarr Integration** - Seamlessly checks and adds movies to your library
 - **🎯 Smart Matching** - Intelligently matches box office titles with Radarr entries
+- **🗂️ Genre‑Based Root Folders** - Automatically place movies into different Radarr root folders based on their genres (e.g., Horror → /movies/horror)
 - **⚡ Auto-Add Movies** - Optionally adds missing movies automatically with advanced filtering:
   - Limit to top X movies (1-10)
   - Filter by genre (whitelist/blacklist)
@@ -114,6 +95,7 @@ python -m src.main
    - Ultra-HD upgrade profile for selective upgrades
    - Auto-add movies toggle
    - Update schedule (e.g., Tuesday at 11 PM)
+   - Optional: Enable Genre‑Based Root Folders in Advanced Settings
 5. **Save and start tracking!**
 
 ## Using Boxarr
@@ -143,10 +125,7 @@ All configuration can be managed through the web interface:
 ## Configuration Options
 
 ### Scheduling
-By default, Boxarr updates every Tuesday at 11 PM. You can customize this in Settings using cron expressions:
-- `0 23 * * 2` - Tuesday at 11 PM (default)
-- `0 20 * * 5` - Friday at 8 PM
-- `0 10 * * 1` - Monday at 10 AM
+By default, Boxarr updates every Tuesday at 11 PM. You can customize this in Settings.
 
 ### Quality Profiles
 Select from your existing Radarr quality profiles:
@@ -157,7 +136,7 @@ Select from your existing Radarr quality profiles:
 When enabled, Boxarr will automatically:
 1. Search for unmatched movies in TMDB
 2. Apply configured filters (genre, rating, top X limit)
-3. Add filtered movies to Radarr with your default profile
+3. Add filtered movies to Radarr with your default profile and determine the destination folder using your Genre‑Based Root Folder rules (if enabled)
 4. Mark them as monitored and trigger automatic search
 
 #### Advanced Filtering Options
@@ -166,6 +145,22 @@ When enabled, Boxarr will automatically:
   - Whitelist: Only add movies with selected genres
   - Blacklist: Exclude movies with selected genres
 - **Age Rating Filter**: Control content by MPAA ratings (G, PG, PG-13, R, NC-17, NR)
+
+### Genre‑Based Root Folders
+
+Boxarr can automatically choose the Radarr root folder for each added movie based on its genres. This helps you separate content like Horror, Family, or Action/Sci‑Fi into different storage locations.
+
+How it works:
+- You define rules that map one or more genres to a specific root folder.
+- Rules are an ordered list (top → bottom). When adding a movie (manually, via auto‑add, scheduler, or historical updates), Boxarr evaluates rules from top to bottom and applies the first matching rule.
+- If no rule matches or the mapped folder isn’t available in Radarr, Boxarr falls back to your default root folder and logs a warning.
+
+Configure it in Settings → Advanced → “Genre‑Based Root Folders,” or see an example YAML in `config/example-root-folders.yaml`.
+
+Notes:
+- Rules are case‑insensitive.
+- The numeric “priority” displayed equals the rule’s position (starting at 0) and is managed automatically by reordering the list; it’s not editable when adding a rule.
+- If you temporarily disable the feature, existing rules are preserved and can be re‑enabled later.
 
 ## Reverse Proxy Configuration
 
@@ -267,6 +262,26 @@ Boxarr provides a REST API for integration:
 - **Current Box Office**: `GET /api/boxoffice/current`
 - **Add Movie**: `POST /api/movies/add`
 - **Trigger Update**: `POST /api/trigger-update`
+
+## Screenshots
+
+### Dashboard View
+![Boxarr Dashboard](docs/dashboard.png)
+
+Track all your weekly box office reports in one place. See at a glance which movies are matched with your Radarr library and when the next automatic update will run.
+
+### Weekly Box Office View
+![Boxarr Week View](docs/week-view.png)
+
+Beautiful movie cards showing current box office rankings, download status, quality profiles, and quick action buttons. Upgrade quality or add missing movies with a single click.
+
+### Advanced Auto-Add Filters
+![Advanced Auto-Add Filters](docs/images/auto-add-filters.png)
+
+Fine-tune which movies are automatically added with powerful filtering options:
+- **Top X Limit**: Only add the highest-ranking movies (1-10)
+- **Genre Filtering**: Whitelist or blacklist specific genres
+- **Age Rating Filter**: Control content by MPAA ratings
 
 ## Troubleshooting
 

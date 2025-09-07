@@ -749,6 +749,244 @@ function reloadScheduler() {
         });
     }
 
+    // Root Folder Mapping Functions
+    let rootFolderMappings = [];
+    let availableRootFolders = [];
+    let mappingIdCounter = 0;
+    let rootFolderMappingModified = false;
+    let originalRootFolderConfig = null;
+    
+    window.toggleRootFolderMapping = function() {
+        const checkbox = document.getElementById('rootFolderMappingEnabled');
+        const controls = document.getElementById('rootFolderMappingControls');
+        
+        if (checkbox && controls) {
+            controls.style.display = checkbox.checked ? 'block' : 'none';
+            rootFolderMappingModified = true; // Mark as modified when toggled
+            
+            // Load available root folders if enabling
+            if (checkbox.checked) {
+                loadAvailableRootFolders();
+                loadExistingMappings();
+            }
+        }
+    }
+    
+    window.loadAvailableRootFolders = function(preserveSelection = false) {
+        const folderSelect = document.getElementById('newMappingFolder');
+        const previous = preserveSelection && folderSelect ? folderSelect.value : '';
+        fetch(apiUrl('/movies/root-folders/available'))
+            .then(response => response.json())
+            .then(data => {
+                availableRootFolders = data.folders || [];
+                // Update the new mapping folder dropdown
+                if (folderSelect) {
+                    folderSelect.innerHTML = '<option value="">Select folder...</option>';
+                    availableRootFolders.forEach(folder => {
+                        const option = document.createElement('option');
+                        option.value = folder;
+                        option.textContent = folder;
+                        folderSelect.appendChild(option);
+                    });
+                    if (previous && availableRootFolders.includes(previous)) {
+                        folderSelect.value = previous;
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Error loading root folders:', error);
+                availableRootFolders = [];
+            });
+    }
+    
+    window.loadExistingMappings = function() {
+        // Load existing mappings from configuration if any
+        // This would be populated from the server configuration
+        if (rootFolderMappings.length > 0) {
+            renderMappingsList();
+        }
+    }
+    
+    function reindexMappingPriorities() {
+        rootFolderMappings.forEach((m, i) => { m.priority = i; });
+    }
+
+    window.addRootFolderMapping = function() {
+        const genresSelect = document.getElementById('newMappingGenres');
+        const folderSelect = document.getElementById('newMappingFolder');
+        
+        if (!genresSelect || !folderSelect) return;
+        
+        // Get selected genres
+        const selectedGenres = Array.from(genresSelect.selectedOptions).map(opt => opt.value);
+        const folder = folderSelect.value;
+        const priority = rootFolderMappings.length; // implicit order index (0-based)
+        
+        if (selectedGenres.length === 0) {
+            showMessage('Please select at least one genre', 'error');
+            return;
+        }
+        
+        if (!folder) {
+            showMessage('Please select a root folder', 'error');
+            return;
+        }
+        
+        // Add to mappings array
+        const mapping = {
+            id: ++mappingIdCounter,
+            genres: selectedGenres,
+            root_folder: folder,
+            priority: priority
+        };
+        
+        rootFolderMappings.push(mapping);
+        rootFolderMappingModified = true; // Mark as modified when adding
+        
+        // Reset form
+        genresSelect.selectedIndex = -1;
+        folderSelect.value = '';
+        // priority managed automatically
+        
+        // Re-render list
+        renderMappingsList();
+        
+        showMessage('Rule added successfully', 'success');
+    }
+    
+    window.removeRootFolderMapping = function(mappingId) {
+        rootFolderMappings = rootFolderMappings.filter(m => m.id !== mappingId);
+        rootFolderMappingModified = true; // Mark as modified when removing
+        renderMappingsList();
+    }
+    
+    window.moveMapping = function(mappingId, direction) {
+        const index = rootFolderMappings.findIndex(m => m.id === mappingId);
+        if (index === -1) return;
+        
+        if (direction === 'up' && index > 0) {
+            [rootFolderMappings[index], rootFolderMappings[index - 1]] = 
+            [rootFolderMappings[index - 1], rootFolderMappings[index]];
+        } else if (direction === 'down' && index < rootFolderMappings.length - 1) {
+            [rootFolderMappings[index], rootFolderMappings[index + 1]] = 
+            [rootFolderMappings[index + 1], rootFolderMappings[index]];
+        }
+        
+        // Keep priorities aligned with new order
+        reindexMappingPriorities();
+        rootFolderMappingModified = true; // Mark as modified when reordering
+        renderMappingsList();
+    }
+    
+    window.renderMappingsList = function() {
+        const container = document.getElementById('mappingsList');
+        if (!container) return;
+        
+        if (rootFolderMappings.length === 0) {
+            container.innerHTML = `
+                <div class="empty-state" style="text-align: center; padding: 2rem; color: var(--text-muted);">
+                    No rules configured yet. Add your first rule above!
+                </div>
+            `;
+            return;
+        }
+        
+        // Add table header with tooltips (only once, before first item)
+        const tableHeader = rootFolderMappings.length > 0 ? `
+            <div style="display: grid; grid-template-columns: 2fr auto 2fr 100px 120px; gap: 1rem; padding: 0.5rem 0.75rem; margin-bottom: 0.5rem; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); border-bottom: 1px solid var(--border-color);">
+                <div title="Movie genres that trigger this rule">Genres</div>
+                <div></div>
+                <div title="Destination folder in Radarr">Target Folder</div>
+                <div title="Order index (top to bottom)">Priority</div>
+                <div title="Reorder or remove rules" style="text-align: center;">Actions</div>
+            </div>
+        ` : '';
+        
+        const rulesHtml = rootFolderMappings.map((mapping, index) => {
+            // Check if folder exists in available folders
+            const folderExists = availableRootFolders.includes(mapping.root_folder);
+            const warningIcon = !folderExists && availableRootFolders.length > 0 ? 
+                `<span style="color: #ffa500; margin-left: 0.25rem;" title="Warning: This folder may not exist in Radarr">⚠</span>` : '';
+            
+            return `
+            <div class="mapping-rule" style="display: grid; grid-template-columns: 2fr auto 2fr 100px 120px; gap: 1rem; align-items: center; padding: 0.75rem; margin-bottom: 0.5rem; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; transition: background 0.2s;">
+                <div style="font-weight: 500; color: var(--text-primary);">
+                    ${mapping.genres.join(', ')}
+                </div>
+                <div style="color: var(--text-muted); text-align: center;">
+                    →
+                </div>
+                <div style="display: flex; align-items: center; color: var(--primary-color);">
+                    <span>${mapping.root_folder}</span>
+                    ${warningIcon}
+                </div>
+                <div>
+                    <span style="display: inline-block; padding: 0.25rem 0.5rem; background: var(--bg-tertiary); border-radius: 4px; font-size: 0.85rem; color: var(--text-secondary); font-weight: 500;">
+                        ${index}
+                    </span>
+                </div>
+                <div style="display: flex; gap: 0.25rem; justify-content: flex-end;">
+                    ${index > 0 ? 
+                        `<button type="button" class="btn btn-sm" onclick="moveMapping(${mapping.id}, 'up')" 
+                                title="Move rule up (higher priority)" 
+                                style="padding: 0.375rem 0.5rem; background: var(--bg-secondary); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 4px; transition: all 0.2s;">
+                            ↑
+                        </button>` : 
+                        `<div style="width: 35px;"></div>`
+                    }
+                    ${index < rootFolderMappings.length - 1 ? 
+                        `<button type="button" class="btn btn-sm" onclick="moveMapping(${mapping.id}, 'down')" 
+                                title="Move rule down (lower priority)" 
+                                style="padding: 0.375rem 0.5rem; background: var(--bg-secondary); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 4px; transition: all 0.2s;">
+                            ↓
+                        </button>` : 
+                        `<div style="width: 35px;"></div>`
+                    }
+                    <button type="button" class="btn btn-sm" onclick="removeRootFolderMapping(${mapping.id})" 
+                            title="Remove this rule" 
+                            style="padding: 0.375rem 0.5rem; background: #dc3545; color: white; border: 1px solid #dc3545; border-radius: 4px; transition: all 0.2s;">
+                        ✕
+                    </button>
+                </div>
+            </div>
+            `;
+        }).join('');
+        
+        const helpText = rootFolderMappings.length > 0 ? `
+            <div style="margin-top: 1rem; padding: 0.75rem; background: var(--bg-tertiary); border-radius: 4px; font-size: 0.85rem; color: var(--text-muted);">
+                <span style="margin-right: 0.5rem;">ℹ️</span>
+                Rules are evaluated from top to bottom. The first matching rule wins.
+            </div>
+        ` : '';
+        
+        const html = tableHeader + rulesHtml + helpText;
+        
+        container.innerHTML = html;
+        
+        // Add hover effects to buttons after rendering
+        container.querySelectorAll('button').forEach(btn => {
+            if (!btn.style.background.includes('#dc3545')) {
+                btn.addEventListener('mouseenter', function() {
+                    this.style.background = 'var(--bg-tertiary)';
+                });
+                btn.addEventListener('mouseleave', function() {
+                    this.style.background = 'var(--bg-secondary)';
+                });
+            }
+        });
+    }
+    
+    window.collectRootFolderMappings = function() {
+        // Ensure priorities are aligned to current order before collecting
+        reindexMappingPriorities();
+        return rootFolderMappings.map(m => ({
+            genres: m.genres,
+            root_folder: m.root_folder,
+            priority: m.priority
+        }));
+    }
+    
+    // Keep the original function
     window.addToRadarr = function(title, year, buttonElement) {
         if (confirm(`Add "${title}" to Radarr?`)) {
             // Show loading state immediately
@@ -1026,6 +1264,25 @@ function reloadScheduler() {
             }
         }
         
+        // Collect root folder mappings only if modified
+        if (rootFolderMappingModified) {
+            const rootFolderMappingEnabled = document.getElementById('rootFolderMappingEnabled')?.checked || false;
+            if (rootFolderMappingEnabled) {
+                const mappings = collectRootFolderMappings();
+                
+                config.radarr_root_folder_config = {
+                    enabled: true,
+                    mappings: mappings
+                };
+            } else {
+                config.radarr_root_folder_config = {
+                    enabled: false,
+                    mappings: []
+                };
+            }
+        }
+        // If not modified, don't include radarr_root_folder_config in the payload
+        
         // Convert scheduler day and time to cron format
         if (schedulerDay && schedulerTime) {
             // APScheduler uses different day numbering than standard cron:
@@ -1127,6 +1384,30 @@ function reloadScheduler() {
         
         // Setup page specific initialization
         if (isCurrentPath('/setup')) {
+            // Rehydrate root-folder mapping UI from server state
+            loadAvailableRootFolders();
+            fetch(apiUrl('/config/root-folders'))
+                .then(r => r.json())
+                .then(data => {
+                    const cfg = data?.config || { enabled: false, mappings: [] };
+                    originalRootFolderConfig = cfg;
+                    const checkbox = document.getElementById('rootFolderMappingEnabled');
+                    if (checkbox) {
+                        checkbox.checked = !!cfg.enabled;
+                        const controls = document.getElementById('rootFolderMappingControls');
+                        if (controls) controls.style.display = checkbox.checked ? 'block' : 'none';
+                    }
+                    // Build client list from server mappings
+                    rootFolderMappings = (cfg.mappings || []).map(m => ({
+                        id: ++mappingIdCounter,
+                        genres: m.genres || [],
+                        root_folder: m.root_folder,
+                        priority: parseInt(m.priority || 0)
+                    }));
+                    renderMappingsList();
+                    rootFolderMappingModified = false; // freshly loaded state
+                })
+                .catch(() => { /* ignore */ });
             const radarrUrl = document.getElementById('radarrUrl');
             const radarrApiKey = document.getElementById('radarrApiKey');
             const saveBtn = document.getElementById('saveBtn');
@@ -1208,5 +1489,20 @@ function reloadScheduler() {
     if (document.getElementById('schedulerDebugContent')) {
         refreshSchedulerStatus();
     }
+
+    // Advanced Settings toggler
+    window.toggleAdvancedSettings = function () {
+        const content = document.getElementById('advancedSettingsContent');
+        const chevron = document.getElementById('advancedSettingsChevron');
+        if (!content || !chevron) return;
+        const open = content.style.display !== 'none';
+        content.style.display = open ? 'none' : 'block';
+        chevron.textContent = open ? '▸' : '▾';
+    };
+
+    // Refresh root folders near the mapping select
+    window.refreshRootFolders = function () {
+        loadAvailableRootFolders(true);
+    };
 
 })();

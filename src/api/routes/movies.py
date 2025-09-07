@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from ...core.json_generator import WeeklyDataGenerator
 from ...core.models import MovieStatus
 from ...core.radarr import RadarrService
+from ...core.root_folder_manager import RootFolderManager
 from ...utils.config import settings
 from ...utils.logger import get_logger
 
@@ -50,6 +51,51 @@ class AddMovieRequest(BaseModel):
     title: Optional[str] = None
     movie_title: Optional[str] = None
     tmdb_id: Optional[int] = None
+
+
+@router.get("/root-folders/available")
+async def get_available_root_folders():
+    """Get list of available root folders from Radarr."""
+    try:
+        if not settings.radarr_api_key:
+            return {"folders": [], "mappings_enabled": False}
+
+        radarr_service = RadarrService()
+        root_folder_manager = RootFolderManager(radarr_service)
+
+        folders = root_folder_manager.get_available_root_folders()
+        stats = root_folder_manager.get_folder_stats()
+
+        return {
+            "folders": folders,
+            "stats": stats,
+            "mappings_enabled": settings.radarr_root_folder_config.enabled,
+        }
+    except Exception as e:
+        logger.error(f"Error getting root folders: {e}")
+        return {"folders": [], "mappings_enabled": False, "error": str(e)}
+
+
+@router.post("/root-folders/suggest")
+async def suggest_root_folder(genres: List[str]):
+    """Suggest a root folder based on genres."""
+    try:
+        if not settings.radarr_api_key:
+            return {"suggested": None, "reason": "Radarr not configured"}
+
+        radarr_service = RadarrService()
+        root_folder_manager = RootFolderManager(radarr_service)
+
+        suggested = root_folder_manager.suggest_folder_for_genres(genres)
+
+        return {
+            "suggested": suggested,
+            "default": str(settings.radarr_root_folder),
+            "reason": "genre_mapping" if suggested else "no_mapping",
+        }
+    except Exception as e:
+        logger.error(f"Error suggesting root folder: {e}")
+        return {"suggested": None, "reason": "error", "error": str(e)}
 
 
 @router.get("/{movie_id}")
@@ -242,11 +288,23 @@ async def add_movie_to_radarr(request: AddMovieRequest):
                 search_results[0],
             )
 
+        # Determine root folder based on genres
+        root_folder_manager = RootFolderManager(radarr_service)
+
+        # Get genres from movie data
+        genres = movie_data.get("genres", [])
+
+        # Determine appropriate root folder
+        root_folder = root_folder_manager.determine_root_folder(
+            genres=genres,
+            movie_title=movie_data.get("title", "Unknown"),
+        )
+
         # Add movie
         result = radarr_service.add_movie(
             tmdb_id=movie_data["tmdbId"],
             quality_profile_id=None,  # Uses default from settings
-            root_folder=str(settings.radarr_root_folder),
+            root_folder=root_folder,
             monitored=True,
             search_for_movie=settings.radarr_search_for_movie,
         )

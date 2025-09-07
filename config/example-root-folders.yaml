@@ -1,0 +1,105 @@
+# Example configuration for Boxarr with root folder mappings
+# This shows how to configure automatic genre-based folder organization
+
+radarr:
+  url: http://localhost:7878
+  api_key: your_api_key_here
+  root_folder: /movies  # Default root folder (fallback)
+  quality_profile_default: HD-1080p
+  quality_profile_upgrade: Ultra-HD
+  
+  # Root folder mapping configuration
+  root_folder_config:
+    enabled: true  # Enable genre-based root folder mapping
+    
+    # Define mappings from genres to root folders
+    # Movies will be placed based on their genres
+    # Priority determines which mapping wins when a movie has multiple matching genres
+    mappings:
+      # Horror and thriller movies go to a separate folder
+      - genres:
+          - Horror
+          - Thriller
+        root_folder: /movies/horror
+        priority: 10  # Higher priority
+      
+      # War and historical movies
+      - genres:
+          - War
+          - History
+          - Documentary
+        root_folder: /movies/war-history
+        priority: 5
+      
+      # Family-friendly content
+      - genres:
+          - Animation
+          - Family
+          - Adventure
+        root_folder: /movies/family
+        priority: 8
+      
+      # Comedy
+      - genres:
+          - Comedy
+        root_folder: /movies/comedy
+        priority: 3
+      
+      # Drama and romance
+      - genres:
+          - Drama
+          - Romance
+        root_folder: /movies/drama
+        priority: 3
+      
+      # Action and sci-fi
+      - genres:
+          - Action
+          - Science Fiction
+          - Fantasy
+        root_folder: /movies/action-scifi
+        priority: 5
+
+boxarr:
+  scheduler:
+    enabled: true
+    cron: "0 23 * * 2"  # Tuesday at 11 PM
+  
+  features:
+    auto_add: true  # Automatically add missing movies
+    quality_upgrade: true
+    
+    # When auto-adding, the root folder will be determined by genre mappings
+    auto_add_options:
+      limit: 5  # Add top 5 movies
+      
+      # Optional genre filtering (works alongside root folder mappings)
+      genre_filter_enabled: false
+      genre_filter_mode: blacklist
+      genre_blacklist: []
+      
+      # Optional rating filtering
+      rating_filter_enabled: false
+      rating_whitelist: []
+
+# How it works:
+# 1. When adding a movie (manually or automatically), Boxarr checks its genres
+# 2. It finds all matching mappings based on the movie's genres
+# 3. The mapping with the highest priority is selected
+# 4. The movie is added to the corresponding root folder
+# 5. If no mappings match, the default root folder is used
+#
+# Example scenarios:
+# - "The Exorcist" (Horror) → /movies/horror
+# - "Saving Private Ryan" (War, Drama) → /movies/war-history (priority 5 > 3)
+# - "Toy Story" (Animation, Family, Comedy) → /movies/family (priority 8 > 3)
+# - "Inception" (Action, Science Fiction) → /movies/action-scifi
+# - "The Notebook" (Romance, Drama) → /movies/drama
+# - A movie with no matching genres → /movies (default)
+#
+# Setup requirements:
+# 1. Create the root folders in your file system
+# 2. Add all root folders to Radarr (Settings → Media Management)
+# 3. Configure the mappings in this file
+# 4. Enable the feature in Boxarr setup page
+#
