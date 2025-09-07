@@ -10,26 +10,6 @@
 
 **Boxarr solves the problem of keeping your media library current with popular movies without manual intervention.** It automatically tracks what's trending at the box office and ensures your Radarr library has the movies people actually want to watch.
 
-## Screenshots
-
-### Dashboard View
-![Boxarr Dashboard](docs/dashboard.png)
-
-Track all your weekly box office reports in one place. See at a glance which movies are matched with your Radarr library and when the next automatic update will run.
-
-### Weekly Box Office View
-![Boxarr Week View](docs/week-view.png)
-
-Beautiful movie cards showing current box office rankings, download status, quality profiles, and quick action buttons. Upgrade quality or add missing movies with a single click.
-
-### Advanced Auto-Add Filters
-![Advanced Auto-Add Filters](docs/images/auto-add-filters.png)
-
-Fine-tune which movies are automatically added with powerful filtering options:
-- **Top X Limit**: Only add the highest-ranking movies (1-10)
-- **Genre Filtering**: Whitelist or blacklist specific genres
-- **Age Rating Filter**: Control content by MPAA ratings
-
 ## Requirements
 
 **Boxarr requires a working Radarr installation.** It's designed as a companion tool that extends Radarr's functionality by automatically adding trending movies from the box office.
@@ -143,10 +123,7 @@ All configuration can be managed through the web interface:
 ## Configuration Options
 
 ### Scheduling
-By default, Boxarr updates every Tuesday at 11 PM. You can customize this in Settings using cron expressions:
-- `0 23 * * 2` - Tuesday at 11 PM (default)
-- `0 20 * * 5` - Friday at 8 PM
-- `0 10 * * 1` - Monday at 10 AM
+By default, Boxarr updates every Tuesday at 11 PM. You can customize this in Settings.
 
 ### Quality Profiles
 Select from your existing Radarr quality profiles:
@@ -267,6 +244,26 @@ Boxarr provides a REST API for integration:
 - **Current Box Office**: `GET /api/boxoffice/current`
 - **Add Movie**: `POST /api/movies/add`
 - **Trigger Update**: `POST /api/trigger-update`
+
+## Screenshots
+
+### Dashboard View
+![Boxarr Dashboard](docs/dashboard.png)
+
+Track all your weekly box office reports in one place. See at a glance which movies are matched with your Radarr library and when the next automatic update will run.
+
+### Weekly Box Office View
+![Boxarr Week View](docs/week-view.png)
+
+Beautiful movie cards showing current box office rankings, download status, quality profiles, and quick action buttons. Upgrade quality or add missing movies with a single click.
+
+### Advanced Auto-Add Filters
+![Advanced Auto-Add Filters](docs/images/auto-add-filters.png)
+
+Fine-tune which movies are automatically added with powerful filtering options:
+- **Top X Limit**: Only add the highest-ranking movies (1-10)
+- **Genre Filtering**: Whitelist or blacklist specific genres
+- **Age Rating Filter**: Control content by MPAA ratings
 
 ## Troubleshooting
 
