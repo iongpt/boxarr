@@ -749,6 +749,247 @@ function reloadScheduler() {
         });
     }
 
+    // Root Folder Mapping Functions
+    let rootFolderMappings = [];
+    let availableRootFolders = [];
+    
+    window.toggleRootFolderMapping = function() {
+        const checkbox = document.getElementById('rootFolderMappingEnabled');
+        const controls = document.getElementById('rootFolderMappingControls');
+        
+        if (checkbox && controls) {
+            controls.style.display = checkbox.checked ? 'block' : 'none';
+            
+            // Load available root folders if enabling
+            if (checkbox.checked && availableRootFolders.length === 0) {
+                loadAvailableRootFolders();
+            }
+        }
+    }
+    
+    window.loadAvailableRootFolders = function() {
+        fetch(apiUrl('/movies/root-folders/available'))
+            .then(response => response.json())
+            .then(data => {
+                availableRootFolders = data.folders || [];
+                updateRootFolderSelects();
+            })
+            .catch(error => {
+                console.error('Error loading root folders:', error);
+                availableRootFolders = [];
+            });
+    }
+    
+    window.updateRootFolderSelects = function() {
+        const selects = document.querySelectorAll('.root-folder-select');
+        selects.forEach(select => {
+            const currentValue = select.value;
+            select.innerHTML = '<option value="">Select folder...</option>';
+            availableRootFolders.forEach(folder => {
+                const option = document.createElement('option');
+                option.value = folder;
+                option.textContent = folder;
+                if (folder === currentValue) {
+                    option.selected = true;
+                }
+                select.appendChild(option);
+            });
+        });
+    }
+    
+    window.addRootFolderMapping = function() {
+        const mappingId = Date.now();
+        const mappingHtml = `
+            <div class="mapping-item" data-mapping-id="${mappingId}" style="padding: 1rem; margin-bottom: 0.5rem; background: var(--bg-secondary); border-radius: 4px;">
+                <div class="form-row" style="gap: 1rem; margin-bottom: 0.5rem;">
+                    <div class="form-group" style="flex: 2;">
+                        <label class="form-label">Genres (comma-separated)</label>
+                        <input type="text" class="form-input mapping-genres" placeholder="Horror, Thriller" required>
+                        <small class="text-muted">e.g., Horror, Thriller, War</small>
+                    </div>
+                    <div class="form-group" style="flex: 2;">
+                        <label class="form-label">Root Folder</label>
+                        <select class="form-select root-folder-select mapping-folder" required>
+                            <option value="">Select folder...</option>
+                        </select>
+                    </div>
+                    <div class="form-group" style="flex: 1;">
+                        <label class="form-label">Priority</label>
+                        <input type="number" class="form-input mapping-priority" value="0" min="0" max="100">
+                        <small class="text-muted">Higher wins</small>
+                    </div>
+                    <div class="form-group" style="flex: 0;">
+                        <label class="form-label">&nbsp;</label>
+                        <button type="button" class="btn btn-danger" onclick="removeRootFolderMapping(${mappingId})">🗑️</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        const container = document.getElementById('mappingsList');
+        if (container) {
+            container.insertAdjacentHTML('beforeend', mappingHtml);
+            updateRootFolderSelects();
+        }
+    }
+    
+    window.removeRootFolderMapping = function(mappingId) {
+        const mapping = document.querySelector(`[data-mapping-id="${mappingId}"]`);
+        if (mapping) {
+            mapping.remove();
+        }
+    }
+    
+    window.collectRootFolderMappings = function() {
+        const mappings = [];
+        const mappingItems = document.querySelectorAll('.mapping-item');
+        
+        mappingItems.forEach(item => {
+            const genres = item.querySelector('.mapping-genres').value;
+            const folder = item.querySelector('.mapping-folder').value;
+            const priority = parseInt(item.querySelector('.mapping-priority').value) || 0;
+            
+            if (genres && folder) {
+                mappings.push({
+                    genres: genres.split(',').map(g => g.trim()).filter(g => g),
+                    root_folder: folder,
+                    priority: priority
+                });
+            }
+        });
+        
+        return mappings;
+    }
+    
+    window.addToRadarrWithOptions = async function(buttonElement) {
+        const title = buttonElement.dataset.title;
+        const year = buttonElement.dataset.year || null;
+        const genres = buttonElement.dataset.genres ? buttonElement.dataset.genres.split(', ') : [];
+        const tmdbId = buttonElement.dataset.tmdbId || null;
+        
+        // Check if root folder mappings are enabled and manual override is allowed
+        try {
+            const configResponse = await fetch(apiUrl('/config/root-folders'));
+            const configData = await configResponse.json();
+            
+            if (configData.config.enabled && configData.config.allow_manual_override && genres.length > 0) {
+                // Get available root folders and suggest one based on genres
+                const [foldersResponse, suggestResponse] = await Promise.all([
+                    fetch(apiUrl('/movies/root-folders/available')),
+                    fetch(apiUrl('/movies/root-folders/suggest'), {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(genres)
+                    })
+                ]);
+                
+                const foldersData = await foldersResponse.json();
+                const suggestData = await suggestResponse.json();
+                
+                // Show dialog with root folder selection
+                const folders = foldersData.folders || [];
+                const suggested = suggestData.suggested || suggestData.default;
+                
+                if (folders.length > 1) {
+                    // Create a simple modal for folder selection
+                    const modalHtml = `
+                        <div id="rootFolderModal" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 10000;">
+                            <div style="background: var(--bg-primary); padding: 2rem; border-radius: 8px; max-width: 500px; width: 90%;">
+                                <h3 style="margin-bottom: 1rem;">Select Root Folder for "${title}"</h3>
+                                <p style="color: var(--text-secondary); margin-bottom: 1rem;">Genres: ${genres.join(', ') || 'None'}</p>
+                                <select id="rootFolderSelect" style="width: 100%; padding: 0.5rem; margin-bottom: 1rem; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 4px;">
+                                    ${folders.map(folder => `
+                                        <option value="${folder}" ${folder === suggested ? 'selected' : ''}>
+                                            ${folder}${folder === suggested ? ' (Recommended)' : ''}
+                                        </option>
+                                    `).join('')}
+                                </select>
+                                <div style="display: flex; gap: 1rem; justify-content: flex-end;">
+                                    <button onclick="document.getElementById('rootFolderModal').remove()" style="padding: 0.5rem 1rem; background: var(--bg-secondary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 4px; cursor: pointer;">Cancel</button>
+                                    <button onclick="confirmAddToRadarr('${title}', ${year}, '${tmdbId}', document.getElementById('rootFolderSelect').value, ${JSON.stringify(genres).replace(/"/g, '&quot;')}, this.parentElement.parentElement.parentElement)" style="padding: 0.5rem 1rem; background: var(--primary-color); color: white; border: none; border-radius: 4px; cursor: pointer;">Add Movie</button>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    document.body.insertAdjacentHTML('beforeend', modalHtml);
+                    return;
+                }
+            }
+        } catch (error) {
+            console.error('Error checking root folder config:', error);
+        }
+        
+        // Fallback to simple add without folder selection
+        confirmAddToRadarr(title, year, tmdbId, null, genres, buttonElement);
+    }
+    
+    window.confirmAddToRadarr = function(title, year, tmdbId, rootFolder, genres, elementToUpdate) {
+        // Close modal if it exists
+        const modal = document.getElementById('rootFolderModal');
+        if (modal) modal.remove();
+        
+        // Find the original button if we came from a modal
+        const buttonElement = elementToUpdate.classList?.contains('add-to-radarr') 
+            ? elementToUpdate 
+            : document.querySelector(`[data-title="${title}"]`);
+        
+        // Show loading state
+        showMessage('Adding movie to Radarr...', 'info');
+        
+        if (buttonElement) {
+            buttonElement.disabled = true;
+            buttonElement.innerHTML = '<span style="display: inline-block; animation: spin 1s linear infinite;">⏳</span> Adding...';
+            buttonElement.style.opacity = '0.7';
+        }
+        
+        const requestData = {
+            title: title,
+            year: year,
+            tmdb_id: tmdbId ? parseInt(tmdbId) : null,
+            genres: genres,
+            root_folder: rootFolder
+        };
+        
+        fetch(apiUrl('/movies/add'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestData)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showMessage('✅ Movie added successfully! Updating status...', 'success');
+                
+                // Force immediate status update
+                setTimeout(() => {
+                    updateMovieStatuses();
+                    setTimeout(() => window.location.reload(), 1000);
+                }, 500);
+            } else {
+                // Restore button on error
+                if (buttonElement) {
+                    buttonElement.disabled = false;
+                    buttonElement.innerHTML = 'Add to Radarr';
+                    buttonElement.style.opacity = '1';
+                }
+                
+                // Show error message
+                const errorMessage = data.error || data.message || 'Failed to add movie';
+                showMessage(`❌ ${errorMessage}`, 'error');
+            }
+        })
+        .catch(error => {
+            console.error('Error adding movie:', error);
+            if (buttonElement) {
+                buttonElement.disabled = false;
+                buttonElement.innerHTML = 'Add to Radarr';
+                buttonElement.style.opacity = '1';
+            }
+            showMessage('❌ Error: Could not connect to server', 'error');
+        });
+    }
+    
+    // Keep the old function for backward compatibility
     window.addToRadarr = function(title, year, buttonElement) {
         if (confirm(`Add "${title}" to Radarr?`)) {
             // Show loading state immediately
@@ -1024,6 +1265,25 @@ function reloadScheduler() {
             if (!key.startsWith('boxarr_features_') && !key.startsWith('genre_') && !key.startsWith('rating_')) {
                 config[key] = value;
             }
+        }
+        
+        // Collect root folder mappings if enabled
+        const rootFolderMappingEnabled = document.getElementById('rootFolderMappingEnabled')?.checked || false;
+        if (rootFolderMappingEnabled) {
+            const mappings = collectRootFolderMappings();
+            const allowManualOverride = document.getElementById('allowManualOverride')?.checked || true;
+            
+            config.radarr_root_folder_config = {
+                enabled: true,
+                allow_manual_override: allowManualOverride,
+                mappings: mappings
+            };
+        } else {
+            config.radarr_root_folder_config = {
+                enabled: false,
+                allow_manual_override: true,
+                mappings: []
+            };
         }
         
         // Convert scheduler day and time to cron format

@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from ... import __version__
 from ...core.radarr import RadarrService
-from ...utils.config import Settings, settings
+from ...utils.config import RootFolderConfig, RootFolderMapping, Settings, settings
 from ...utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -41,6 +41,8 @@ class SaveConfigRequest(BaseModel):
     radarr_root_folder: str = "/movies"
     radarr_quality_profile_default: str = "HD-1080p"
     radarr_quality_profile_upgrade: str = ""  # Optional, empty string means no upgrade
+    # Root folder mapping configuration
+    radarr_root_folder_config: Optional[RootFolderConfig] = None
     boxarr_scheduler_enabled: bool = True
     boxarr_scheduler_cron: str = "0 23 * * 2"
     boxarr_features_auto_add: bool = True
@@ -55,6 +57,28 @@ class SaveConfigRequest(BaseModel):
     boxarr_features_auto_add_rating_whitelist: List[str] = Field(default_factory=list)
     # UI theme setting
     boxarr_ui_theme: str = "light"
+
+
+@router.get("/root-folders")
+async def get_root_folder_configuration():
+    """Get current root folder configuration."""
+    current_settings = settings
+
+    return {
+        "default_root_folder": str(current_settings.radarr_root_folder),
+        "config": {
+            "enabled": current_settings.radarr_root_folder_config.enabled,
+            "allow_manual_override": current_settings.radarr_root_folder_config.allow_manual_override,
+            "mappings": [
+                {
+                    "genres": mapping.genres,
+                    "root_folder": mapping.root_folder,
+                    "priority": mapping.priority,
+                }
+                for mapping in current_settings.radarr_root_folder_config.mappings
+            ],
+        },
+    }
 
 
 @router.get("", response_model=ConfigResponse)
@@ -137,7 +161,7 @@ async def save_configuration(config: SaveConfigRequest):
             }
 
         # Build config dict
-        radarr_config = {
+        radarr_config: Dict[str, Any] = {
             "url": config.radarr_url,
             "api_key": config.radarr_api_key,
             "root_folder": config.radarr_root_folder,
@@ -149,6 +173,21 @@ async def save_configuration(config: SaveConfigRequest):
             radarr_config["quality_profile_upgrade"] = (
                 config.radarr_quality_profile_upgrade
             )
+
+        # Add root folder config if provided
+        if config.radarr_root_folder_config:
+            radarr_config["root_folder_config"] = {
+                "enabled": config.radarr_root_folder_config.enabled,
+                "allow_manual_override": config.radarr_root_folder_config.allow_manual_override,
+                "mappings": [
+                    {
+                        "genres": mapping.genres,
+                        "root_folder": mapping.root_folder,
+                        "priority": mapping.priority,
+                    }
+                    for mapping in config.radarr_root_folder_config.mappings
+                ],
+            }
 
         config_data = {
             "radarr": radarr_config,

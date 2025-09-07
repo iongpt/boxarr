@@ -100,6 +100,51 @@
                 </div>
             </div>
 
+            <!-- Root Folder Mapping Section -->
+            <div id="rootFolderMappingSection" class="form-section {% if is_configured %}show{% endif %}">
+                <h2 class="section-title">Root Folder Mappings (Optional)</h2>
+                <p class="text-muted" style="margin-bottom: 1rem;">Automatically organize movies into different folders based on their genres.</p>
+                
+                <div class="checkbox-group">
+                    <input type="checkbox" id="rootFolderMappingEnabled" name="root_folder_mapping_enabled" class="checkbox-input"
+                           onchange="toggleRootFolderMapping()">
+                    <div>
+                        <label for="rootFolderMappingEnabled" class="checkbox-label main">Enable Genre-Based Root Folders</label>
+                        <div class="checkbox-label description">Automatically place movies in specific folders based on their genres</div>
+                    </div>
+                </div>
+
+                <div id="rootFolderMappingControls" style="display: none; margin-top: 1rem;">
+                    <div class="checkbox-group" style="margin-bottom: 1rem;">
+                        <input type="checkbox" id="allowManualOverride" name="allow_manual_override" class="checkbox-input" checked>
+                        <div>
+                            <label for="allowManualOverride" class="checkbox-label main">Allow Manual Override</label>
+                            <div class="checkbox-label description">Let users manually select a different folder when adding movies</div>
+                        </div>
+                    </div>
+
+                    <div class="mapping-container">
+                        <h3 style="margin-bottom: 0.5rem; color: var(--text-primary);">Genre Mappings</h3>
+                        <div id="mappingsList" class="mappings-list">
+                            <!-- Mappings will be added here dynamically -->
+                        </div>
+                        <button type="button" class="btn btn-secondary" onclick="addRootFolderMapping()" style="margin-top: 0.5rem;">
+                            ➕ Add Mapping
+                        </button>
+                    </div>
+
+                    <div class="alert" style="margin-top: 1rem; padding: 12px; background: var(--bg-info); color: var(--text-primary); border-left: 3px solid var(--primary-color); border-radius: 4px;">
+                        <strong>ℹ️ How it works:</strong>
+                        <ul style="margin: 8px 0; padding-left: 20px;">
+                            <li>Movies will be placed in folders based on their genres</li>
+                            <li>If a movie matches multiple mappings, the one with highest priority wins</li>
+                            <li>Movies without matching genres use the default root folder</li>
+                            <li>Example: Horror movies → /movies/horror, War movies → /movies/war</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
             <!-- Server Settings Section -->
             <div class="form-section">
                 <h2 class="section-title">Server Settings</h2>
