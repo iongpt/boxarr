@@ -324,6 +324,11 @@ class Settings(BaseSettings):
     ) -> str:
         """Determine the appropriate root folder based on movie genres.
 
+        Order-first semantics: evaluate rules from top to bottom and return the
+        first rule that matches any of the movie's genres. The numeric
+        ``priority`` field is treated as a stored index only and MUST NOT affect
+        selection.
+
         Args:
             genres: List of movie genres
             default: Default root folder to use if no mapping matches
@@ -334,23 +339,14 @@ class Settings(BaseSettings):
         if not self.radarr_root_folder_config.enabled:
             return default or str(self.radarr_root_folder)
 
-        # Find matching mappings
-        matches = []
         # Normalize movie genres to lowercase for case-insensitive matching
         normalized_movie_genres = {g.lower().strip() for g in genres}
-        
-        for mapping in self.radarr_root_folder_config.mappings:
-            # Normalize mapping genres to lowercase for comparison
-            normalized_mapping_genres = {g.lower().strip() for g in mapping.genres}
-            # Check if any of the movie's genres match the mapping's genres
-            matching_genres = normalized_movie_genres & normalized_mapping_genres
-            if matching_genres:
-                matches.append((mapping, len(matching_genres)))
 
-        # Sort by priority (higher first) and then by number of matching genres
-        if matches:
-            matches.sort(key=lambda x: (x[0].priority, x[1]), reverse=True)
-            return matches[0][0].root_folder
+        # Evaluate in list order; first match wins
+        for mapping in self.radarr_root_folder_config.mappings:
+            normalized_mapping_genres = {g.lower().strip() for g in mapping.genres}
+            if normalized_movie_genres & normalized_mapping_genres:
+                return mapping.root_folder
 
         return default or str(self.radarr_root_folder)
 

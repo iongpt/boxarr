@@ -152,15 +152,14 @@ Boxarr can automatically choose the Radarr root folder for each added movie base
 
 How it works:
 - You define rules that map one or more genres to a specific root folder.
-- When adding a movie (manually, via auto‑add, scheduler, or historical updates), Boxarr picks the best rule by:
-  - Priority (higher wins), then
-  - Number of matching genres.
+- Rules are an ordered list (top → bottom). When adding a movie (manually, via auto‑add, scheduler, or historical updates), Boxarr evaluates rules from top to bottom and applies the first matching rule.
 - If no rule matches or the mapped folder isn’t available in Radarr, Boxarr falls back to your default root folder and logs a warning.
 
 Configure it in Settings → Advanced → “Genre‑Based Root Folders,” or see an example YAML in `config/example-root-folders.yaml`.
 
 Notes:
 - Rules are case‑insensitive.
+- The numeric “priority” displayed equals the rule’s position (starting at 0) and is managed automatically by reordering the list; it’s not editable when adding a rule.
 - If you temporarily disable the feature, existing rules are preserved and can be re‑enabled later.
 
 ## Reverse Proxy Configuration

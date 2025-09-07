@@ -346,7 +346,7 @@
                             <!-- Add New Rule Widget -->
                             <div style="background: var(--bg-secondary); padding: 1.25rem; border-radius: 8px; margin-bottom: 1.5rem; border: 1px solid var(--border-color);">
                                 <h4 style="margin: 0 0 1rem 0; color: var(--text-primary); font-size: 1rem; font-weight: 600;">Add New Rule</h4>
-                                <div style="display: grid; grid-template-columns: 2fr 2fr 1fr auto; gap: 0.75rem; align-items: end;">
+                                <div style="display: grid; grid-template-columns: 2fr 2fr auto; gap: 0.75rem; align-items: end;">
                                     <div>
                                         <label class="form-label" style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 0.5rem; display: block;">Select Genres</label>
                                         <select id="newMappingGenres" multiple style="width: 100%; min-height: 42px; padding: 0.5rem; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.9rem;">
@@ -367,10 +367,6 @@
                                             <button type="button" class="btn btn-sm" title="Refresh folders" aria-label="Refresh folders" onclick="refreshRootFolders()" style="padding: 0.625rem; background: var(--bg-secondary); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 6px; transition: all 0.2s; cursor: pointer;">↻</button>
                                         </div>
                                     </div>
-                                    <div>
-                                        <label class="form-label" style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 0.5rem; display: block;">Priority</label>
-                                        <input type="number" id="newMappingPriority" value="10" min="0" max="100" style="width: 100%; padding: 0.625rem; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.9rem;">
-                                    </div>
                                     <button type="button" class="btn btn-primary" onclick="addRootFolderMapping()" style="padding: 0.625rem 1.25rem; border-radius: 6px; font-weight: 500;">
                                         + Add Rule
                                     </button>
@@ -387,10 +383,10 @@
                                     {% if root_folder_mappings and root_folder_mappings|length > 0 %}
                                         <!-- This is temporary display, will be replaced by JavaScript -->
                                         <div style="display: grid; grid-template-columns: 2fr auto 2fr 100px 120px; gap: 1rem; padding: 0.5rem 0.75rem; margin-bottom: 0.5rem; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); border-bottom: 1px solid var(--border-color);">
-                                            <div>Genres</div>
+                                            <div title="Rules are applied from top to bottom">Genres</div>
                                             <div></div>
                                             <div>Target Folder</div>
-                                            <div>Priority</div>
+                                            <div title="Order index (top to bottom)">Priority</div>
                                             <div style="text-align: center;">Actions</div>
                                         </div>
                                         {% for m in root_folder_mappings %}
@@ -418,8 +414,8 @@
                             <div class="alert" style="margin-top: 1rem; padding: 12px; background: var(--bg-tertiary); color: var(--text-primary); border-left: 3px solid var(--primary-color); border-radius: 4px;">
                                 <strong>ℹ️ How it works:</strong>
                                 <ul style="margin: 8px 0 0 0; padding-left: 20px; font-size: 0.9rem;">
-                                    <li>When adding a movie, Boxarr checks its genres against your rules</li>
-                                    <li>If multiple rules match, the one with highest priority wins</li>
+                                    <li>When adding a movie, Boxarr checks its genres against your rules from <em>top to bottom</em></li>
+                                    <li>The <strong>first matching rule</strong> wins; remaining rules are not evaluated</li>
                                     <li>Movies without matching genres use the default root folder</li>
                                 </ul>
                             </div>

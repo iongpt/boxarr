@@ -174,10 +174,11 @@ async def save_configuration(config: SaveConfigRequest):
             )
 
         # Add root folder config if provided
-        # Semantics:
+        # Semantics (order-first):
         # - If field present: respect posted 'enabled'. For mappings:
         #   - if posted list is empty and existing has rules, preserve existing rules but apply posted 'enabled'
         #   - else, save exactly what was posted
+        #   - Regardless, normalize each mapping's priority to its list index (0..N-1)
         # - If field absent: preserve existing config untouched
         if config.radarr_root_folder_config:
             posted = config.radarr_root_folder_config
@@ -185,43 +186,49 @@ async def save_configuration(config: SaveConfigRequest):
 
             if len(posted.mappings) == 0 and len(current.mappings) > 0:
                 # Keep rules, apply posted enabled flag (allows disabling without losing rules)
+                preserved = [
+                    {
+                        "genres": m.genres,
+                        "root_folder": m.root_folder,
+                        "priority": idx,
+                    }
+                    for idx, m in enumerate(current.mappings)
+                ]
                 radarr_config["root_folder_config"] = {
                     "enabled": posted.enabled,
-                    "mappings": [
-                        {
-                            "genres": m.genres,
-                            "root_folder": m.root_folder,
-                            "priority": m.priority,
-                        }
-                        for m in current.mappings
-                    ],
+                    "mappings": preserved,
                 }
             else:
+                normalized = [
+                    {
+                        "genres": m.genres,
+                        "root_folder": m.root_folder,
+                        "priority": idx,
+                    }
+                    for idx, m in enumerate(posted.mappings)
+                ]
                 radarr_config["root_folder_config"] = {
                     "enabled": posted.enabled,
-                    "mappings": [
-                        {
-                            "genres": m.genres,
-                            "root_folder": m.root_folder,
-                            "priority": m.priority,
-                        }
-                        for m in posted.mappings
-                    ],
+                    "mappings": normalized,
                 }
         else:
             # No root folder config provided at all - preserve existing if any
             current_settings = settings
             if current_settings.radarr_root_folder_config.enabled or current_settings.radarr_root_folder_config.mappings:
+                # Normalize existing mapping priorities to sequential indices
+                normalized_existing = [
+                    {
+                        "genres": mapping.genres,
+                        "root_folder": mapping.root_folder,
+                        "priority": idx,
+                    }
+                    for idx, mapping in enumerate(
+                        current_settings.radarr_root_folder_config.mappings
+                    )
+                ]
                 radarr_config["root_folder_config"] = {
                     "enabled": current_settings.radarr_root_folder_config.enabled,
-                    "mappings": [
-                        {
-                            "genres": mapping.genres,
-                            "root_folder": mapping.root_folder,
-                            "priority": mapping.priority,
-                        }
-                        for mapping in current_settings.radarr_root_folder_config.mappings
-                    ],
+                    "mappings": normalized_existing,
                 }
 
         config_data = {

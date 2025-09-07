@@ -807,17 +807,20 @@ function reloadScheduler() {
         }
     }
     
+    function reindexMappingPriorities() {
+        rootFolderMappings.forEach((m, i) => { m.priority = i; });
+    }
+
     window.addRootFolderMapping = function() {
         const genresSelect = document.getElementById('newMappingGenres');
         const folderSelect = document.getElementById('newMappingFolder');
-        const priorityInput = document.getElementById('newMappingPriority');
         
-        if (!genresSelect || !folderSelect || !priorityInput) return;
+        if (!genresSelect || !folderSelect) return;
         
         // Get selected genres
         const selectedGenres = Array.from(genresSelect.selectedOptions).map(opt => opt.value);
         const folder = folderSelect.value;
-        const priority = parseInt(priorityInput.value) || 10;
+        const priority = rootFolderMappings.length; // implicit order index (0-based)
         
         if (selectedGenres.length === 0) {
             showMessage('Please select at least one genre', 'error');
@@ -843,7 +846,7 @@ function reloadScheduler() {
         // Reset form
         genresSelect.selectedIndex = -1;
         folderSelect.value = '';
-        priorityInput.value = '10';
+        // priority managed automatically
         
         // Re-render list
         renderMappingsList();
@@ -869,6 +872,8 @@ function reloadScheduler() {
             [rootFolderMappings[index + 1], rootFolderMappings[index]];
         }
         
+        // Keep priorities aligned with new order
+        reindexMappingPriorities();
         rootFolderMappingModified = true; // Mark as modified when reordering
         renderMappingsList();
     }
@@ -892,7 +897,7 @@ function reloadScheduler() {
                 <div title="Movie genres that trigger this rule">Genres</div>
                 <div></div>
                 <div title="Destination folder in Radarr">Target Folder</div>
-                <div title="Higher priority rules take precedence">Priority</div>
+                <div title="Order index (top to bottom)">Priority</div>
                 <div title="Reorder or remove rules" style="text-align: center;">Actions</div>
             </div>
         ` : '';
@@ -917,7 +922,7 @@ function reloadScheduler() {
                 </div>
                 <div>
                     <span style="display: inline-block; padding: 0.25rem 0.5rem; background: var(--bg-tertiary); border-radius: 4px; font-size: 0.85rem; color: var(--text-secondary); font-weight: 500;">
-                        ${mapping.priority}
+                        ${index}
                     </span>
                 </div>
                 <div style="display: flex; gap: 0.25rem; justify-content: flex-end;">
@@ -950,7 +955,7 @@ function reloadScheduler() {
         const helpText = rootFolderMappings.length > 0 ? `
             <div style="margin-top: 1rem; padding: 0.75rem; background: var(--bg-tertiary); border-radius: 4px; font-size: 0.85rem; color: var(--text-muted);">
                 <span style="margin-right: 0.5rem;">ℹ️</span>
-                Rules are evaluated from top to bottom. When a movie matches multiple rules, the one with the highest priority wins.
+                Rules are evaluated from top to bottom. The first matching rule wins.
             </div>
         ` : '';
         
@@ -972,7 +977,8 @@ function reloadScheduler() {
     }
     
     window.collectRootFolderMappings = function() {
-        // Return the mappings in the format expected by the server
+        // Ensure priorities are aligned to current order before collecting
+        reindexMappingPriorities();
         return rootFolderMappings.map(m => ({
             genres: m.genres,
             root_folder: m.root_folder,
