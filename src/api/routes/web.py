@@ -87,6 +87,17 @@ async def home_page(request: Request):
     return RedirectResponse(url=f"{base}/overview")
 
 
+@router.get("/settings", response_class=HTMLResponse)
+async def settings_redirect(request: Request):
+    """Compatibility route: redirect /settings → /setup.
+
+    Some users type /settings by habit; provide a friendly redirect.
+    Honors the app's root_path for reverse proxy setups.
+    """
+    base = request.scope.get("root_path", "")
+    return RedirectResponse(url=f"{base}/setup")
+
+
 async def aggregate_all_movies() -> List[dict]:
     """Aggregate all movies from all weekly JSON files, handling duplicates."""
     weekly_pages_dir = Path(settings.boxarr_data_directory) / "weekly_pages"
