@@ -87,6 +87,17 @@ async def home_page(request: Request):
     return RedirectResponse(url=f"{base}/overview")
 
 
+@router.get("/settings", response_class=HTMLResponse)
+async def settings_redirect(request: Request):
+    """Compatibility route: redirect /settings → /setup.
+
+    Some users type /settings by habit; provide a friendly redirect.
+    Honors the app's root_path for reverse proxy setups.
+    """
+    base = request.scope.get("root_path", "")
+    return RedirectResponse(url=f"{base}/setup")
+
+
 async def aggregate_all_movies() -> List[dict]:
     """Aggregate all movies from all weekly JSON files, handling duplicates."""
     weekly_pages_dir = Path(settings.boxarr_data_directory) / "weekly_pages"
@@ -506,6 +517,7 @@ async def dashboard_page(request: Request):
         settings.boxarr_features_auto_add_limit < 10
         or settings.boxarr_features_auto_add_genre_filter_enabled
         or settings.boxarr_features_auto_add_rating_filter_enabled
+        or settings.boxarr_features_auto_add_ignore_rereleases
     )
 
     # Build filter description
@@ -534,6 +546,8 @@ async def dashboard_page(request: Request):
         filter_descriptions.append(
             f"Rating filter ({len(settings.boxarr_features_auto_add_rating_whitelist)} ratings)"
         )
+    if settings.boxarr_features_auto_add_ignore_rereleases:
+        filter_descriptions.append("Ignore re-releases")
 
     return templates.TemplateResponse(
         "dashboard.html",
@@ -629,6 +643,7 @@ async def setup_page(request: Request):
             genre_blacklist=settings.boxarr_features_auto_add_genre_blacklist,
             rating_filter_enabled=settings.boxarr_features_auto_add_rating_filter_enabled,
             rating_whitelist=settings.boxarr_features_auto_add_rating_whitelist,
+            ignore_rereleases=settings.boxarr_features_auto_add_ignore_rereleases,
             # URL base for reverse proxy support
             url_base=settings.boxarr_url_base,
         ),

@@ -55,6 +55,7 @@ class SaveConfigRequest(BaseModel):
     boxarr_features_auto_add_genre_blacklist: List[str] = Field(default_factory=list)
     boxarr_features_auto_add_rating_filter_enabled: bool = False
     boxarr_features_auto_add_rating_whitelist: List[str] = Field(default_factory=list)
+    boxarr_features_auto_add_ignore_rereleases: bool = False
     # UI theme setting
     boxarr_ui_theme: str = "light"
 
@@ -252,6 +253,7 @@ async def save_configuration(config: SaveConfigRequest):
                         "genre_blacklist": config.boxarr_features_auto_add_genre_blacklist,
                         "rating_filter_enabled": config.boxarr_features_auto_add_rating_filter_enabled,
                         "rating_whitelist": config.boxarr_features_auto_add_rating_whitelist,
+                        "ignore_rereleases": config.boxarr_features_auto_add_ignore_rereleases,
                     },
                 },
                 "ui": {

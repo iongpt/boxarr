@@ -186,6 +186,12 @@ class Settings(BaseSettings):
     boxarr_features_auto_add_rating_whitelist: List[str] = Field(
         default_factory=list, description="Age ratings to allow"
     )
+    boxarr_features_auto_add_ignore_rereleases: bool = Field(
+        default=False,
+        description=(
+            "Ignore re-releases: skip movies released before (selected year - 1)"
+        ),
+    )
 
     # Data Configuration
     boxarr_data_history_retention_days: int = Field(

@@ -153,6 +153,19 @@ class BoxarrScheduler:
             if not self.radarr_service:
                 self.radarr_service = RadarrService()
 
+            # Determine target (top) year/week for this run
+            from datetime import timedelta
+
+            if year and week:
+                actual_year = year
+                actual_week = week
+            else:
+                # Mirror get_current_week_movies: use previous week's data
+                last_week = datetime.now() - timedelta(weeks=1)
+                _, _, actual_year, actual_week = (
+                    self.boxoffice_service.get_weekend_dates(last_week)
+                )
+
             # Fetch box office movies for specified or current week
             if year and week:
                 box_office_movies = await self._run_in_executor(
@@ -177,7 +190,9 @@ class BoxarrScheduler:
             added_movies = []
             if settings.boxarr_features_auto_add:
                 logger.info("Auto-add is enabled, adding missing movies to Radarr")
-                added_movies = await self._auto_add_missing_movies(match_results)
+                added_movies = await self._auto_add_missing_movies(
+                    match_results, actual_year
+                )
             else:
                 unmatched_count = len([r for r in match_results if not r.is_matched])
                 if unmatched_count > 0:
@@ -197,25 +212,16 @@ class BoxarrScheduler:
                     self.matcher.match_batch, box_office_movies, radarr_movies
                 )
 
-            # Get weekend dates
+            # Get weekend dates (recompute concrete Friday/Sunday for metadata)
             if year and week:
-                # Calculate dates for the specified week
-                from datetime import timedelta
-
                 jan1 = datetime(year, 1, 1)
                 days_to_week = (week - 1) * 7
                 week_start = jan1 + timedelta(days=days_to_week)
-                # Find the Friday of that week
                 days_to_friday = (4 - week_start.weekday()) % 7
                 friday = week_start + timedelta(days=days_to_friday)
                 sunday = friday + timedelta(days=2)
-                actual_year = year
-                actual_week = week
             else:
-                # Use current week dates
-                friday, sunday, actual_year, actual_week = (
-                    self.boxoffice_service.get_weekend_dates()
-                )
+                friday, sunday, _, _ = self.boxoffice_service.get_weekend_dates()
 
             # Generate JSON data file
             page_generator = WeeklyDataGenerator(self.radarr_service)
@@ -377,7 +383,7 @@ class BoxarrScheduler:
             logger.error(f"Failed to cleanup history: {e}")
 
     async def _auto_add_missing_movies(
-        self, match_results: List[MatchResult]
+        self, match_results: List[MatchResult], top_year: int
     ) -> List[str]:
         """
         Automatically add unmatched movies to Radarr with default profile.
@@ -432,6 +438,25 @@ class BoxarrScheduler:
 
                 if search_results:
                     movie_info = search_results[0]
+                    # Optional: Ignore re-releases (older than top_year - 1)
+                    if settings.boxarr_features_auto_add_ignore_rereleases:
+                        try:
+                            movie_year = movie_info.get("year")
+                            if not movie_year:
+                                rd = movie_info.get("releaseDate") or movie_info.get(
+                                    "inCinemas"
+                                )
+                                if isinstance(rd, str) and len(rd) >= 4:
+                                    movie_year = int(rd[:4])
+                            if movie_year and int(movie_year) < (top_year - 1):
+                                logger.info(
+                                    f"Skipping '{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
+                                    f"release year {movie_year} older than cutoff {(top_year - 1)}"
+                                )
+                                continue
+                        except Exception:
+                            # Be permissive if metadata is missing or malformed
+                            pass
 
                     # Apply genre filter if enabled
                     if settings.boxarr_features_auto_add_genre_filter_enabled:
