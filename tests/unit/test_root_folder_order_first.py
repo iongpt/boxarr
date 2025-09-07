@@ -35,4 +35,3 @@ def test_first_matching_rule_wins_top_to_bottom():
 
     # Desired: first (top) matching rule wins
     assert s.get_root_folder_for_genres(["Horror"]) == "/movies/top"
-

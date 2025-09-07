@@ -25,7 +25,11 @@ def _seed_config(dir_path: Path) -> Path:
             "root_folder_config": {
                 "enabled": True,
                 "mappings": [
-                    {"genres": ["Horror"], "root_folder": "/movies/horror", "priority": 50}
+                    {
+                        "genres": ["Horror"],
+                        "root_folder": "/movies/horror",
+                        "priority": 50,
+                    }
                 ],
             },
         },
@@ -76,12 +80,14 @@ class _FakeRadarrService:
         monitored: bool = True,
         search_for_movie: bool = True,
     ):
-        _FakeRadarrService.added_calls.append({
-            "tmdb_id": tmdb_id,
-            "root_folder": root_folder,
-            "monitored": monitored,
-            "search": search_for_movie,
-        })
+        _FakeRadarrService.added_calls.append(
+            {
+                "tmdb_id": tmdb_id,
+                "root_folder": root_folder,
+                "monitored": monitored,
+                "search": search_for_movie,
+            }
+        )
         return {"id": 1, "tmdbId": tmdb_id}
 
 
@@ -99,8 +105,8 @@ def test_update_week_respects_genre_mapping(tmp_path, monkeypatch):
 
     # Patch route dependencies to fakes
     # Patch core services that the route imports dynamically inside the function
-    import src.core.radarr as core_radarr
     import src.core.boxoffice as core_boxoffice
+    import src.core.radarr as core_radarr
 
     monkeypatch.setattr(core_radarr, "RadarrService", _FakeRadarrService)
     monkeypatch.setattr(core_boxoffice, "BoxOfficeService", _FakeBoxOfficeService)

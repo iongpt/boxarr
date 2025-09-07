@@ -10,8 +10,8 @@ should pass.
 from pathlib import Path
 
 import yaml
-from fastapi.testclient import TestClient
 from bs4 import BeautifulSoup
+from fastapi.testclient import TestClient
 
 from src.api.app import create_app
 from src.utils.config import Settings
@@ -66,12 +66,14 @@ def test_setup_page_rehydrates_root_folder_mapping(tmp_path, monkeypatch):
     checkbox = soup.find("input", {"id": "rootFolderMappingEnabled"})
     assert checkbox is not None
     # Expected FAIL: element currently lacks the 'checked' attribute
-    assert checkbox.has_attr("checked"), "Root-folder mapping checkbox should be checked"
+    assert checkbox.has_attr(
+        "checked"
+    ), "Root-folder mapping checkbox should be checked"
 
     # Desired: existing rules should be rendered (or empty state should not be shown)
     mappings_list = soup.find(id="mappingsList")
     assert mappings_list is not None
     # Expected FAIL: template currently shows the empty-state placeholder
-    assert "No rules configured yet" not in mappings_list.get_text(" "), (
-        "Existing mappings should appear in Settings instead of the empty state"
-    )
+    assert "No rules configured yet" not in mappings_list.get_text(
+        " "
+    ), "Existing mappings should appear in Settings instead of the empty state"

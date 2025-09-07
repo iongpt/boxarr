@@ -63,7 +63,9 @@ def _read_current_config(dir_path: Path) -> dict:
         return yaml.safe_load(f) or {}
 
 
-def test_save_should_preserve_existing_mappings_when_feature_not_in_use(tmp_path, monkeypatch):
+def test_save_should_preserve_existing_mappings_when_feature_not_in_use(
+    tmp_path, monkeypatch
+):
     """Expected behavior: a Save that posts a disabled mapping block should not wipe rules.
 
     Simulates the UI sending radarr_root_folder_config with enabled=false,mappings=[] even
@@ -118,14 +120,9 @@ def test_save_should_preserve_existing_mappings_when_feature_not_in_use(tmp_path
     # Desired behavior: when UI posts disabled+empty, preserve existing rules
     # but respect the requested disabled state.
     assert (
-        current.get("radarr", {})
-        .get("root_folder_config", {})
-        .get("enabled")
-        is False
+        current.get("radarr", {}).get("root_folder_config", {}).get("enabled") is False
     )
     mappings = (
-        current.get("radarr", {})
-        .get("root_folder_config", {})
-        .get("mappings", [])
+        current.get("radarr", {}).get("root_folder_config", {}).get("mappings", [])
     )
     assert mappings and mappings[0].get("root_folder") == "/movies/horror"

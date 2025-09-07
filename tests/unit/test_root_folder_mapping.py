@@ -23,8 +23,14 @@ def make_settings_with_mappings(mappings: list[RootFolderMapping]) -> Settings:
 def test_order_first_top_to_bottom_wins():
     """Order-first: the first matching rule wins regardless of numeric priority."""
     mappings = [
-        RootFolderMapping(genres=["War", "History", "Documentary"], root_folder="/movies/war-history", priority=0),
-        RootFolderMapping(genres=["War", "Drama"], root_folder="/movies/war-drama", priority=99),
+        RootFolderMapping(
+            genres=["War", "History", "Documentary"],
+            root_folder="/movies/war-history",
+            priority=0,
+        ),
+        RootFolderMapping(
+            genres=["War", "Drama"], root_folder="/movies/war-drama", priority=99
+        ),
     ]
 
     s = make_settings_with_mappings(mappings)

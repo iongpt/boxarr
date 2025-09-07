@@ -8,8 +8,8 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from ...core.scheduler import BoxarrScheduler
 from ...core.root_folder_manager import RootFolderManager
+from ...core.scheduler import BoxarrScheduler
 from ...utils.config import settings
 from ...utils.logger import get_logger
 
@@ -386,7 +386,9 @@ async def update_specific_week(request: UpdateWeekRequest):  # noqa: C901
                         # Determine destination root folder based on genres (with validation)
                         chosen_root = root_folder_manager.determine_root_folder(
                             genres=movie_genres,
-                            movie_title=movie_info.get("title", result.box_office_movie.title),
+                            movie_title=movie_info.get(
+                                "title", result.box_office_movie.title
+                            ),
                         )
 
                         # Add the movie

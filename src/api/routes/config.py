@@ -214,7 +214,10 @@ async def save_configuration(config: SaveConfigRequest):
         else:
             # No root folder config provided at all - preserve existing if any
             current_settings = settings
-            if current_settings.radarr_root_folder_config.enabled or current_settings.radarr_root_folder_config.mappings:
+            if (
+                current_settings.radarr_root_folder_config.enabled
+                or current_settings.radarr_root_folder_config.mappings
+            ):
                 # Normalize existing mapping priorities to sequential indices
                 normalized_existing = [
                     {
