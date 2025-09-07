@@ -130,4 +130,3 @@ def test_ignore_rereleases_enabled_skips_old_years(tmp_path, monkeypatch):
 
     # Reset settings cache for isolation
     Settings.reload_from_file(tmp_path / "local.yaml")
-

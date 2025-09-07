@@ -342,9 +342,9 @@ async def update_specific_week(request: UpdateWeekRequest):  # noqa: C901
                                     movie_year = movie_info.get("year")
                                     # Fall back to releaseDate (YYYY-MM-DD)
                                     if not movie_year:
-                                        rd = movie_info.get("releaseDate") or movie_info.get(
-                                            "inCinemas"
-                                        )
+                                        rd = movie_info.get(
+                                            "releaseDate"
+                                        ) or movie_info.get("inCinemas")
                                         if isinstance(rd, str) and len(rd) >= 4:
                                             movie_year = int(rd[:4])
                                 if movie_year and int(movie_year) < (year - 1):

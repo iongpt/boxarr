@@ -162,8 +162,8 @@ class BoxarrScheduler:
             else:
                 # Mirror get_current_week_movies: use previous week's data
                 last_week = datetime.now() - timedelta(weeks=1)
-                _, _, actual_year, actual_week = self.boxoffice_service.get_weekend_dates(
-                    last_week
+                _, _, actual_year, actual_week = (
+                    self.boxoffice_service.get_weekend_dates(last_week)
                 )
 
             # Fetch box office movies for specified or current week
