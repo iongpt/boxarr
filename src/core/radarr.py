@@ -218,7 +218,10 @@ class RadarrService:
         try:
             tags = self.get_tags()
             for tag in tags:
-                if isinstance(tag, dict) and tag.get("label", "").lower() == label.lower():
+                if (
+                    isinstance(tag, dict)
+                    and tag.get("label", "").lower() == label.lower()
+                ):
                     return tag
         except Exception:
             pass
@@ -229,14 +232,29 @@ class RadarrService:
         response = self._make_request("POST", "/api/v3/tag", json={"label": label})
         tag = response.json()
         if isinstance(tag, dict):
-            return tag.get("id")
+            tag_id = tag.get("id")
+            if isinstance(tag_id, int):
+                return tag_id
+            # Some Radarr versions may return string IDs; attempt to cast
+            if isinstance(tag_id, (str, bytes)):
+                try:
+                    return int(str(tag_id))
+                except Exception:
+                    return None
         return None
 
     def ensure_tag(self, label: str) -> Optional[int]:
         """Ensure a tag with given label exists in Radarr and return its ID."""
         existing = self.get_tag_by_label(label)
         if existing and isinstance(existing, dict):
-            return existing.get("id")
+            ex_id = existing.get("id")
+            if isinstance(ex_id, int):
+                return ex_id
+            if isinstance(ex_id, (str, bytes)):
+                try:
+                    return int(str(ex_id))
+                except Exception:
+                    return None
         try:
             return self.create_tag(label)
         except Exception as e:

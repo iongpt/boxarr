@@ -237,21 +237,19 @@ class Settings(BaseSettings):
         return v
 
     @validator("boxarr_features_auto_tag_text", pre=True)
-    def validate_auto_tag_text(cls, v: str) -> str:
+    def validate_auto_tag_text(cls, v: Any) -> str:
         """Ensure auto tag text is a single word up to 20 characters."""
         if v is None:
             return "boxarr"
-        if not isinstance(v, str):
-            v = str(v)
-        v = v.strip()
+        s: str = str(v).strip()
         # Enforce non-empty, no whitespace, max 20 chars
-        if not v:
+        if not s:
             return "boxarr"
-        if any(ch.isspace() for ch in v):
+        if any(ch.isspace() for ch in s):
             raise ValueError("Auto tag must be a single word without spaces")
-        if len(v) > 20:
+        if len(s) > 20:
             raise ValueError("Auto tag must be at most 20 characters")
-        return v
+        return s
 
     @validator("boxarr_api_port")
     def validate_api_port_different(cls, v: int, values: Dict) -> int:
