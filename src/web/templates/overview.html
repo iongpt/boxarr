@@ -607,7 +607,7 @@
                 <!-- Actions -->
                 <div class="movie-actions">
                     {% if not movie.radarr_id %}
-                    <button class="action-btn add-to-radarr" onclick="addToRadarr('{{ movie.title }}', {{ movie.year or 'null' }}, this)">
+                    <button class="action-btn add-to-radarr" onclick='addToRadarr({{ movie.title|tojson }}, {{ movie.year or "null" }}, this)'>
                         Add to Radarr
                     </button>
                     {% elif movie.can_upgrade_quality %}

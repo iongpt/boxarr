@@ -300,6 +300,31 @@ async def add_movie_to_radarr(request: AddMovieRequest):
             movie_title=movie_data.get("title", "Unknown"),
         )
 
+        # Before adding, check if this TMDB ID already exists in Radarr (fresh library)
+        try:
+            existing_movies = radarr_service.get_all_movies(ignore_cache=True)
+            tmdb_id = (
+                int(movie_data.get("tmdbId")) if movie_data.get("tmdbId") else None
+            )
+        except Exception:
+            existing_movies = []
+            tmdb_id = movie_data.get("tmdbId")
+
+        if tmdb_id is not None:
+            already = next((m for m in existing_movies if m.tmdbId == tmdb_id), None)
+        else:
+            already = None
+
+        if already:
+            # Regenerate affected weeks so UI reflects correct status immediately
+            regenerate_weeks_with_movie(req_title)
+
+            return {
+                "success": True,
+                "message": "Movie already exists in Radarr",
+                "movie_id": already.id,
+            }
+
         # Add movie
         result = radarr_service.add_movie(
             tmdb_id=movie_data["tmdbId"],
@@ -367,7 +392,8 @@ def regenerate_weeks_with_movie(movie_title: str):
     generator = WeeklyDataGenerator(radarr_service)
 
     # Get updated Radarr library
-    radarr_movies = radarr_service.get_all_movies()
+    # Always bypass cache so recently added movies are visible to the matcher
+    radarr_movies = radarr_service.get_all_movies(ignore_cache=True)
 
     # Search all metadata files
     for json_file in weekly_pages_dir.glob("*.json"):
