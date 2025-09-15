@@ -156,6 +156,23 @@
                         <div class="checkbox-label description">Automatically add unmatched movies to Radarr</div>
                     </div>
                 </div>
+
+                <!-- Auto-Tag Movies Added to Radarr -->
+                <div class="checkbox-group" style="margin-top: 1rem;">
+                    <input type="checkbox" id="autoTagEnabled" name="boxarr_features_auto_tag_enabled" class="checkbox-input"
+                           {% if auto_tag_enabled %}checked{% endif %} onchange="toggleAutoTag()">
+                    <div>
+                        <label for="autoTagEnabled" class="checkbox-label main">Auto tag movies added to Radarr</label>
+                        <div class="checkbox-label description">Tag newly added movies in Radarr for easy tracking and cleanup</div>
+                    </div>
+                </div>
+                <div class="form-group" style="margin-left: 2rem; margin-top: 0.5rem;">
+                    <label for="autoTagText" class="form-label">Tag Label</label>
+                    <input type="text" id="autoTagText" name="boxarr_features_auto_tag_text" class="form-input"
+                           value="{{ auto_tag_text or 'boxarr' }}" placeholder="boxarr" maxlength="20" pattern="^\S{1,20}$"
+                           {% if not auto_tag_enabled %}disabled{% endif %}>
+                    <small class="text-muted">Single word, up to 20 characters.</small>
+                </div>
                 
                 <!-- Auto-Add Advanced Options -->
                 <div id="autoAddOptions" class="auto-add-options {% if auto_add %}active{% endif %}" style="margin-left: 2rem; margin-top: 1rem; padding: 1rem; background: var(--bg-color); border-radius: 8px; border-left: 3px solid var(--primary-color);">

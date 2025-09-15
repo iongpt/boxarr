@@ -635,6 +635,9 @@ async def setup_page(request: Request):
             scheduler_time=current_time,
             auto_add=settings.boxarr_features_auto_add,
             quality_upgrade=settings.boxarr_features_quality_upgrade,
+            # Auto tagging
+            auto_tag_enabled=settings.boxarr_features_auto_tag_enabled,
+            auto_tag_text=settings.boxarr_features_auto_tag_text,
             # New auto-add advanced options
             auto_add_limit=settings.boxarr_features_auto_add_limit,
             genre_filter_enabled=settings.boxarr_features_auto_add_genre_filter_enabled,

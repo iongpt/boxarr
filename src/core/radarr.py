@@ -206,6 +206,61 @@ class RadarrService:
         logger.info(f"Fetched {len(movies)} movies from Radarr")
         return movies
 
+    # Tag management helpers
+    def get_tags(self) -> List[Dict[str, Any]]:
+        """Fetch all tags from Radarr."""
+        response = self._make_request("GET", "/api/v3/tag")
+        data = response.json()
+        return data if isinstance(data, list) else []
+
+    def get_tag_by_label(self, label: str) -> Optional[Dict[str, Any]]:
+        """Find a tag by its label (case-insensitive)."""
+        try:
+            tags = self.get_tags()
+            for tag in tags:
+                if (
+                    isinstance(tag, dict)
+                    and tag.get("label", "").lower() == label.lower()
+                ):
+                    return tag
+        except Exception:
+            pass
+        return None
+
+    def create_tag(self, label: str) -> Optional[int]:
+        """Create a new tag and return its ID."""
+        response = self._make_request("POST", "/api/v3/tag", json={"label": label})
+        tag = response.json()
+        if isinstance(tag, dict):
+            tag_id = tag.get("id")
+            if isinstance(tag_id, int):
+                return tag_id
+            # Some Radarr versions may return string IDs; attempt to cast
+            if isinstance(tag_id, (str, bytes)):
+                try:
+                    return int(str(tag_id))
+                except Exception:
+                    return None
+        return None
+
+    def ensure_tag(self, label: str) -> Optional[int]:
+        """Ensure a tag with given label exists in Radarr and return its ID."""
+        existing = self.get_tag_by_label(label)
+        if existing and isinstance(existing, dict):
+            ex_id = existing.get("id")
+            if isinstance(ex_id, int):
+                return ex_id
+            if isinstance(ex_id, (str, bytes)):
+                try:
+                    return int(str(ex_id))
+                except Exception:
+                    return None
+        try:
+            return self.create_tag(label)
+        except Exception as e:
+            logger.warning(f"Failed to create tag '{label}': {e}")
+            return None
+
     def get_movie(self, movie_id: int) -> RadarrMovie:
         """
         Get specific movie by ID.
@@ -283,7 +338,7 @@ class RadarrService:
             search_for_movie = settings.radarr_search_for_movie
 
         # Prepare movie data
-        movie_data = {
+        movie_data: Dict[str, Any] = {
             **movie_info,
             "qualityProfileId": quality_profile_id,
             "rootFolderPath": root_folder,
@@ -294,6 +349,20 @@ class RadarrService:
                 "minimumAvailability": settings.radarr_minimum_availability.value,
             },
         }
+
+        # Apply auto-tagging if enabled
+        try:
+            if settings.boxarr_features_auto_tag_enabled:
+                label = settings.boxarr_features_auto_tag_text
+                if isinstance(label, str) and label.strip():
+                    tag_id = self.ensure_tag(label.strip())
+                    if tag_id is not None:
+                        movie_data["tags"] = [tag_id]
+            else:
+                # Explicitly set empty tags to avoid any defaults
+                movie_data["tags"] = []
+        except Exception as e:
+            logger.warning(f"Auto-tagging skipped due to error: {e}")
 
         response = self._make_request("POST", "/api/v3/movie", json=movie_data)
         added_movie = self._parse_movie(response.json())

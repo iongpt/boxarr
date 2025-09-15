@@ -106,6 +106,15 @@ function toggleRatingFilter() {
     }
 }
 
+// Auto-Tag toggle
+function toggleAutoTag() {
+    const checkbox = document.getElementById('autoTagEnabled');
+    const input = document.getElementById('autoTagText');
+    if (checkbox && input) {
+        input.disabled = !checkbox.checked;
+    }
+}
+
 function updateGenreMode() {
     const mode = document.querySelector('input[name="boxarr_features_auto_add_genre_filter_mode"]:checked');
     const label = document.getElementById('genreListLabel');
@@ -1225,6 +1234,10 @@ function reloadScheduler() {
         config.boxarr_scheduler_enabled = document.getElementById('schedulerEnabled')?.checked || false;
         config.boxarr_features_auto_add = document.getElementById('autoAdd')?.checked || false;
         config.boxarr_features_quality_upgrade = document.getElementById('qualityUpgrade')?.checked || false;
+        // Auto-tag settings
+        config.boxarr_features_auto_tag_enabled = document.getElementById('autoTagEnabled')?.checked || false;
+        const autoTagInput = document.getElementById('autoTagText');
+        config.boxarr_features_auto_tag_text = (autoTagInput && autoTagInput.value) ? autoTagInput.value : 'boxarr';
         
         // Handle new auto-add advanced options
         config.boxarr_features_auto_add_limit = parseInt(document.getElementById('autoAddLimit')?.value || '10');
