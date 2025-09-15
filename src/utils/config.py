@@ -209,7 +209,10 @@ class Settings(BaseSettings):
         default=3600, ge=60, le=86400, description="Cache TTL in seconds"
     )
     radarr_cache_ttl_seconds: int = Field(
-        default=120, ge=10, le=3600, description="In-memory TTL for Radarr library/profile cache"
+        default=120,
+        ge=10,
+        le=3600,
+        description="In-memory TTL for Radarr library/profile cache",
     )
     boxarr_data_directory: Path = Field(
         default=Path("/config"), description="Data storage directory"

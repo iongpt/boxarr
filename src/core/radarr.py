@@ -207,7 +207,11 @@ class RadarrService:
             ttl = 120
 
         now = __import__("time").time()
-        if not ignore_cache and _movies_cache["data"] and (now - _movies_cache["ts"]) < ttl:
+        if (
+            not ignore_cache
+            and _movies_cache["data"]
+            and (now - _movies_cache["ts"]) < ttl
+        ):
             return _movies_cache["data"]  # type: ignore[return-value]
 
         response = self._make_request("GET", "/api/v3/movie")
@@ -471,7 +475,11 @@ class RadarrService:
             ttl = 120
 
         now = __import__("time").time()
-        if not ignore_cache and _profiles_cache["data"] and (now - _profiles_cache["ts"]) < ttl:
+        if (
+            not ignore_cache
+            and _profiles_cache["data"]
+            and (now - _profiles_cache["ts"]) < ttl
+        ):
             return _profiles_cache["data"]  # type: ignore[return-value]
 
         response = self._make_request("GET", "/api/v3/qualityProfile")
