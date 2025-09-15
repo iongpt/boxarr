@@ -179,9 +179,7 @@ async def save_configuration(config: SaveConfigRequest):
             config.radarr_minimum_availability_enabled
         )
         if config.radarr_minimum_availability:
-            radarr_config["minimum_availability"] = (
-                config.radarr_minimum_availability
-            )
+            radarr_config["minimum_availability"] = config.radarr_minimum_availability
 
         # Only include upgrade profile if specified
         if config.radarr_quality_profile_upgrade:
