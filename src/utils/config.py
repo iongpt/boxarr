@@ -304,9 +304,12 @@ class Settings(BaseSettings):
                                 ]
                             setattr(self, "radarr_root_folder_config", config)
                         elif key == "minimum_availability":
-                            # Coerce string to enum safely
+                            # Coerce string to enum safely and normalize deprecated values
                             try:
                                 enum_val = MinimumAvailabilityEnum(value)
+                                if enum_val == MinimumAvailabilityEnum.PRE_DB:
+                                    # Map deprecated preDb to a safe default
+                                    enum_val = MinimumAvailabilityEnum.ANNOUNCED
                                 setattr(self, "radarr_minimum_availability", enum_val)
                             except Exception:
                                 # Fall back to default if invalid

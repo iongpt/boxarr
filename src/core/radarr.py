@@ -371,14 +371,26 @@ class RadarrService:
             "addOptions": add_options,
         }
 
-        # Radarr expects minimumAvailability at the top level of the movie payload,
-        # not inside addOptions. Only include it when the UI toggle is enabled.
+        # Radarr expects minimumAvailability at the top level of the movie payload.
+        # Only include it when the UI toggle is enabled and the value is supported
+        # by the Radarr API (older values like preDb are not accepted by v3+).
         try:
             if getattr(settings, "radarr_minimum_availability_enabled", False):
-                movie_data["minimumAvailability"] = (
-                    settings.radarr_minimum_availability.value
-                )
+                avail = getattr(settings, "radarr_minimum_availability", None)
+                # Accept only supported values for v3+ API
+                allowed = {"announced", "inCinemas", "released"}
+                value = getattr(avail, "value", None) or str(avail or "").strip()
+                if value in allowed:
+                    movie_data["minimumAvailability"] = value
+                else:
+                    # Fallback to a safe default when encountering unsupported value
+                    logger.warning(
+                        "Unsupported minimumAvailability '%s'; defaulting to 'announced'",
+                        value,
+                    )
+                    movie_data["minimumAvailability"] = "announced"
         except Exception:
+            # Never let availability decoration break add flow
             pass
 
         # Apply auto-tagging if enabled
