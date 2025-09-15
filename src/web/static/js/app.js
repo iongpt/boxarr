@@ -1395,6 +1395,11 @@ function reloadScheduler() {
                 }
             }, 5000);
         }
+
+        // Overview page - hydrate Radarr statuses once after load
+        if (isCurrentPath('/overview')) {
+            updateMovieStatuses();
+        }
         
         // Setup page specific initialization
         if (isCurrentPath('/setup')) {

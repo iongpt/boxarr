@@ -88,6 +88,10 @@ class RadarrMovie:
         return None
 
 
+_movies_cache: Dict[str, Any] = {"ts": 0.0, "data": []}
+_profiles_cache: Dict[str, Any] = {"ts": 0.0, "data": []}
+
+
 class RadarrService:
     """Service for interacting with Radarr API."""
 
@@ -189,20 +193,32 @@ class RadarrService:
         except Exception:
             return False
 
-    def get_all_movies(self) -> List[RadarrMovie]:
+    def get_all_movies(self, ignore_cache: bool = False) -> List[RadarrMovie]:
         """
         Get all movies from Radarr.
 
         Returns:
             List of RadarrMovie objects
         """
+        # Simple in-memory TTL cache (shared across service instances)
+        try:
+            ttl = getattr(settings, "radarr_cache_ttl_seconds", 120)
+        except Exception:
+            ttl = 120
+
+        now = __import__("time").time()
+        if not ignore_cache and _movies_cache["data"] and (now - _movies_cache["ts"]) < ttl:
+            return _movies_cache["data"]  # type: ignore[return-value]
+
         response = self._make_request("GET", "/api/v3/movie")
-        movies = []
+        movies: List[RadarrMovie] = []
 
         for movie_data in response.json():
             movie = self._parse_movie(movie_data)
             movies.append(movie)
 
+        _movies_cache["data"] = movies
+        _movies_cache["ts"] = now
         logger.info(f"Fetched {len(movies)} movies from Radarr")
         return movies
 
@@ -441,33 +457,45 @@ class RadarrService:
         self._make_request("DELETE", f"/api/v3/movie/{movie_id}", params=params)
         logger.info(f"Deleted movie {movie_id} from Radarr")
 
-    def get_quality_profiles(self) -> List[QualityProfile]:
+    def get_quality_profiles(self, ignore_cache: bool = False) -> List[QualityProfile]:
         """
         Get quality profiles from Radarr.
 
         Returns:
             List of QualityProfile objects
         """
-        if self._quality_profiles is None:
-            response = self._make_request("GET", "/api/v3/qualityProfile")
-            self._quality_profiles = []
-            for profile in response.json():
-                # Only extract the fields we need, ignore extra fields from newer Radarr versions
-                filtered_profile = {
-                    "id": profile.get("id"),
-                    "name": profile.get("name"),
-                    "upgradeAllowed": profile.get("upgradeAllowed", False),
-                    "cutoff": profile.get("cutoff", 0),
-                    "items": profile.get("items", []),
-                    "minFormatScore": profile.get("minFormatScore", 0),
-                    "cutoffFormatScore": profile.get("cutoffFormatScore", 0),
-                    "minUpgradeFormatScore": profile.get("minUpgradeFormatScore", 0),
-                    "formatItems": profile.get("formatItems", []),
-                    "language": profile.get("language"),
-                }
-                self._quality_profiles.append(QualityProfile(**filtered_profile))
+        # Prefer global cache with TTL to reduce repeated fetches
+        try:
+            ttl = getattr(settings, "radarr_cache_ttl_seconds", 120)
+        except Exception:
+            ttl = 120
 
-        return self._quality_profiles
+        now = __import__("time").time()
+        if not ignore_cache and _profiles_cache["data"] and (now - _profiles_cache["ts"]) < ttl:
+            return _profiles_cache["data"]  # type: ignore[return-value]
+
+        response = self._make_request("GET", "/api/v3/qualityProfile")
+        profiles: List[QualityProfile] = []
+        for profile in response.json():
+            # Only extract the fields we need, ignore extra fields from newer Radarr versions
+            filtered_profile = {
+                "id": profile.get("id"),
+                "name": profile.get("name"),
+                "upgradeAllowed": profile.get("upgradeAllowed", False),
+                "cutoff": profile.get("cutoff", 0),
+                "items": profile.get("items", []),
+                "minFormatScore": profile.get("minFormatScore", 0),
+                "cutoffFormatScore": profile.get("cutoffFormatScore", 0),
+                "minUpgradeFormatScore": profile.get("minUpgradeFormatScore", 0),
+                "formatItems": profile.get("formatItems", []),
+                "language": profile.get("language"),
+            }
+            profiles.append(QualityProfile(**filtered_profile))
+
+        _profiles_cache["data"] = profiles
+        _profiles_cache["ts"] = now
+        self._quality_profiles = profiles
+        return profiles
 
     def get_quality_profile_by_name(self, name: str) -> Optional[QualityProfile]:
         """
