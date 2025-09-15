@@ -175,8 +175,8 @@ async def save_configuration(config: SaveConfigRequest):
         }
 
         # Include minimum availability settings (UI-driven)
-        radarr_config["minimum_availability_enabled"] = (
-            bool(config.radarr_minimum_availability_enabled)
+        radarr_config["minimum_availability_enabled"] = bool(
+            config.radarr_minimum_availability_enabled
         )
         if config.radarr_minimum_availability:
             radarr_config["minimum_availability"] = (
