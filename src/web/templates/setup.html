@@ -63,9 +63,9 @@
                 <div id="testResults" class="test-results"></div>
             </div>
 
-            <!-- Quality Settings Section -->
+            <!-- Radarr Settings Section -->
             <div id="qualitySection" class="form-section quality-section {% if is_configured %}show{% endif %}">
-                <h2 class="section-title">Quality Settings</h2>
+                <h2 class="section-title">Radarr Settings</h2>
                 
                 <div class="form-group">
                     <label for="rootFolder" class="form-label">Root Folder</label>
@@ -98,6 +98,26 @@
                             {% endif %}
                         </select>
                         <small class="text-muted">Higher quality option for manual upgrades</small>
+                    </div>
+                </div>
+
+                <!-- Minimum Availability Control Row -->
+                <div class="form-row two-col" style="margin-top: 0.75rem; align-items: center;">
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <div class="checkbox-group" style="margin-bottom: 0;">
+                            <input type="checkbox" id="minAvailabilityEnabled" name="radarr_minimum_availability_enabled" class="checkbox-input" {% if radarr_minimum_availability_enabled %}checked{% endif %} onchange="toggleMinimumAvailability()">
+                            <div>
+                                <label for="minAvailabilityEnabled" class="checkbox-label main">Set minimum availability</label>
+                                <div class="checkbox-label description">When enabled, movies added to Radarr will use the selected minimum availability</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 0;">
+                        <select id="minimumAvailability" name="radarr_minimum_availability" class="form-select" {% if not radarr_minimum_availability_enabled %}disabled{% endif %}>
+                            <option value="announced" {% if radarr_minimum_availability == 'announced' %}selected{% endif %}>Announced</option>
+                            <option value="inCinemas" {% if radarr_minimum_availability == 'inCinemas' %}selected{% endif %}>In Cinemas</option>
+                            <option value="released" {% if radarr_minimum_availability == 'released' %}selected{% endif %}>Released</option>
+                        </select>
                     </div>
                 </div>
             </div>

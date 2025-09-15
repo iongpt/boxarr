@@ -41,6 +41,9 @@ class SaveConfigRequest(BaseModel):
     radarr_root_folder: str = "/movies"
     radarr_quality_profile_default: str = "HD-1080p"
     radarr_quality_profile_upgrade: str = ""  # Optional, empty string means no upgrade
+    # Minimum availability controls
+    radarr_minimum_availability_enabled: bool = False
+    radarr_minimum_availability: str = "announced"
     # Root folder mapping configuration
     radarr_root_folder_config: Optional[RootFolderConfig] = None
     boxarr_scheduler_enabled: bool = True
@@ -170,6 +173,13 @@ async def save_configuration(config: SaveConfigRequest):
             "root_folder": config.radarr_root_folder,
             "quality_profile_default": config.radarr_quality_profile_default,
         }
+
+        # Include minimum availability settings (UI-driven)
+        radarr_config["minimum_availability_enabled"] = bool(
+            config.radarr_minimum_availability_enabled
+        )
+        if config.radarr_minimum_availability:
+            radarr_config["minimum_availability"] = config.radarr_minimum_availability
 
         # Only include upgrade profile if specified
         if config.radarr_quality_profile_upgrade:

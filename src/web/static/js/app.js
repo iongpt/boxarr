@@ -115,6 +115,18 @@ function toggleAutoTag() {
     }
 }
 
+// Minimum Availability toggle
+function toggleMinimumAvailability() {
+    const checkbox = document.getElementById('minAvailabilityEnabled');
+    const select = document.getElementById('minimumAvailability');
+    if (checkbox && select) {
+        const enabled = checkbox.checked;
+        select.disabled = !enabled;
+        // Subtle UI cue by changing opacity
+        select.style.opacity = enabled ? '1' : '0.6';
+    }
+}
+
 function updateGenreMode() {
     const mode = document.querySelector('input[name="boxarr_features_auto_add_genre_filter_mode"]:checked');
     const label = document.getElementById('genreListLabel');
@@ -1464,6 +1476,15 @@ function reloadScheduler() {
                     saveBtn.disabled = true;
                 }
             }
+
+            // Initialize minimum availability toggle state and handler
+            try {
+                toggleMinimumAvailability();
+                const minAvailCheckbox = document.getElementById('minAvailabilityEnabled');
+                if (minAvailCheckbox) {
+                    minAvailCheckbox.addEventListener('change', toggleMinimumAvailability);
+                }
+            } catch (_) { /* ignore */ }
         }
         
         // Add CSS animations if not present

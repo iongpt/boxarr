@@ -439,6 +439,9 @@ async def setup_page(request: Request):
             root_folder=str(settings.radarr_root_folder),
             quality_profile_default=settings.radarr_quality_profile_default,
             quality_profile_upgrade=settings.radarr_quality_profile_upgrade,
+            # Minimum availability controls
+            radarr_minimum_availability_enabled=settings.radarr_minimum_availability_enabled,
+            radarr_minimum_availability=settings.radarr_minimum_availability.value,
             # Root folder mapping configuration
             root_folder_mapping_enabled=settings.radarr_root_folder_config.enabled,
             root_folder_mappings=[

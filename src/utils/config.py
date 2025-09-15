@@ -85,6 +85,11 @@ class Settings(BaseSettings):
     radarr_monitor_option: MonitorEnum = Field(
         default=MonitorEnum.MOVIE_ONLY, description="What to monitor when adding movies"
     )
+    # Minimum availability control (UI-driven)
+    radarr_minimum_availability_enabled: bool = Field(
+        default=False,
+        description="Enable setting a minimum availability when adding movies",
+    )
     radarr_minimum_availability: MinimumAvailabilityEnum = Field(
         default=MinimumAvailabilityEnum.ANNOUNCED,
         description="Minimum availability for movies",
@@ -298,6 +303,14 @@ class Settings(BaseSettings):
                                     for mapping in value["mappings"]
                                 ]
                             setattr(self, "radarr_root_folder_config", config)
+                        elif key == "minimum_availability":
+                            # Coerce string to enum safely
+                            try:
+                                enum_val = MinimumAvailabilityEnum(value)
+                                setattr(self, "radarr_minimum_availability", enum_val)
+                            except Exception:
+                                # Fall back to default if invalid
+                                pass
                         else:
                             attr_name = f"radarr_{key}"
                             if hasattr(self, attr_name):
