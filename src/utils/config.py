@@ -306,7 +306,7 @@ class Settings(BaseSettings):
                         elif key == "minimum_availability":
                             # Coerce string to enum safely
                             try:
-                                enum_val = MinimumAvailabilityEnum(value)  # type: ignore[arg-type]
+                                enum_val = MinimumAvailabilityEnum(value)
                                 setattr(self, "radarr_minimum_availability", enum_val)
                             except Exception:
                                 # Fall back to default if invalid
