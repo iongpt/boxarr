@@ -161,6 +161,14 @@ class Settings(BaseSettings):
         default=False, description="Enable notifications"
     )
 
+    # Auto-Tagging for Radarr additions
+    boxarr_features_auto_tag_enabled: bool = Field(
+        default=True, description="Auto tag movies added to Radarr"
+    )
+    boxarr_features_auto_tag_text: str = Field(
+        default="boxarr", description="Tag label for movies added to Radarr"
+    )
+
     # Auto-Add Advanced Options
     boxarr_features_auto_add_limit: int = Field(
         default=10,
@@ -226,6 +234,23 @@ class Settings(BaseSettings):
             env_key = os.getenv("RADARR_API_KEY", "")
             if env_key:
                 return env_key
+        return v
+
+    @validator("boxarr_features_auto_tag_text", pre=True)
+    def validate_auto_tag_text(cls, v: str) -> str:
+        """Ensure auto tag text is a single word up to 20 characters."""
+        if v is None:
+            return "boxarr"
+        if not isinstance(v, str):
+            v = str(v)
+        v = v.strip()
+        # Enforce non-empty, no whitespace, max 20 chars
+        if not v:
+            return "boxarr"
+        if any(ch.isspace() for ch in v):
+            raise ValueError("Auto tag must be a single word without spaces")
+        if len(v) > 20:
+            raise ValueError("Auto tag must be at most 20 characters")
         return v
 
     @validator("boxarr_api_port")

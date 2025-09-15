@@ -56,6 +56,9 @@ class SaveConfigRequest(BaseModel):
     boxarr_features_auto_add_rating_filter_enabled: bool = False
     boxarr_features_auto_add_rating_whitelist: List[str] = Field(default_factory=list)
     boxarr_features_auto_add_ignore_rereleases: bool = False
+    # Auto-tagging settings
+    boxarr_features_auto_tag_enabled: bool = True
+    boxarr_features_auto_tag_text: str = "boxarr"
     # UI theme setting
     boxarr_ui_theme: str = "light"
 
@@ -245,6 +248,8 @@ async def save_configuration(config: SaveConfigRequest):
                 "features": {
                     "auto_add": config.boxarr_features_auto_add,
                     "quality_upgrade": config.boxarr_features_quality_upgrade,
+                    "auto_tag_enabled": config.boxarr_features_auto_tag_enabled,
+                    "auto_tag_text": config.boxarr_features_auto_tag_text,
                     "auto_add_options": {
                         "limit": config.boxarr_features_auto_add_limit,
                         "genre_filter_enabled": config.boxarr_features_auto_add_genre_filter_enabled,
