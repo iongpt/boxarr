@@ -358,17 +358,28 @@ class RadarrService:
             search_for_movie = settings.radarr_search_for_movie
 
         # Prepare movie data
+        add_options: Dict[str, Any] = {
+            "searchForMovie": search_for_movie,
+            "monitor": settings.radarr_monitor_option.value,
+        }
+
         movie_data: Dict[str, Any] = {
             **movie_info,
             "qualityProfileId": quality_profile_id,
             "rootFolderPath": root_folder,
             "monitored": monitored,
-            "addOptions": {
-                "searchForMovie": search_for_movie,
-                "monitor": settings.radarr_monitor_option.value,
-                "minimumAvailability": settings.radarr_minimum_availability.value,
-            },
+            "addOptions": add_options,
         }
+
+        # Radarr expects minimumAvailability at the top level of the movie payload,
+        # not inside addOptions. Only include it when the UI toggle is enabled.
+        try:
+            if getattr(settings, "radarr_minimum_availability_enabled", False):
+                movie_data["minimumAvailability"] = (
+                    settings.radarr_minimum_availability.value
+                )
+        except Exception:
+            pass
 
         # Apply auto-tagging if enabled
         try:
