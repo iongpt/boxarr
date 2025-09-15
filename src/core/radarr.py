@@ -169,7 +169,31 @@ class RadarrService:
                 f"Cannot connect to Radarr at {self.url}"
             ) from e
         except httpx.HTTPError as e:
-            logger.error(f"Radarr API error: {e}")
+            # Include response details when available to aid debugging
+            try:
+                resp = e.response  # type: ignore[attr-defined]
+                body = None
+                if resp is not None:
+                    # Prefer JSON message when present
+                    try:
+                        j = resp.json()
+                        # Radarr usually returns {"message": "..."} or {"errors": [...]}
+                        if isinstance(j, dict):
+                            if "message" in j:
+                                body = str(j.get("message"))
+                            elif "errors" in j and isinstance(j.get("errors"), list):
+                                body = "; ".join(str(x) for x in j.get("errors")[:3])
+                    except Exception:
+                        # Fall back to raw text (trim to avoid log spam)
+                        body = resp.text[:300]
+                logger.error(
+                    "Radarr API error: %s (status %s) %s",
+                    e,
+                    getattr(resp, "status_code", "unknown"),
+                    f"- {body}" if body else "",
+                )
+            except Exception:
+                logger.error(f"Radarr API error: {e}")
             raise RadarrError(f"Radarr API error: {e}") from e
         except RadarrError:
             # Re-raise intentionally thrown Radarr* errors
@@ -411,6 +435,12 @@ class RadarrService:
         added_movie = self._parse_movie(response.json())
 
         logger.info(f"Added movie to Radarr: {added_movie.title}")
+        # Invalidate library cache so new movie is visible immediately
+        try:
+            _movies_cache["ts"] = 0.0
+            _movies_cache["data"] = []
+        except Exception:
+            pass
         return added_movie
 
     def update_movie(self, movie: RadarrMovie) -> RadarrMovie:
