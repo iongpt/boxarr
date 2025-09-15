@@ -10,9 +10,12 @@ class _FakeClient:
 
     def request(self, method, endpoint, **kwargs):  # type: ignore[override]
         # Simulate Radarr endpoints used by add_movie
+        base_url = "http://radarr.local:7878"
         if method == "GET" and endpoint == "/api/v3/movie/lookup":
+            req = httpx.Request(method, f"{base_url}{endpoint}")
             return httpx.Response(
                 200,
+                request=req,
                 json=[
                     {
                         "tmdbId": 123,
@@ -24,8 +27,10 @@ class _FakeClient:
                 ],
             )
         if method == "GET" and endpoint == "/api/v3/qualityProfile":
+            req = httpx.Request(method, f"{base_url}{endpoint}")
             return httpx.Response(
                 200,
+                request=req,
                 json=[
                     {
                         "id": 1,
@@ -40,7 +45,8 @@ class _FakeClient:
             self.last_request = {"method": method, "endpoint": endpoint, **kwargs}
             # Echo back the added movie
             body = kwargs.get("json", {})
-            return httpx.Response(200, json={"id": 999, **body})
+            req = httpx.Request(method, f"{base_url}{endpoint}")
+            return httpx.Response(200, request=req, json={"id": 999, **body})
 
         return httpx.Response(200, json={})
 
@@ -48,13 +54,17 @@ class _FakeClient:
         pass
 
 
-def test_add_movie_coerces_unsupported_minimum_availability_to_safe_default(monkeypatch):
+def test_add_movie_coerces_unsupported_minimum_availability_to_safe_default(
+    monkeypatch,
+):
     # Enable minimum availability and set an unsupported legacy value
     settings.radarr_minimum_availability_enabled = True
     settings.radarr_minimum_availability = MinimumAvailabilityEnum.PRE_DB
 
     fake = _FakeClient()
-    service = RadarrService(url="http://radarr.local:7878", api_key="test", http_client=fake)
+    service = RadarrService(
+        url="http://radarr.local:7878", api_key="test", http_client=fake
+    )
 
     added = service.add_movie(tmdb_id=123, root_folder="/movies")
     assert added.id == 999
@@ -62,4 +72,3 @@ def test_add_movie_coerces_unsupported_minimum_availability_to_safe_default(monk
     # Ensure payload uses a supported value (announced) when legacy value is configured
     payload = fake.last_request["json"]
     assert payload["minimumAvailability"] == "announced"
-
