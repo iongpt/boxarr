@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 
 import httpx
 
@@ -212,7 +212,7 @@ class RadarrService:
             and _movies_cache["data"]
             and (now - _movies_cache["ts"]) < ttl
         ):
-            return _movies_cache["data"]  # type: ignore[return-value]
+            return cast(List[RadarrMovie], _movies_cache["data"])
 
         response = self._make_request("GET", "/api/v3/movie")
         movies: List[RadarrMovie] = []
@@ -480,7 +480,7 @@ class RadarrService:
             and _profiles_cache["data"]
             and (now - _profiles_cache["ts"]) < ttl
         ):
-            return _profiles_cache["data"]  # type: ignore[return-value]
+            return cast(List[QualityProfile], _profiles_cache["data"])
 
         response = self._make_request("GET", "/api/v3/qualityProfile")
         profiles: List[QualityProfile] = []
