@@ -48,13 +48,17 @@ class _FakeClient:
         pass
 
 
-def test_add_movie_coerces_unsupported_minimum_availability_to_safe_default(monkeypatch):
+def test_add_movie_coerces_unsupported_minimum_availability_to_safe_default(
+    monkeypatch,
+):
     # Enable minimum availability and set an unsupported legacy value
     settings.radarr_minimum_availability_enabled = True
     settings.radarr_minimum_availability = MinimumAvailabilityEnum.PRE_DB
 
     fake = _FakeClient()
-    service = RadarrService(url="http://radarr.local:7878", api_key="test", http_client=fake)
+    service = RadarrService(
+        url="http://radarr.local:7878", api_key="test", http_client=fake
+    )
 
     added = service.add_movie(tmdb_id=123, root_folder="/movies")
     assert added.id == 999
@@ -62,4 +66,3 @@ def test_add_movie_coerces_unsupported_minimum_availability_to_safe_default(monk
     # Ensure payload uses a supported value (announced) when legacy value is configured
     payload = fake.last_request["json"]
     assert payload["minimumAvailability"] == "announced"
-
