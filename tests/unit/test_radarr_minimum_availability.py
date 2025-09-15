@@ -10,9 +10,12 @@ class _FakeClient:
 
     def request(self, method, endpoint, **kwargs):  # type: ignore[override]
         # Simulate Radarr endpoints used by add_movie
+        base_url = "http://radarr.local:7878"
         if method == "GET" and endpoint == "/api/v3/movie/lookup":
+            req = httpx.Request(method, f"{base_url}{endpoint}")
             return httpx.Response(
                 200,
+                request=req,
                 json=[
                     {
                         "tmdbId": 123,
@@ -24,8 +27,10 @@ class _FakeClient:
                 ],
             )
         if method == "GET" and endpoint == "/api/v3/qualityProfile":
+            req = httpx.Request(method, f"{base_url}{endpoint}")
             return httpx.Response(
                 200,
+                request=req,
                 json=[
                     {
                         "id": 1,
@@ -40,7 +45,8 @@ class _FakeClient:
             self.last_request = {"method": method, "endpoint": endpoint, **kwargs}
             # Echo back the added movie
             body = kwargs.get("json", {})
-            return httpx.Response(200, json={"id": 999, **body})
+            req = httpx.Request(method, f"{base_url}{endpoint}")
+            return httpx.Response(200, request=req, json={"id": 999, **body})
 
         return httpx.Response(200, json={})
 
