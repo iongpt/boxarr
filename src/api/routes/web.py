@@ -392,6 +392,9 @@ async def dashboard_page(request: Request):
             available_years=available_years,
             year_filter=year_filter,
             total_all_weeks=len(all_weeks),
+
+            # Year information
+            current_year=datetime.now().year
         ),
     )
 

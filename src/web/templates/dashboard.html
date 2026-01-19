@@ -851,7 +851,6 @@
                 <div class="form-group">
                     <label for="historicalYear">Year</label>
                     <select id="historicalYear" class="form-select">
-                        {% set current_year = 2025 %}
                         {% for year in range(current_year, 2019, -1) %}
                         <option value="{{ year }}" {% if year == current_year %}selected{% endif %}>{{ year }}</option>
                         {% endfor %}
@@ -874,7 +873,6 @@
                         <label>From</label>
                         <div class="range-selects">
                             <select id="startYear" class="form-select">
-                                {% set current_year = 2025 %}
                                 {% for year in range(current_year, 2019, -1) %}
                                 <option value="{{ year }}" {% if year == current_year %}selected{% endif %}>{{ year }}</option>
                                 {% endfor %}
@@ -890,7 +888,6 @@
                         <label>To</label>
                         <div class="range-selects">
                             <select id="endYear" class="form-select">
-                                {% set current_year = 2025 %}
                                 {% for year in range(current_year, 2019, -1) %}
                                 <option value="{{ year }}" {% if year == current_year %}selected{% endif %}>{{ year }}</option>
                                 {% endfor %}
