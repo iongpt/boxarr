@@ -96,7 +96,7 @@ function toggleGenreFilter() {
 function toggleRatingFilter() {
     const checkbox = document.getElementById('ratingFilterEnabled');
     const options = document.getElementById('ratingFilterOptions');
-    
+
     if (checkbox && options) {
         if (checkbox.checked) {
             options.classList.add('active');
@@ -104,6 +104,52 @@ function toggleRatingFilter() {
             options.classList.remove('active');
         }
     }
+}
+
+function toggleTitleFilter() {
+    const checkbox = document.getElementById('titleFilterEnabled');
+    const options = document.getElementById('titleFilterOptions');
+
+    if (checkbox && options) {
+        if (checkbox.checked) {
+            options.classList.add('active');
+        } else {
+            options.classList.remove('active');
+        }
+    }
+}
+
+function addTitlePattern() {
+    const list = document.getElementById('titlePatternList');
+    if (!list) return;
+
+    const item = document.createElement('div');
+    item.className = 'title-pattern-item';
+    item.style.cssText = 'display: flex; align-items: center; gap: 0.5rem;';
+    item.innerHTML = `
+        <input type="text" class="form-input title-pattern-input" placeholder="e.g., Melan*" style="flex: 1;">
+        <button type="button" class="btn btn-sm btn-danger" onclick="removeTitlePattern(this)">✕</button>
+    `;
+    list.appendChild(item);
+}
+
+function removeTitlePattern(button) {
+    const item = button.closest('.title-pattern-item');
+    if (item) {
+        item.remove();
+    }
+}
+
+function getTitlePatterns() {
+    const inputs = document.querySelectorAll('.title-pattern-input');
+    const patterns = [];
+    inputs.forEach(input => {
+        const value = input.value.trim();
+        if (value) {
+            patterns.push(value);
+        }
+    });
+    return patterns;
 }
 
 // Auto-Tag toggle
@@ -1257,6 +1303,8 @@ function reloadScheduler() {
         config.boxarr_features_auto_add_genre_filter_mode = document.querySelector('input[name="boxarr_features_auto_add_genre_filter_mode"]:checked')?.value || 'blacklist';
         config.boxarr_features_auto_add_rating_filter_enabled = document.getElementById('ratingFilterEnabled')?.checked || false;
         config.boxarr_features_auto_add_ignore_rereleases = document.getElementById('ignoreRereleasesEnabled')?.checked || false;
+        config.boxarr_features_auto_add_title_filter_enabled = document.getElementById('titleFilterEnabled')?.checked || false;
+        config.boxarr_features_auto_add_title_blacklist = getTitlePatterns();
         
         // Collect genre checkboxes based on mode
         const genreMode = config.boxarr_features_auto_add_genre_filter_mode;

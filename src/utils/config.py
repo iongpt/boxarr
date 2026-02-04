@@ -205,6 +205,13 @@ class Settings(BaseSettings):
             "Ignore re-releases: skip movies released before (selected year - 1)"
         ),
     )
+    boxarr_features_auto_add_title_filter_enabled: bool = Field(
+        default=False, description="Enable title pattern filtering for auto-add"
+    )
+    boxarr_features_auto_add_title_blacklist: List[str] = Field(
+        default_factory=list,
+        description="Title patterns to exclude (supports wildcards like 'Melan*')",
+    )
 
     # Data Configuration
     boxarr_data_history_retention_days: int = Field(

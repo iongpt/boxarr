@@ -1,5 +1,6 @@
 """Scheduler management routes."""
 
+import fnmatch
 import json
 from datetime import datetime
 from pathlib import Path
@@ -388,6 +389,22 @@ async def update_specific_week(request: UpdateWeekRequest):  # noqa: C901
                                         f"contains blacklisted genre(s) from {blacklist}"
                                     )
                                     continue
+
+                        # Apply title filter if enabled
+                        if settings.boxarr_features_auto_add_title_filter_enabled:
+                            title_blacklist = (
+                                settings.boxarr_features_auto_add_title_blacklist
+                            )
+                            movie_title = result.box_office_movie.title
+                            if title_blacklist and any(
+                                fnmatch.fnmatch(movie_title.lower(), pattern.lower())
+                                for pattern in title_blacklist
+                            ):
+                                logger.info(
+                                    f"Skipping '{movie_title}' (rank #{result.box_office_movie.rank}) - "
+                                    f"title matches blacklisted pattern(s)"
+                                )
+                                continue
 
                         # Apply rating filter if enabled
                         if settings.boxarr_features_auto_add_rating_filter_enabled:

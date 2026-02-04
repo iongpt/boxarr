@@ -338,6 +338,7 @@ async def dashboard_page(request: Request):
         or settings.boxarr_features_auto_add_genre_filter_enabled
         or settings.boxarr_features_auto_add_rating_filter_enabled
         or settings.boxarr_features_auto_add_ignore_rereleases
+        or settings.boxarr_features_auto_add_title_filter_enabled
     )
 
     # Build filter description
@@ -368,6 +369,13 @@ async def dashboard_page(request: Request):
         )
     if settings.boxarr_features_auto_add_ignore_rereleases:
         filter_descriptions.append("Ignore re-releases")
+    if (
+        settings.boxarr_features_auto_add_title_filter_enabled
+        and settings.boxarr_features_auto_add_title_blacklist
+    ):
+        filter_descriptions.append(
+            f"Title filter ({len(settings.boxarr_features_auto_add_title_blacklist)} patterns)"
+        )
 
     return templates.TemplateResponse(
         "dashboard.html",
@@ -472,6 +480,8 @@ async def setup_page(request: Request):
             rating_filter_enabled=settings.boxarr_features_auto_add_rating_filter_enabled,
             rating_whitelist=settings.boxarr_features_auto_add_rating_whitelist,
             ignore_rereleases=settings.boxarr_features_auto_add_ignore_rereleases,
+            title_filter_enabled=settings.boxarr_features_auto_add_title_filter_enabled,
+            title_blacklist=settings.boxarr_features_auto_add_title_blacklist,
             # URL base for reverse proxy support
             url_base=settings.boxarr_url_base,
         ),

@@ -300,6 +300,39 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- Title Filter -->
+                    <div class="filter-section" style="margin-top: 1.5rem;">
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="titleFilterEnabled" name="boxarr_features_auto_add_title_filter_enabled"
+                                   class="checkbox-input" {% if title_filter_enabled %}checked{% endif %} onchange="toggleTitleFilter()">
+                            <div>
+                                <label for="titleFilterEnabled" class="checkbox-label main">Enable Title Filter</label>
+                                <div class="checkbox-label description">Exclude movies by title pattern (supports wildcards)</div>
+                            </div>
+                        </div>
+
+                        <div id="titleFilterOptions" class="filter-options {% if title_filter_enabled %}active{% endif %}" style="margin-top: 0.5rem;">
+                            <div class="form-group">
+                                <label class="form-label">Excluded Title Patterns</label>
+                                <div id="titlePatternList" class="title-pattern-list" style="display: flex; flex-direction: column; gap: 0.5rem;">
+                                    {% for pattern in title_blacklist %}
+                                    <div class="title-pattern-item" style="display: flex; align-items: center; gap: 0.5rem;">
+                                        <input type="text" class="form-input title-pattern-input" value="{{ pattern }}" style="flex: 1;">
+                                        <button type="button" class="btn btn-sm btn-danger" onclick="removeTitlePattern(this)">✕</button>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                                <button type="button" class="btn btn-sm btn-secondary" onclick="addTitlePattern()" style="margin-top: 0.5rem;">
+                                    + Add Pattern
+                                </button>
+                                <small class="text-muted" style="display: block; margin-top: 0.5rem;">
+                                    Use wildcards: * matches any characters, ? matches a single character.<br>
+                                    Examples: "Melan*" excludes "Melancholia", "Melanin"; "*: Part 2" excludes any sequel with ": Part 2"
+                                </small>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 
                 <div class="checkbox-group" style="margin-top: 1.5rem;">
