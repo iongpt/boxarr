@@ -1,0 +1,123 @@
+name: Build Development Images
+
+# This workflow builds Docker images on push to main branches
+# without requiring a release tag. This is a fork-specific workflow
+# that can be safely removed when backporting to upstream.
+
+on:
+  push:
+    branches: [main, develop]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  workflow_dispatch:  # Allow manual trigger
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # Only run if CI passes (reuse CI workflow)
+  build-dev:
+    name: Build Development Docker Images
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate version from git
+        id: version
+        run: |
+          # Get version from git describe or pyproject.toml
+          if git describe --tags --abbrev=0 2>/dev/null; then
+            BASE_VERSION=$(git describe --tags --abbrev=0 | sed 's/^v//')
+            COMMITS_SINCE=$(git rev-list $(git describe --tags --abbrev=0)..HEAD --count)
+            if [ "$COMMITS_SINCE" -gt 0 ]; then
+              VERSION="${BASE_VERSION}-dev.${COMMITS_SINCE}"
+            else
+              VERSION="${BASE_VERSION}"
+            fi
+          else
+            # No tags, use commit count
+            COMMIT_COUNT=$(git rev-list --count HEAD)
+            VERSION="0.0.0-dev.${COMMIT_COUNT}"
+          fi
+
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          BRANCH_NAME=${GITHUB_REF#refs/heads/}
+          BRANCH_SAFE=$(echo "$BRANCH_NAME" | sed 's/[^a-zA-Z0-9]/-/g')
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "short_sha=$SHORT_SHA" >> $GITHUB_OUTPUT
+          echo "branch=$BRANCH_SAFE" >> $GITHUB_OUTPUT
+
+          echo "Generated version: $VERSION"
+          echo "Branch: $BRANCH_SAFE"
+          echo "SHA: $SHORT_SHA"
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            # Branch-based tags for development
+            type=ref,event=branch,suffix=-${{ steps.version.outputs.short_sha }}
+            type=ref,event=branch
+            # Version-based dev tag
+            type=raw,value=${{ steps.version.outputs.version }}
+            # SHA tag for precise identification
+            type=sha,prefix=sha-
+          labels: |
+            org.opencontainers.image.title=Boxarr (Development)
+            org.opencontainers.image.description=Box Office Tracking for Radarr - Development Build
+            org.opencontainers.image.vendor=Boxarr Project
+            org.opencontainers.image.licenses=GPL-3.0
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
+
+      - name: Build and push Docker images
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=${{ steps.version.outputs.version }}
+
+      - name: Summary
+        run: |
+          echo "## Docker Images Built" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Tags:**" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Pull command:**" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.branch }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
