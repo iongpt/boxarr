@@ -97,6 +97,12 @@ class Settings(BaseSettings):
     radarr_search_for_movie: bool = Field(
         default=True, description="Search for movie after adding"
     )
+    radarr_timeout: float = Field(
+        default=120.0,
+        ge=5,
+        le=600,
+        description="HTTP timeout in seconds for Radarr API requests",
+    )
     radarr_root_folder_config: RootFolderConfig = Field(
         default_factory=RootFolderConfig,
         description="Configuration for root folder mappings",
