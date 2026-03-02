@@ -130,7 +130,8 @@ class Settings(BaseSettings):
         description="Cron expression for updates (default: Tuesday 11 PM)",
     )
     boxarr_scheduler_timezone: str = Field(
-        default="America/New_York", description="Timezone for scheduler"
+        default_factory=lambda: os.environ.get("TZ", "America/New_York"),
+        description="Timezone for scheduler",
     )
 
     # UI Configuration
