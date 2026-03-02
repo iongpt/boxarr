@@ -118,7 +118,7 @@ class RadarrService:
         self.client = http_client or httpx.Client(
             base_url=self.url,
             headers={"X-Api-Key": self.api_key},
-            timeout=30.0,
+            timeout=getattr(settings, "radarr_timeout", 120.0),
             follow_redirects=True,
         )
 
