@@ -514,6 +514,44 @@ class BoxarrScheduler:
                             )
                             continue
 
+                    # Apply language filter if enabled
+                    if settings.boxarr_features_auto_add_language_filter_enabled:
+                        original_language = (
+                            movie_info.get("originalLanguage", {}).get("name")
+                            if isinstance(movie_info.get("originalLanguage"), dict)
+                            else None
+                        )
+                        lang_mode = (
+                            settings.boxarr_features_auto_add_language_filter_mode
+                        )
+                        if lang_mode == "whitelist":
+                            whitelist = (
+                                settings.boxarr_features_auto_add_language_whitelist
+                            )
+                            if whitelist and (
+                                not original_language
+                                or original_language not in whitelist
+                            ):
+                                logger.info(
+                                    f"Skipping '{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
+                                    f"language '{original_language}' not in whitelist {whitelist}"
+                                )
+                                continue
+                        else:
+                            blacklist = (
+                                settings.boxarr_features_auto_add_language_blacklist
+                            )
+                            if (
+                                blacklist
+                                and original_language
+                                and original_language in blacklist
+                            ):
+                                logger.info(
+                                    f"Skipping '{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
+                                    f"language '{original_language}' blacklisted"
+                                )
+                                continue
+
                     # Determine root folder based on genres
                     root_folder_manager = RootFolderManager(self.radarr_service)
                     movie_genres = movie_info.get("genres", [])

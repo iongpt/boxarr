@@ -113,6 +113,7 @@ class WeeklyDataGenerator:
                 "overview": None,
                 "imdb_id": None,
                 "tmdb_id": None,
+                "original_language": None,
             }
 
             if result.is_matched and result.radarr_movie:
@@ -135,6 +136,7 @@ class WeeklyDataGenerator:
                         ),
                         "imdb_id": movie.imdbId,
                         "tmdb_id": movie.tmdbId,
+                        "original_language": movie.original_language,
                         "poster": movie.poster_url,
                         "can_upgrade_quality": bool(
                             movie.qualityProfileId
@@ -189,6 +191,16 @@ class WeeklyDataGenerator:
                                     "genres": (
                                         ", ".join(tmdb_movie.get("genres", [])[:2])
                                         if tmdb_movie.get("genres")
+                                        else None
+                                    ),
+                                    "original_language": (
+                                        tmdb_movie.get("originalLanguage", {}).get(
+                                            "name"
+                                        )
+                                        if isinstance(
+                                            tmdb_movie.get("originalLanguage"),
+                                            dict,
+                                        )
                                         else None
                                     ),
                                 }

@@ -218,6 +218,21 @@ class Settings(BaseSettings):
             "Ignore re-releases: skip movies released before (selected year - 1)"
         ),
     )
+    boxarr_features_auto_add_language_filter_enabled: bool = Field(
+        default=False, description="Enable language filtering for auto-add"
+    )
+    boxarr_features_auto_add_language_filter_mode: str = Field(
+        default="whitelist",
+        description="Language filter mode: 'whitelist' or 'blacklist'",
+    )
+    boxarr_features_auto_add_language_whitelist: List[str] = Field(
+        default_factory=lambda: ["English"],
+        description="Languages to include (whitelist mode)",
+    )
+    boxarr_features_auto_add_language_blacklist: List[str] = Field(
+        default_factory=list,
+        description="Languages to exclude (blacklist mode)",
+    )
 
     # Data Configuration
     boxarr_data_history_retention_days: int = Field(

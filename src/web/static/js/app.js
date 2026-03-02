@@ -106,6 +106,39 @@ function toggleRatingFilter() {
     }
 }
 
+function toggleLanguageFilter() {
+    const checkbox = document.getElementById('languageFilterEnabled');
+    const options = document.getElementById('languageFilterOptions');
+
+    if (checkbox && options) {
+        if (checkbox.checked) {
+            options.classList.add('active');
+        } else {
+            options.classList.remove('active');
+        }
+    }
+}
+
+function updateLanguageMode() {
+    const mode = document.querySelector('input[name="boxarr_features_auto_add_language_filter_mode"]:checked');
+    const label = document.getElementById('languageListLabel');
+    const languageCheckboxes = document.querySelectorAll('[name^="language_"]');
+
+    if (mode && label) {
+        if (mode.value === 'whitelist') {
+            label.textContent = 'Allowed Languages';
+            languageCheckboxes.forEach(checkbox => {
+                checkbox.checked = checkbox.dataset.languageWhitelist === 'true';
+            });
+        } else {
+            label.textContent = 'Excluded Languages';
+            languageCheckboxes.forEach(checkbox => {
+                checkbox.checked = checkbox.dataset.languageBlacklist === 'true';
+            });
+        }
+    }
+}
+
 // Auto-Tag toggle
 function toggleAutoTag() {
     const checkbox = document.getElementById('autoTagEnabled');
@@ -1284,10 +1317,30 @@ function reloadScheduler() {
             }
         });
         config.boxarr_features_auto_add_rating_whitelist = ratingWhitelist;
-        
+
+        // Language filter settings
+        config.boxarr_features_auto_add_language_filter_enabled = document.getElementById('languageFilterEnabled')?.checked || false;
+        config.boxarr_features_auto_add_language_filter_mode = document.querySelector('input[name="boxarr_features_auto_add_language_filter_mode"]:checked')?.value || 'whitelist';
+
+        // Collect language checkboxes based on mode
+        const languageMode = config.boxarr_features_auto_add_language_filter_mode;
+        const languageWhitelist = [];
+        const languageBlacklist = [];
+        document.querySelectorAll('[name^="language_"]').forEach(checkbox => {
+            if (checkbox.checked) {
+                if (languageMode === 'whitelist') {
+                    languageWhitelist.push(checkbox.value);
+                } else {
+                    languageBlacklist.push(checkbox.value);
+                }
+            }
+        });
+        config.boxarr_features_auto_add_language_whitelist = languageWhitelist;
+        config.boxarr_features_auto_add_language_blacklist = languageBlacklist;
+
         // Handle other form fields
         for (let [key, value] of formData.entries()) {
-            if (!key.startsWith('boxarr_features_') && !key.startsWith('genre_') && !key.startsWith('rating_')) {
+            if (!key.startsWith('boxarr_features_') && !key.startsWith('genre_') && !key.startsWith('rating_') && !key.startsWith('language_')) {
                 config[key] = value;
             }
         }

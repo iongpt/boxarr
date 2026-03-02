@@ -268,10 +268,59 @@
                         </div>
                     </div>
                     
+                    <!-- Language Filter -->
+                    <div class="filter-section" style="margin-top: 1.5rem;">
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="languageFilterEnabled" name="boxarr_features_auto_add_language_filter_enabled"
+                                   class="checkbox-input" {% if language_filter_enabled %}checked{% endif %} onchange="toggleLanguageFilter()">
+                            <div>
+                                <label for="languageFilterEnabled" class="checkbox-label main">Enable Language Filter</label>
+                                <div class="checkbox-label description">Filter movies by original language before adding</div>
+                            </div>
+                        </div>
+
+                        <div id="languageFilterOptions" class="filter-options {% if language_filter_enabled %}active{% endif %}" style="margin-top: 0.5rem;">
+                            <div class="form-group">
+                                <label class="form-label">Filter Mode</label>
+                                <div class="radio-group">
+                                    <label class="radio-label">
+                                        <input type="radio" name="boxarr_features_auto_add_language_filter_mode" value="whitelist"
+                                               {% if language_filter_mode == 'whitelist' %}checked{% endif %} onchange="updateLanguageMode()">
+                                        <span>Whitelist - Only add movies in selected languages</span>
+                                    </label>
+                                    <label class="radio-label">
+                                        <input type="radio" name="boxarr_features_auto_add_language_filter_mode" value="blacklist"
+                                               {% if language_filter_mode == 'blacklist' %}checked{% endif %} onchange="updateLanguageMode()">
+                                        <span>Blacklist - Exclude movies in selected languages</span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label class="form-label" id="languageListLabel">
+                                    {% if language_filter_mode == 'whitelist' %}Allowed Languages{% else %}Excluded Languages{% endif %}
+                                </label>
+                                <div class="language-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.5rem;">
+                                    {% set common_languages = ['English', 'French', 'German', 'Hindi', 'Italian', 'Japanese', 'Korean', 'Mandarin', 'Portuguese', 'Spanish', 'Tamil', 'Telugu'] %}
+                                    {% for language in common_languages %}
+                                    <label class="checkbox-label" style="display: flex; align-items: center; gap: 0.5rem;">
+                                        <input type="checkbox" name="language_{{ language }}" value="{{ language }}"
+                                               data-language-whitelist="{% if language in language_whitelist %}true{% else %}false{% endif %}"
+                                               data-language-blacklist="{% if language in language_blacklist %}true{% else %}false{% endif %}"
+                                               {% if (language_filter_mode == 'whitelist' and language in language_whitelist) or (language_filter_mode == 'blacklist' and language in language_blacklist) %}checked{% endif %}>
+                                        <span>{{ language }}</span>
+                                    </label>
+                                    {% endfor %}
+                                </div>
+                                <small class="text-muted">Based on TMDB original language data</small>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- Age Rating Filter -->
                     <div class="filter-section" style="margin-top: 1.5rem;">
                         <div class="checkbox-group">
-                            <input type="checkbox" id="ratingFilterEnabled" name="boxarr_features_auto_add_rating_filter_enabled" 
+                            <input type="checkbox" id="ratingFilterEnabled" name="boxarr_features_auto_add_rating_filter_enabled"
                                    class="checkbox-input" {% if rating_filter_enabled %}checked{% endif %} onchange="toggleRatingFilter()">
                             <div>
                                 <label for="ratingFilterEnabled" class="checkbox-label main">Enable Age Rating Filter</label>
