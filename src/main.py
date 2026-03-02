@@ -209,7 +209,8 @@ def cli():
 
     # Override settings if provided
     if args.config and args.config.exists():
-        settings.load_from_yaml(args.config)
+        env_protected = settings._get_env_set_fields()
+        settings.load_from_yaml(args.config, env_protected_fields=env_protected)
 
     if args.log_level:
         settings.log_level = args.log_level
