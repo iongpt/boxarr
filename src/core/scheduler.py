@@ -19,6 +19,7 @@ from .exceptions import SchedulerError
 from .json_generator import WeeklyDataGenerator
 from .matcher import MatchResult, MovieMatcher
 from .models import MovieStatus
+from .ignore_list import IgnoreList
 from .radarr import RadarrService
 from .root_folder_manager import RootFolderManager
 
@@ -420,6 +421,10 @@ class BoxarrScheduler:
             logger.info("No movies to auto-add - all top movies are already in Radarr")
             return []
 
+        # Load ignore list for filtering
+        ignore_list = IgnoreList()
+        ignored_ids = ignore_list.get_ignored_tmdb_ids()
+
         logger.info(f"Auto-adding up to {len(unmatched)} unmatched movies to Radarr")
 
         # Get default quality profile
@@ -442,6 +447,16 @@ class BoxarrScheduler:
 
                 if search_results:
                     movie_info = search_results[0]
+
+                    # Skip movies on the ignore list
+                    movie_tmdb_id = movie_info.get("tmdbId")
+                    if movie_tmdb_id and movie_tmdb_id in ignored_ids:
+                        logger.info(
+                            f"Skipping '{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
+                            f"movie is on the ignore list"
+                        )
+                        continue
+
                     # Optional: Ignore re-releases (older than top_year - 1)
                     if settings.boxarr_features_auto_add_ignore_rereleases:
                         try:

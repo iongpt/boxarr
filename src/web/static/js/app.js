@@ -1600,4 +1600,75 @@ function reloadScheduler() {
         loadAvailableRootFolders(true);
     };
 
+    // Toggle ignore status for a movie
+    window.toggleIgnore = async function (tmdbId, title, buttonEl) {
+        if (!tmdbId) return;
+
+        const card = buttonEl.closest('.movie-card');
+        const isCurrentlyIgnored = window.IGNORED_TMDB_IDS && window.IGNORED_TMDB_IDS.has(tmdbId);
+
+        buttonEl.disabled = true;
+        const origText = buttonEl.textContent;
+        buttonEl.textContent = isCurrentlyIgnored ? 'Unignoring...' : 'Ignoring...';
+
+        try {
+            let response;
+            if (isCurrentlyIgnored) {
+                response = await fetch(apiUrl('/movies/ignore/' + tmdbId), {
+                    method: 'DELETE'
+                });
+            } else {
+                response = await fetch(apiUrl('/movies/ignore'), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ tmdb_id: tmdbId, title: title })
+                });
+            }
+
+            const data = await response.json();
+            if (!response.ok || !data.success) {
+                throw new Error(data.detail || data.message || 'Failed');
+            }
+
+            // Update local state
+            const ignoreBtn = card.querySelector('.ignore-btn');
+            const unignoreBtn = card.querySelector('.unignore-btn');
+            const addBtn = card.querySelector('.add-to-radarr');
+            const upgradeBtn = card.querySelector('.upgrade');
+
+            if (isCurrentlyIgnored) {
+                // Unignoring
+                window.IGNORED_TMDB_IDS.delete(tmdbId);
+                card.classList.remove('ignored');
+                const badge = card.querySelector('.ignored-badge');
+                if (badge) badge.remove();
+                // Show ignore btn + action buttons, hide unignore btn
+                if (ignoreBtn) ignoreBtn.style.display = '';
+                if (unignoreBtn) unignoreBtn.style.display = 'none';
+                if (addBtn) addBtn.style.display = '';
+                if (upgradeBtn) upgradeBtn.style.display = '';
+            } else {
+                // Ignoring
+                window.IGNORED_TMDB_IDS.add(tmdbId);
+                card.classList.add('ignored');
+                if (!card.querySelector('.ignored-badge')) {
+                    const badge = document.createElement('div');
+                    badge.className = 'ignored-badge';
+                    badge.textContent = 'Ignored';
+                    card.appendChild(badge);
+                }
+                // Show unignore btn, hide ignore btn + action buttons
+                if (ignoreBtn) ignoreBtn.style.display = 'none';
+                if (unignoreBtn) unignoreBtn.style.display = '';
+                if (addBtn) addBtn.style.display = 'none';
+                if (upgradeBtn) upgradeBtn.style.display = 'none';
+            }
+        } catch (err) {
+            buttonEl.textContent = origText;
+            showToast('Error: ' + err.message, 'error');
+        } finally {
+            buttonEl.disabled = false;
+        }
+    };
+
 })();

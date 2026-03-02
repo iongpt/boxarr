@@ -361,6 +361,54 @@
     background: var(--bg-color);
 }
 
+/* Ignored movie styles */
+.movie-card.ignored {
+    opacity: 0.5;
+    filter: grayscale(40%);
+}
+
+.movie-card.ignored:hover {
+    opacity: 0.7;
+}
+
+.ignored-badge {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    background: rgba(245, 101, 101, 0.9);
+    color: white;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    z-index: 2;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+.action-btn.ignore-btn {
+    background: var(--bg-color);
+    color: var(--text-secondary);
+    border: 1px dashed var(--border-color);
+}
+
+.action-btn.ignore-btn:hover {
+    background: rgba(245, 101, 101, 0.1);
+    color: var(--error-color);
+    border-color: var(--error-color);
+}
+
+.action-btn.unignore-btn {
+    background: rgba(245, 101, 101, 0.1);
+    color: var(--error-color);
+    border: 1px solid var(--error-color);
+}
+
+.action-btn.unignore-btn:hover {
+    background: rgba(72, 187, 120, 0.1);
+    color: var(--success-color);
+    border-color: var(--success-color);
+}
+
 /* Pagination */
 .pagination {
     display: flex;
@@ -408,6 +456,12 @@
     border: none;
 }
 </style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    window.IGNORED_TMDB_IDS = new Set({{ ignored_tmdb_ids | tojson }});
+</script>
 {% endblock %}
 
 {% block content %}
@@ -536,9 +590,12 @@
     <!-- Movies Grid -->
     <div class="movies-grid">
         {% for movie in movies %}
-        <div class="movie-card" data-movie-id="{{ movie.radarr_id or '' }}">
+        <div class="movie-card{% if movie.tmdb_id and movie.tmdb_id in ignored_tmdb_ids %} ignored{% endif %}" data-movie-id="{{ movie.radarr_id or '' }}" data-tmdb-id="{{ movie.tmdb_id or '' }}">
             <div class="rank-badge">#{{ movie.best_rank }}</div>
-            
+            {% if movie.tmdb_id and movie.tmdb_id in ignored_tmdb_ids %}
+            <div class="ignored-badge">Ignored</div>
+            {% endif %}
+
             <!-- Week badges showing when this movie appeared -->
             {% if movie.weeks|length > 0 %}
             <div class="week-badges">
@@ -606,16 +663,26 @@
                 
                 <!-- Actions -->
                 <div class="movie-actions">
+                    {% set is_ignored = movie.tmdb_id and movie.tmdb_id in ignored_tmdb_ids %}
                     {% if not movie.radarr_id %}
-                    <button class="action-btn add-to-radarr" onclick='addToRadarr({{ movie.title|tojson }}, {{ movie.year or "null" }}, this)'>
+                    <button class="action-btn add-to-radarr" {% if is_ignored %}style="display:none"{% endif %} onclick='addToRadarr({{ movie.title|tojson }}, {{ movie.year or "null" }}, this)'>
                         Add to Radarr
                     </button>
                     {% elif movie.can_upgrade_quality %}
-                    <button class="action-btn upgrade" onclick="upgradeQuality({{ movie.radarr_id }}, this)">
+                    <button class="action-btn upgrade" {% if is_ignored %}style="display:none"{% endif %} onclick="upgradeQuality({{ movie.radarr_id }}, this)">
                         Upgrade to Ultra-HD
                     </button>
                     {% endif %}
-                    
+
+                    {% if movie.tmdb_id %}
+                    <button class="action-btn ignore-btn" {% if is_ignored %}style="display:none"{% endif %} onclick="toggleIgnore({{ movie.tmdb_id }}, {{ movie.title|tojson }}, this)">
+                        Ignore
+                    </button>
+                    <button class="action-btn unignore-btn" {% if not is_ignored %}style="display:none"{% endif %} onclick="toggleIgnore({{ movie.tmdb_id }}, {{ movie.title|tojson }}, this)">
+                        Unignore
+                    </button>
+                    {% endif %}
+
                     {% if movie.imdb_id or movie.title %}
                     <div class="external-links">
                         {% if movie.imdb_id %}
