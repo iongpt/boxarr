@@ -163,6 +163,12 @@ class Settings(BaseSettings):
     )
 
     # Feature Flags
+    boxarr_features_box_office_limit: int = Field(
+        default=10,
+        ge=1,
+        le=30,
+        description="Number of movies to fetch from Box Office Mojo (1-30)",
+    )
     boxarr_features_auto_add: bool = Field(
         default=False, description="Automatically add movies to Radarr"
     )
@@ -185,8 +191,8 @@ class Settings(BaseSettings):
     boxarr_features_auto_add_limit: int = Field(
         default=10,
         ge=1,
-        le=10,
-        description="Maximum number of movies to auto-add (1-10)",
+        le=30,
+        description="Maximum number of movies to auto-add (1-30)",
     )
     boxarr_features_auto_add_genre_filter_enabled: bool = Field(
         default=False, description="Enable genre filtering for auto-add"

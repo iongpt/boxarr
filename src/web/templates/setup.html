@@ -194,13 +194,24 @@
                     <small class="text-muted">Single word, up to 20 characters.</small>
                 </div>
                 
+                <!-- Box Office Fetch Limit -->
+                <div class="form-group" style="margin-top: 1rem;">
+                    <label for="boxOfficeLimit" class="form-label">Box Office Fetch Limit</label>
+                    <select id="boxOfficeLimit" name="boxarr_features_box_office_limit" class="form-select">
+                        {% for i in [5, 10, 15, 20, 25, 30] %}
+                        <option value="{{ i }}" {% if box_office_limit == i %}selected{% endif %}>{{ i }} movies</option>
+                        {% endfor %}
+                    </select>
+                    <small class="text-muted">Number of movies to fetch from Box Office Mojo each week (1-30)</small>
+                </div>
+
                 <!-- Auto-Add Advanced Options -->
                 <div id="autoAddOptions" class="auto-add-options {% if auto_add %}active{% endif %}" style="margin-left: 2rem; margin-top: 1rem; padding: 1rem; background: var(--bg-color); border-radius: 8px; border-left: 3px solid var(--primary-color);">
                     <!-- Top X Movies Limit -->
                     <div class="form-group">
                         <label for="autoAddLimit" class="form-label">Maximum Movies to Add</label>
                         <select id="autoAddLimit" name="boxarr_features_auto_add_limit" class="form-select">
-                            {% for i in range(1, 11) %}
+                            {% for i in range(1, 31) %}
                             <option value="{{ i }}" {% if auto_add_limit == i %}selected{% endif %}>{{ i }} movie{% if i > 1 %}s{% endif %}</option>
                             {% endfor %}
                         </select>
