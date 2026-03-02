@@ -293,8 +293,45 @@ class Settings(BaseSettings):
         # Directory creation should happen when actually needed
         return v
 
-    def load_from_yaml(self, config_path: Path) -> None:
-        """Load configuration from YAML file."""
+    def _get_env_set_fields(self) -> set:
+        """Return field names whose values come from environment variables.
+
+        This allows ``load_from_yaml`` to skip overwriting fields that the
+        user explicitly set via env vars, preserving the precedence:
+        env vars > .env file > YAML config > field defaults.
+        """
+        env_set: set = set()
+        # Map of special env var names to the field they protect
+        special_env_map: Dict[str, str] = {
+            "PORT": "boxarr_port",
+            "TZ": "boxarr_scheduler_timezone",
+        }
+        for field_name in self.model_fields:
+            if field_name.upper() in os.environ:
+                env_set.add(field_name)
+        for env_var, field_name in special_env_map.items():
+            if env_var in os.environ:
+                env_set.add(field_name)
+        return env_set
+
+    def load_from_yaml(
+        self,
+        config_path: Path,
+        env_protected_fields: Optional[set] = None,
+    ) -> None:
+        """Load configuration from YAML file.
+
+        Args:
+            config_path: Path to the YAML configuration file.
+            env_protected_fields: Field names that were set via environment
+                variables and should not be overwritten by YAML values.
+        """
+        protected = env_protected_fields or set()
+
+        def _safe_setattr(field: str, value: Any) -> None:
+            if field not in protected:
+                setattr(self, field, value)
+
         if config_path.exists():
             with open(config_path) as f:
                 config_data = yaml.safe_load(f) or {}
@@ -318,7 +355,7 @@ class Settings(BaseSettings):
                                     RootFolderMapping(**mapping)
                                     for mapping in value["mappings"]
                                 ]
-                            setattr(self, "radarr_root_folder_config", config)
+                            _safe_setattr("radarr_root_folder_config", config)
                         elif key == "minimum_availability":
                             # Coerce string to enum safely and normalize deprecated values
                             try:
@@ -326,14 +363,14 @@ class Settings(BaseSettings):
                                 if enum_val == MinimumAvailabilityEnum.PRE_DB:
                                     # Map deprecated preDb to a safe default
                                     enum_val = MinimumAvailabilityEnum.ANNOUNCED
-                                setattr(self, "radarr_minimum_availability", enum_val)
+                                _safe_setattr("radarr_minimum_availability", enum_val)
                             except Exception:
                                 # Fall back to default if invalid
                                 pass
                         else:
                             attr_name = f"radarr_{key}"
                             if hasattr(self, attr_name):
-                                setattr(self, attr_name, value)
+                                _safe_setattr(attr_name, value)
                 elif section == "boxarr" and isinstance(values, dict):
                     # Process boxarr nested configuration
                     for key, value in values.items():
@@ -341,7 +378,7 @@ class Settings(BaseSettings):
                             for sub_key, sub_value in value.items():
                                 attr_name = f"boxarr_scheduler_{sub_key}"
                                 if hasattr(self, attr_name):
-                                    setattr(self, attr_name, sub_value)
+                                    _safe_setattr(attr_name, sub_value)
                         elif key == "features" and isinstance(value, dict):
                             for sub_key, sub_value in value.items():
                                 if sub_key == "auto_add_options" and isinstance(
@@ -353,11 +390,11 @@ class Settings(BaseSettings):
                                             f"boxarr_features_auto_add_{opt_key}"
                                         )
                                         if hasattr(self, attr_name):
-                                            setattr(self, attr_name, opt_value)
+                                            _safe_setattr(attr_name, opt_value)
                                 else:
                                     attr_name = f"boxarr_features_{sub_key}"
                                     if hasattr(self, attr_name):
-                                        setattr(self, attr_name, sub_value)
+                                        _safe_setattr(attr_name, sub_value)
                         elif key == "ui" and isinstance(value, dict):
                             for sub_key, sub_value in value.items():
                                 if sub_key == "cards_per_row" and isinstance(
@@ -366,25 +403,25 @@ class Settings(BaseSettings):
                                     for device, count in sub_value.items():
                                         attr_name = f"boxarr_ui_cards_per_row_{device.replace('4k', '_4k')}"
                                         if hasattr(self, attr_name):
-                                            setattr(self, attr_name, count)
+                                            _safe_setattr(attr_name, count)
                                 else:
                                     attr_name = f"boxarr_ui_{sub_key}"
                                     if hasattr(self, attr_name):
-                                        setattr(self, attr_name, sub_value)
+                                        _safe_setattr(attr_name, sub_value)
                         elif key == "data" and isinstance(value, dict):
                             for sub_key, sub_value in value.items():
                                 attr_name = f"boxarr_data_{sub_key}"
                                 if hasattr(self, attr_name):
-                                    setattr(self, attr_name, sub_value)
+                                    _safe_setattr(attr_name, sub_value)
                         else:
                             # Direct boxarr attributes
                             attr_name = f"boxarr_{key}"
                             if hasattr(self, attr_name):
-                                setattr(self, attr_name, value)
+                                _safe_setattr(attr_name, value)
                 else:
                     # Top-level attributes (like log_level)
                     if hasattr(self, section):
-                        setattr(self, section, values)
+                        _safe_setattr(section, values)
 
     def get_root_folder_for_genres(
         self, genres: List[str], default: Optional[str] = None
@@ -483,9 +520,11 @@ def load_settings() -> Settings:
         Path("/config/config.yaml"),
     ]
 
+    env_protected = settings._get_env_set_fields()
+
     for config_path in config_paths:
         if config_path.exists():
-            settings.load_from_yaml(config_path)
+            settings.load_from_yaml(config_path, env_protected_fields=env_protected)
             break
 
     return settings
