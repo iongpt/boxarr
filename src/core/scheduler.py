@@ -167,13 +167,17 @@ class BoxarrScheduler:
                 )
 
             # Fetch box office movies for specified or current week
+            limit = settings.boxarr_features_box_office_limit
             if year and week:
                 box_office_movies = await self._run_in_executor(
-                    self.boxoffice_service.fetch_weekend_box_office, year, week
+                    self.boxoffice_service.fetch_weekend_box_office,
+                    year,
+                    week,
+                    limit,
                 )
             else:
                 box_office_movies = await self._run_in_executor(
-                    self.boxoffice_service.get_current_week_movies
+                    self.boxoffice_service.get_current_week_movies, limit
                 )
 
             # Fetch Radarr movies

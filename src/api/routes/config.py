@@ -50,6 +50,8 @@ class SaveConfigRequest(BaseModel):
     boxarr_scheduler_cron: str = "0 23 * * 2"
     boxarr_features_auto_add: bool = True
     boxarr_features_quality_upgrade: bool = True
+    # Box office fetch limit
+    boxarr_features_box_office_limit: int = 10
     # New auto-add advanced options
     boxarr_features_auto_add_limit: int = 10
     boxarr_features_auto_add_genre_filter_enabled: bool = False
@@ -258,6 +260,7 @@ async def save_configuration(config: SaveConfigRequest):
                 "features": {
                     "auto_add": config.boxarr_features_auto_add,
                     "quality_upgrade": config.boxarr_features_quality_upgrade,
+                    "box_office_limit": config.boxarr_features_box_office_limit,
                     "auto_tag_enabled": config.boxarr_features_auto_tag_enabled,
                     "auto_tag_text": config.boxarr_features_auto_tag_text,
                     "auto_add_options": {

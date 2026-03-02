@@ -1251,6 +1251,8 @@ function reloadScheduler() {
         const autoTagInput = document.getElementById('autoTagText');
         config.boxarr_features_auto_tag_text = (autoTagInput && autoTagInput.value) ? autoTagInput.value : 'boxarr';
         
+        // Box office fetch limit
+        config.boxarr_features_box_office_limit = parseInt(document.getElementById('boxOfficeLimit')?.value || '10');
         // Handle new auto-add advanced options
         config.boxarr_features_auto_add_limit = parseInt(document.getElementById('autoAddLimit')?.value || '10');
         config.boxarr_features_auto_add_genre_filter_enabled = document.getElementById('genreFilterEnabled')?.checked || false;
