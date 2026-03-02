@@ -213,3 +213,48 @@ class TestBoxOfficeHTMLParsing:
             )
 
         assert "No movies found" in str(exc_info.value)
+
+    def test_release_url_extraction(self):
+        """Test that release_url is extracted from href."""
+        html_fixture = """
+        <html>
+        <body>
+            <table class="a-bordered">
+                <tr><th>Rank</th><th>LW</th><th>Movie</th><th>Weekend</th></tr>
+                <tr>
+                    <td>1</td>
+                    <td>-</td>
+                    <td><a href="/release/rl1359839233/">The Housemaid</a></td>
+                    <td>$50,000,000</td>
+                    <td>-</td>
+                    <td>-</td>
+                    <td>3,000</td>
+                    <td>$50,000,000</td>
+                    <td>-</td>
+                    <td>1</td>
+                </tr>
+            </table>
+        </body>
+        </html>
+        """
+
+        movies = self.service.parse_box_office_html(html_fixture)
+        assert len(movies) == 1
+        assert movies[0].release_url == "/release/rl1359839233/"
+        assert movies[0].imdb_id is None  # Not enriched yet
+
+    def test_release_url_in_alternative_format(self):
+        """Test that release_url is extracted in alternative format parsing."""
+        html_fixture = """
+        <html>
+        <body>
+            <a href="/release/rl1234567890/">Some Movie</a>
+            <a href="/release/rl9876543210/">Another Movie</a>
+        </body>
+        </html>
+        """
+
+        movies = self.service.parse_box_office_html(html_fixture)
+        assert len(movies) == 2
+        assert movies[0].release_url == "/release/rl1234567890/"
+        assert movies[1].release_url == "/release/rl9876543210/"

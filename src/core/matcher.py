@@ -93,6 +93,7 @@ class MovieMatcher:
         """
         self.min_confidence = min_confidence
         self._movie_cache: Dict[str, RadarrMovie] = {}
+        self._imdb_index: Dict[str, RadarrMovie] = {}
 
     def build_movie_index(self, movies: List[RadarrMovie]) -> None:
         """
@@ -102,6 +103,11 @@ class MovieMatcher:
             movies: List of Radarr movies
         """
         self._movie_cache.clear()
+        self._imdb_index.clear()
+
+        for movie in movies:
+            if movie.imdbId:
+                self._imdb_index[movie.imdbId] = movie
 
         def _is_sequel(title: str) -> bool:
             # Has trailing number or roman numeral
@@ -339,6 +345,12 @@ class MovieMatcher:
             match_method="none",
         )
 
+    def _try_imdb_match(self, imdb_id: Optional[str]) -> Optional[RadarrMovie]:
+        """Try matching by IMDb ID."""
+        if not imdb_id:
+            return None
+        return self._imdb_index.get(imdb_id)
+
     def _try_exact_match(self, title: str) -> Optional[RadarrMovie]:
         """Try exact title match."""
         return self._movie_cache.get(title.lower())
@@ -508,9 +520,19 @@ class MovieMatcher:
 
         results = []
         for box_movie in box_office_movies:
-            match_result = self.match_single(box_movie.title, radarr_movies)
-            # Update the box office movie in the result
-            match_result.box_office_movie = box_movie
+            # Try IMDb match first (language-agnostic)
+            imdb_match = self._try_imdb_match(box_movie.imdb_id)
+            if imdb_match:
+                match_result = MatchResult(
+                    box_office_movie=box_movie,
+                    radarr_movie=imdb_match,
+                    confidence=1.0,
+                    match_method="imdb_id",
+                )
+            else:
+                match_result = self.match_single(box_movie.title, radarr_movies)
+                # Update the box office movie in the result
+                match_result.box_office_movie = box_movie
             results.append(match_result)
 
             if match_result.is_matched:
@@ -541,9 +563,22 @@ class MovieMatcher:
         Returns:
             MatchResult object
         """
-        # match_single expects a title string, not a BoxOfficeMovie object
+        # Build index if needed
+        if not self._movie_cache:
+            self.build_movie_index(radarr_movies)
+
+        # Try IMDb match first (language-agnostic)
+        imdb_match = self._try_imdb_match(box_office_movie.imdb_id)
+        if imdb_match:
+            return MatchResult(
+                box_office_movie=box_office_movie,
+                radarr_movie=imdb_match,
+                confidence=1.0,
+                match_method="imdb_id",
+            )
+
+        # Fall back to title matching
         result = self.match_single(box_office_movie.title, radarr_movies)
-        # Update the box_office_movie in the result to use the one passed in
         result.box_office_movie = box_office_movie
         return result
 

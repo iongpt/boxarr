@@ -24,6 +24,8 @@ class BoxOfficeMovie:
     total_gross: Optional[float] = None
     weeks_released: Optional[int] = None
     theater_count: Optional[int] = None
+    imdb_id: Optional[str] = None
+    release_url: Optional[str] = None
 
     def to_dict(self) -> Dict:
         """Convert to dictionary."""
@@ -169,7 +171,9 @@ class BoxOfficeService:
             logger.error(f"Failed to fetch box office data: {e}")
             raise BoxOfficeError(f"Failed to fetch box office data: {e}") from e
 
-        return self.parse_box_office_html(response.text)
+        movies = self.parse_box_office_html(response.text)
+        self.enrich_with_imdb_ids(movies)
+        return movies
 
     def parse_box_office_html(self, html: str) -> List[BoxOfficeMovie]:  # noqa: C901
         """
@@ -213,6 +217,8 @@ class BoxOfficeService:
                     continue
 
                 title = title_link.get_text(strip=True)
+                href = str(title_link.get("href", ""))
+                release_url = href if href.startswith("/release/") else None
 
                 # Skip if title looks like a studio name
                 if self._is_studio_name(title):
@@ -250,6 +256,7 @@ class BoxOfficeService:
                     total_gross=total_gross,
                     weeks_released=weeks_released,
                     theater_count=theater_count,
+                    release_url=release_url,
                 )
                 movies.append(movie)
 
@@ -275,19 +282,19 @@ class BoxOfficeService:
         Returns:
             List of BoxOfficeMovie objects
         """
-        # Pattern from original implementation
-        pattern = r'/release/rl\d+/[^"]*">([^<]+)</a>'
+        # Pattern from original implementation - capture release URL and title
+        pattern = r'(/release/rl\d+/)[^"]*">([^<]+)</a>'
         matches = re.findall(pattern, html)
 
         movies = []
         rank = 1
 
-        for match in matches:
+        for release_url, title in matches:
             # Skip studio names
-            if self._is_studio_name(match):
+            if self._is_studio_name(title):
                 continue
 
-            movie = BoxOfficeMovie(rank=rank, title=match)
+            movie = BoxOfficeMovie(rank=rank, title=title, release_url=release_url)
             movies.append(movie)
             rank += 1
 
@@ -299,6 +306,47 @@ class BoxOfficeService:
 
         logger.info(f"Parsed {len(movies)} movies using alternative method")
         return movies
+
+    def extract_imdb_id(self, release_url: str) -> Optional[str]:
+        """
+        Fetch a Box Office Mojo release page and extract the IMDb ID.
+
+        Args:
+            release_url: Relative URL like "/release/rl1359839233/"
+
+        Returns:
+            IMDb ID (e.g., "tt27047903") or None
+        """
+        try:
+            url = f"{self.BASE_URL}{release_url}"
+            response = self.client.get(url)
+            response.raise_for_status()
+        except Exception as e:
+            logger.debug(f"Failed to fetch release page {release_url}: {e}")
+            return None
+
+        imdb_match = re.search(r"pro\.imdb\.com/title/(tt\d+)/", response.text)
+        result = imdb_match.group(1) if imdb_match else None
+        if not result:
+            logger.debug(f"No IMDb ID found on {release_url}")
+        return result
+
+    def enrich_with_imdb_ids(self, movies: List["BoxOfficeMovie"]) -> None:
+        """
+        Enrich movies with IMDb IDs by fetching their release pages.
+
+        Args:
+            movies: List of BoxOfficeMovie objects to enrich in-place
+        """
+        count = 0
+        for movie in movies:
+            if not movie.release_url:
+                continue
+            imdb_id = self.extract_imdb_id(movie.release_url)
+            if imdb_id:
+                movie.imdb_id = imdb_id
+                count += 1
+        logger.info(f"Enriched {count}/{len(movies)} movies with IMDb IDs")
 
     def _is_studio_name(self, text: str) -> bool:
         """
