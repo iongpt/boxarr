@@ -18,9 +18,7 @@ from src.utils.config import Settings
 def yaml_config(tmp_path: Path) -> Path:
     """Write a minimal YAML config and return its path."""
     config_file = tmp_path / "config.yaml"
-    config_file.write_text(
-        textwrap.dedent(
-            """\
+    config_file.write_text(textwrap.dedent("""\
             boxarr:
               port: 8888
               scheduler:
@@ -29,9 +27,7 @@ def yaml_config(tmp_path: Path) -> Path:
               api_key: yaml-key-123
               timeout: 30
             log_level: WARNING
-            """
-        )
-    )
+            """))
     return config_file
 
 
