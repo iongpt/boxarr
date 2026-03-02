@@ -11,6 +11,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from ... import __version__
+from ...core.ignore_list import IgnoreList
 from ...core.models import MovieStatus
 from ...utils.config import settings
 from ...utils.logger import get_logger
@@ -234,6 +235,10 @@ async def movie_overview_page(request: Request):
     recent_weeks = await get_available_weeks()
     recent_weeks = recent_weeks[:5]  # Show last 5 weeks
 
+    # Load ignore list
+    ignore_list = IgnoreList()
+    ignored_tmdb_ids = list(ignore_list.get_ignored_tmdb_ids())
+
     return templates.TemplateResponse(
         "overview.html",
         get_template_context(
@@ -254,6 +259,8 @@ async def movie_overview_page(request: Request):
             # Features
             auto_add=settings.boxarr_features_auto_add,
             quality_upgrade=settings.boxarr_features_quality_upgrade,
+            # Ignore list
+            ignored_tmdb_ids=ignored_tmdb_ids,
         ),
     )
 
@@ -584,6 +591,10 @@ async def serve_weekly_page(request: Request, year: int, week: int):
             # If parsing fails, leave as None
             pass
 
+    # Load ignore list
+    ignore_list = IgnoreList()
+    ignored_tmdb_ids = list(ignore_list.get_ignored_tmdb_ids())
+
     return templates.TemplateResponse(
         "weekly.html",
         get_template_context(
@@ -600,6 +611,7 @@ async def serve_weekly_page(request: Request, year: int, week: int):
             scheduler_enabled=settings.boxarr_scheduler_enabled,
             previous_week=f"{prev_year}W{prev_week_num:02d}" if prev_week else None,
             next_week=f"{next_year}W{next_week_num:02d}" if next_week else None,
+            ignored_tmdb_ids=ignored_tmdb_ids,
         ),
     )
 

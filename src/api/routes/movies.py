@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from ...core.ignore_list import IgnoreList
 from ...core.json_generator import WeeklyDataGenerator
 from ...core.models import MovieStatus
 from ...core.radarr import RadarrService
@@ -53,6 +54,13 @@ class AddMovieRequest(BaseModel):
     tmdb_id: Optional[int] = None
 
 
+class IgnoreMovieRequest(BaseModel):
+    """Ignore movie request model."""
+
+    tmdb_id: int
+    title: str
+
+
 @router.get("/root-folders/available")
 async def get_available_root_folders():
     """Get list of available root folders from Radarr."""
@@ -96,6 +104,61 @@ async def suggest_root_folder(genres: List[str]):
     except Exception as e:
         logger.error(f"Error suggesting root folder: {e}")
         return {"suggested": None, "reason": "error", "error": str(e)}
+
+
+@router.get("/ignore")
+async def get_ignored_movies():
+    """Get all ignored movie TMDB IDs."""
+    try:
+        ignore_list = IgnoreList()
+        entries = ignore_list.get_all()
+        return {
+            "ignored": entries,
+            "tmdb_ids": [e["tmdb_id"] for e in entries],
+        }
+    except Exception as e:
+        logger.error(f"Error getting ignore list: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/ignore")
+async def ignore_movie(request: IgnoreMovieRequest):
+    """Add a movie to the ignore list."""
+    try:
+        ignore_list = IgnoreList()
+        added = ignore_list.add(request.tmdb_id, request.title)
+        return {
+            "success": True,
+            "added": added,
+            "message": (
+                f"'{request.title}' added to ignore list"
+                if added
+                else f"'{request.title}' was already ignored"
+            ),
+        }
+    except Exception as e:
+        logger.error(f"Error adding to ignore list: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/ignore/{tmdb_id}")
+async def unignore_movie(tmdb_id: int):
+    """Remove a movie from the ignore list."""
+    try:
+        ignore_list = IgnoreList()
+        removed = ignore_list.remove(tmdb_id)
+        return {
+            "success": True,
+            "removed": removed,
+            "message": (
+                "Movie removed from ignore list"
+                if removed
+                else "Movie was not in ignore list"
+            ),
+        }
+    except Exception as e:
+        logger.error(f"Error removing from ignore list: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/{movie_id}")
