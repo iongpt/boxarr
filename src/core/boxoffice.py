@@ -217,7 +217,7 @@ class BoxOfficeService:
                     continue
 
                 title = title_link.get_text(strip=True)
-                href = title_link.get("href", "")
+                href = str(title_link.get("href", ""))
                 release_url = href if href.startswith("/release/") else None
 
                 # Skip if title looks like a studio name
