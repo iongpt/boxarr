@@ -16,10 +16,10 @@ from ..utils.config import settings
 from ..utils.logger import get_logger
 from .boxoffice import BoxOfficeService
 from .exceptions import SchedulerError
+from .ignore_list import IgnoreList
 from .json_generator import WeeklyDataGenerator
 from .matcher import MatchResult, MovieMatcher
 from .models import MovieStatus
-from .ignore_list import IgnoreList
 from .radarr import RadarrService
 from .root_folder_manager import RootFolderManager
 
