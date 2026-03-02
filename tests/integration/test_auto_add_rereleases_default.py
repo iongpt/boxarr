@@ -109,7 +109,7 @@ class _FakeRadarrService:
 
 
 class _FakeBoxOfficeService:
-    def fetch_weekend_box_office(self, year: int, week: int):
+    def fetch_weekend_box_office(self, year: int, week: int, limit: int = 10):
         # Two movies in the weekly list: one new, one very old (re-release)
         return [
             BoxOfficeMovie(rank=1, title="New Hit"),

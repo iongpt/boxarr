@@ -11,8 +11,7 @@ def _make_html(num_movies: int) -> str:
     """Generate Box Office Mojo-style HTML with the given number of movies."""
     rows = []
     for i in range(1, num_movies + 1):
-        rows.append(
-            f"""<tr>
+        rows.append(f"""<tr>
                 <td>{i}</td>
                 <td>-</td>
                 <td><a href="/release/rl{i}/">Movie {i}</a></td>
@@ -23,8 +22,7 @@ def _make_html(num_movies: int) -> str:
                 <td>${i * 50_000_000:,}</td>
                 <td>-</td>
                 <td>1</td>
-            </tr>"""
-        )
+            </tr>""")
     return f"""<html><body>
         <table class="a-bordered">
             <tr><th>Rank</th><th>LW</th><th>Movie</th><th>Weekend</th></tr>

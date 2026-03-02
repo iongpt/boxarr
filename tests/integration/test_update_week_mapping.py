@@ -92,7 +92,7 @@ class _FakeRadarrService:
 
 
 class _FakeBoxOfficeService:
-    def fetch_weekend_box_office(self, year: int, week: int):
+    def fetch_weekend_box_office(self, year: int, week: int, limit: int = 10):
         # Single item to keep logic simple
         return [BoxOfficeMovie(rank=1, title="Scary Movie")]  # Horror via TMDB stub
 
