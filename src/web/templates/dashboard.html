@@ -1391,13 +1391,58 @@ function setPreset(preset) {
     document.getElementById('startWeek').value = startWeek;
     document.getElementById('endYear').value = endYear;
     document.getElementById('endWeek').value = endWeek;
-    
+
+    // Re-apply future week limits after preset selection
+    limitFutureWeeks('startYear', 'startWeek');
+    limitFutureWeeks('endYear', 'endWeek');
+
     // Update summary
     updateRangeSummary();
 }
 
+// Limit week options to past weeks when current year is selected
+function limitFutureWeeks(yearSelectId, weekSelectId) {
+    const yearSelect = document.getElementById(yearSelectId);
+    const weekSelect = document.getElementById(weekSelectId);
+    if (!yearSelect || !weekSelect) return;
+
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentWeek = rangeProcessor.getWeekNumber(now);
+    const selectedYear = parseInt(yearSelect.value);
+
+    const options = weekSelect.options;
+    for (let i = 0; i < options.length; i++) {
+        const weekVal = parseInt(options[i].value);
+        if (selectedYear === currentYear && weekVal > currentWeek) {
+            options[i].disabled = true;
+            if (options[i].selected) {
+                weekSelect.value = currentWeek;
+            }
+        } else {
+            options[i].disabled = false;
+        }
+    }
+}
+
 // Event listeners for range changes
 document.addEventListener('DOMContentLoaded', function() {
+    // Pairs of (yearSelect, weekSelect) to enforce future-week limits
+    const yearWeekPairs = [
+        ['historicalYear', 'historicalWeek'],
+        ['startYear', 'startWeek'],
+        ['endYear', 'endWeek'],
+    ];
+
+    yearWeekPairs.forEach(([yearId, weekId]) => {
+        const yearEl = document.getElementById(yearId);
+        if (yearEl) {
+            yearEl.addEventListener('change', () => limitFutureWeeks(yearId, weekId));
+            // Apply on load for the default selection
+            limitFutureWeeks(yearId, weekId);
+        }
+    });
+
     // Add event listeners for range selects
     const rangeSelects = ['startYear', 'startWeek', 'endYear', 'endWeek'];
     rangeSelects.forEach(id => {
@@ -1406,7 +1451,7 @@ document.addEventListener('DOMContentLoaded', function() {
             element.addEventListener('change', updateRangeSummary);
         }
     });
-    
+
     // Check for missing metadata on page load
     checkMissingMetadata();
 });
