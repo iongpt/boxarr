@@ -239,6 +239,15 @@ class Settings(BaseSettings):
         description="Log format string",
     )
 
+    @validator("boxarr_port", pre=True)
+    def check_port_env(cls, v: int) -> int:
+        """Fall back to PORT env var when boxarr_port is at its default."""
+        if v == 8888:
+            port_env = os.environ.get("PORT")
+            if port_env:
+                return int(port_env)
+        return v
+
     @validator("boxarr_url_base")
     def normalize_url_base(cls, v: str) -> str:
         """Normalize URL base by stripping leading/trailing slashes."""
