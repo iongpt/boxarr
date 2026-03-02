@@ -130,9 +130,11 @@ async def ignore_movie(request: IgnoreMovieRequest):
         return {
             "success": True,
             "added": added,
-            "message": f"'{request.title}' added to ignore list"
-            if added
-            else f"'{request.title}' was already ignored",
+            "message": (
+                f"'{request.title}' added to ignore list"
+                if added
+                else f"'{request.title}' was already ignored"
+            ),
         }
     except Exception as e:
         logger.error(f"Error adding to ignore list: {e}")
@@ -148,9 +150,11 @@ async def unignore_movie(tmdb_id: int):
         return {
             "success": True,
             "removed": removed,
-            "message": "Movie removed from ignore list"
-            if removed
-            else "Movie was not in ignore list",
+            "message": (
+                "Movie removed from ignore list"
+                if removed
+                else "Movie was not in ignore list"
+            ),
         }
     except Exception as e:
         logger.error(f"Error removing from ignore list: {e}")
