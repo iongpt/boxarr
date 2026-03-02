@@ -167,13 +167,17 @@ class BoxarrScheduler:
                 )
 
             # Fetch box office movies for specified or current week
+            limit = settings.boxarr_features_box_office_limit
             if year and week:
                 box_office_movies = await self._run_in_executor(
-                    self.boxoffice_service.fetch_weekend_box_office, year, week
+                    self.boxoffice_service.fetch_weekend_box_office,
+                    year,
+                    week,
+                    limit,
                 )
             else:
                 box_office_movies = await self._run_in_executor(
-                    self.boxoffice_service.get_current_week_movies
+                    self.boxoffice_service.get_current_week_movies, limit
                 )
 
             # Fetch Radarr movies
@@ -509,6 +513,44 @@ class BoxarrScheduler:
                                 f"rating '{movie_rating}' not in allowed ratings {rating_whitelist}"
                             )
                             continue
+
+                    # Apply language filter if enabled
+                    if settings.boxarr_features_auto_add_language_filter_enabled:
+                        original_language = (
+                            movie_info.get("originalLanguage", {}).get("name")
+                            if isinstance(movie_info.get("originalLanguage"), dict)
+                            else None
+                        )
+                        lang_mode = (
+                            settings.boxarr_features_auto_add_language_filter_mode
+                        )
+                        if lang_mode == "whitelist":
+                            whitelist = (
+                                settings.boxarr_features_auto_add_language_whitelist
+                            )
+                            if whitelist and (
+                                not original_language
+                                or original_language not in whitelist
+                            ):
+                                logger.info(
+                                    f"Skipping '{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
+                                    f"language '{original_language}' not in whitelist {whitelist}"
+                                )
+                                continue
+                        else:
+                            blacklist = (
+                                settings.boxarr_features_auto_add_language_blacklist
+                            )
+                            if (
+                                blacklist
+                                and original_language
+                                and original_language in blacklist
+                            ):
+                                logger.info(
+                                    f"Skipping '{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
+                                    f"language '{original_language}' blacklisted"
+                                )
+                                continue
 
                     # Determine root folder based on genres
                     root_folder_manager = RootFolderManager(self.radarr_service)

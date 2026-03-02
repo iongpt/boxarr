@@ -337,6 +337,7 @@ async def dashboard_page(request: Request):
         settings.boxarr_features_auto_add_limit < 10
         or settings.boxarr_features_auto_add_genre_filter_enabled
         or settings.boxarr_features_auto_add_rating_filter_enabled
+        or settings.boxarr_features_auto_add_language_filter_enabled
         or settings.boxarr_features_auto_add_ignore_rereleases
     )
 
@@ -366,6 +367,22 @@ async def dashboard_page(request: Request):
         filter_descriptions.append(
             f"Rating filter ({len(settings.boxarr_features_auto_add_rating_whitelist)} ratings)"
         )
+    if settings.boxarr_features_auto_add_language_filter_enabled:
+        lang_mode = settings.boxarr_features_auto_add_language_filter_mode
+        if (
+            lang_mode == "whitelist"
+            and settings.boxarr_features_auto_add_language_whitelist
+        ):
+            filter_descriptions.append(
+                f"Language whitelist ({len(settings.boxarr_features_auto_add_language_whitelist)} languages)"
+            )
+        elif (
+            lang_mode == "blacklist"
+            and settings.boxarr_features_auto_add_language_blacklist
+        ):
+            filter_descriptions.append(
+                f"Language blacklist ({len(settings.boxarr_features_auto_add_language_blacklist)} languages)"
+            )
     if settings.boxarr_features_auto_add_ignore_rereleases:
         filter_descriptions.append("Ignore re-releases")
 
@@ -460,6 +477,8 @@ async def setup_page(request: Request):
             scheduler_time=current_time,
             auto_add=settings.boxarr_features_auto_add,
             quality_upgrade=settings.boxarr_features_quality_upgrade,
+            # Box office fetch limit
+            box_office_limit=settings.boxarr_features_box_office_limit,
             # Auto tagging
             auto_tag_enabled=settings.boxarr_features_auto_tag_enabled,
             auto_tag_text=settings.boxarr_features_auto_tag_text,
@@ -472,6 +491,11 @@ async def setup_page(request: Request):
             rating_filter_enabled=settings.boxarr_features_auto_add_rating_filter_enabled,
             rating_whitelist=settings.boxarr_features_auto_add_rating_whitelist,
             ignore_rereleases=settings.boxarr_features_auto_add_ignore_rereleases,
+            # Language filter settings
+            language_filter_enabled=settings.boxarr_features_auto_add_language_filter_enabled,
+            language_filter_mode=settings.boxarr_features_auto_add_language_filter_mode,
+            language_whitelist=settings.boxarr_features_auto_add_language_whitelist,
+            language_blacklist=settings.boxarr_features_auto_add_language_blacklist,
             # URL base for reverse proxy support
             url_base=settings.boxarr_url_base,
         ),

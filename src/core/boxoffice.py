@@ -139,7 +139,10 @@ class BoxOfficeService:
             return None
 
     def fetch_weekend_box_office(
-        self, year: Optional[int] = None, week: Optional[int] = None
+        self,
+        year: Optional[int] = None,
+        week: Optional[int] = None,
+        limit: int = 10,
     ) -> List[BoxOfficeMovie]:
         """
         Fetch box office data for a specific weekend.
@@ -171,11 +174,13 @@ class BoxOfficeService:
             logger.error(f"Failed to fetch box office data: {e}")
             raise BoxOfficeError(f"Failed to fetch box office data: {e}") from e
 
-        movies = self.parse_box_office_html(response.text)
+        movies = self.parse_box_office_html(response.text, limit=limit)
         self.enrich_with_imdb_ids(movies)
         return movies
 
-    def parse_box_office_html(self, html: str) -> List[BoxOfficeMovie]:  # noqa: C901
+    def parse_box_office_html(
+        self, html: str, limit: int = 10
+    ) -> List[BoxOfficeMovie]:  # noqa: C901
         """
         Parse box office data from HTML.
 
@@ -196,14 +201,14 @@ class BoxOfficeService:
             table = soup.find("table", class_="a-bordered")
             if not table:
                 # Try alternative parsing method for different page structure
-                return self._parse_alternative_format(html)
+                return self._parse_alternative_format(html, limit=limit)
 
             # Parse table rows
             rows = (
                 table.find_all("tr")[1:] if hasattr(table, "find_all") else []
             )  # Skip header row
 
-            for idx, row in enumerate(rows[:10], start=1):  # Top 10 only
+            for idx, row in enumerate(rows[:limit], start=1):
                 cells = row.find_all("td")
                 if len(cells) < 3:
                     continue
@@ -272,7 +277,9 @@ class BoxOfficeService:
             logger.error(f"Failed to parse box office HTML: {e}")
             raise BoxOfficeError(f"Failed to parse box office data: {e}") from e
 
-    def _parse_alternative_format(self, html: str) -> List[BoxOfficeMovie]:
+    def _parse_alternative_format(
+        self, html: str, limit: int = 10
+    ) -> List[BoxOfficeMovie]:
         """
         Parse box office data using regex pattern (fallback method).
 
@@ -298,7 +305,7 @@ class BoxOfficeService:
             movies.append(movie)
             rank += 1
 
-            if rank > 10:
+            if rank > limit:
                 break
 
         if not movies:
@@ -370,11 +377,14 @@ class BoxOfficeService:
         ]
         return any(keyword.lower() in text.lower() for keyword in studio_keywords)
 
-    def get_current_week_movies(self) -> List[BoxOfficeMovie]:
+    def get_current_week_movies(self, limit: int = 10) -> List[BoxOfficeMovie]:
         """
         Get current week's box office movies.
         Actually fetches the previous week's data since box office data
         is only available after the weekend ends.
+
+        Args:
+            limit: Maximum number of movies to fetch
 
         Returns:
             List of BoxOfficeMovie objects
@@ -384,7 +394,7 @@ class BoxOfficeService:
 
         last_week = datetime.now() - timedelta(weeks=1)
         _, _, year, week = self.get_weekend_dates(last_week)
-        return self.fetch_weekend_box_office(year, week)
+        return self.fetch_weekend_box_office(year, week, limit=limit)
 
     def get_historical_movies(
         self, weeks_back: int = 1

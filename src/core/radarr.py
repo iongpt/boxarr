@@ -56,6 +56,7 @@ class RadarrMovie:
     images: List[Dict] = field(default_factory=list)
     genres: List[str] = field(default_factory=list)
     runtime: Optional[int] = None
+    original_language: Optional[str] = None
     _raw_data: Optional[Dict] = field(default=None, repr=False)
 
     @property
@@ -626,6 +627,11 @@ class RadarrService:
             images=data.get("images", []),
             genres=data.get("genres", []),
             runtime=data.get("runtime"),
+            original_language=(
+                data.get("originalLanguage", {}).get("name")
+                if isinstance(data.get("originalLanguage"), dict)
+                else None
+            ),
             _raw_data=data,  # Store the complete raw data
         )
 

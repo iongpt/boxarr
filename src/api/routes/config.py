@@ -50,6 +50,8 @@ class SaveConfigRequest(BaseModel):
     boxarr_scheduler_cron: str = "0 23 * * 2"
     boxarr_features_auto_add: bool = True
     boxarr_features_quality_upgrade: bool = True
+    # Box office fetch limit
+    boxarr_features_box_office_limit: int = 10
     # New auto-add advanced options
     boxarr_features_auto_add_limit: int = 10
     boxarr_features_auto_add_genre_filter_enabled: bool = False
@@ -59,6 +61,13 @@ class SaveConfigRequest(BaseModel):
     boxarr_features_auto_add_rating_filter_enabled: bool = False
     boxarr_features_auto_add_rating_whitelist: List[str] = Field(default_factory=list)
     boxarr_features_auto_add_ignore_rereleases: bool = False
+    # Language filter settings
+    boxarr_features_auto_add_language_filter_enabled: bool = False
+    boxarr_features_auto_add_language_filter_mode: str = "whitelist"
+    boxarr_features_auto_add_language_whitelist: List[str] = Field(
+        default_factory=lambda: ["English"]
+    )
+    boxarr_features_auto_add_language_blacklist: List[str] = Field(default_factory=list)
     # Auto-tagging settings
     boxarr_features_auto_tag_enabled: bool = True
     boxarr_features_auto_tag_text: str = "boxarr"
@@ -258,6 +267,7 @@ async def save_configuration(config: SaveConfigRequest):
                 "features": {
                     "auto_add": config.boxarr_features_auto_add,
                     "quality_upgrade": config.boxarr_features_quality_upgrade,
+                    "box_office_limit": config.boxarr_features_box_office_limit,
                     "auto_tag_enabled": config.boxarr_features_auto_tag_enabled,
                     "auto_tag_text": config.boxarr_features_auto_tag_text,
                     "auto_add_options": {
@@ -269,6 +279,10 @@ async def save_configuration(config: SaveConfigRequest):
                         "rating_filter_enabled": config.boxarr_features_auto_add_rating_filter_enabled,
                         "rating_whitelist": config.boxarr_features_auto_add_rating_whitelist,
                         "ignore_rereleases": config.boxarr_features_auto_add_ignore_rereleases,
+                        "language_filter_enabled": config.boxarr_features_auto_add_language_filter_enabled,
+                        "language_filter_mode": config.boxarr_features_auto_add_language_filter_mode,
+                        "language_whitelist": config.boxarr_features_auto_add_language_whitelist,
+                        "language_blacklist": config.boxarr_features_auto_add_language_blacklist,
                     },
                 },
                 "ui": {
