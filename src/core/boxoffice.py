@@ -195,7 +195,7 @@ class BoxOfficeService:
         """
         try:
             soup = BeautifulSoup(html, "html.parser")
-            movies = []
+            movies: List[BoxOfficeMovie] = []
 
             # Find the main table
             table = soup.find("table", class_="a-bordered")
@@ -255,7 +255,7 @@ class BoxOfficeService:
                     )
 
                 movie = BoxOfficeMovie(
-                    rank=idx,
+                    rank=len(movies) + 1,
                     title=title,
                     weekend_gross=weekend_gross,
                     total_gross=total_gross,

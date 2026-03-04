@@ -243,7 +243,7 @@ class BoxarrScheduler:
             results["added_movies"] = added_movies
 
             # Save to history
-            await self._save_to_history(results)
+            await self._save_to_history(results, actual_year, actual_week)
 
             duration = (datetime.now() - start_time).total_seconds()
             logger.info(
@@ -333,21 +333,24 @@ class BoxarrScheduler:
         else:
             return "Pending"
 
-    async def _save_to_history(self, results: Dict[str, Any]) -> None:
+    async def _save_to_history(
+        self, results: Dict[str, Any], year: int, week: int
+    ) -> None:
         """
         Save results to history.
 
         Args:
             results: Results dictionary
+            year: ISO year of the processed week
+            week: ISO week number of the processed week
         """
         try:
             history_dir = settings.get_history_path()
             # Ensure history directory exists before writing
             history_dir.mkdir(parents=True, exist_ok=True)
 
-            # Generate filename
+            # Generate filename using the actual processed week
             now = datetime.now()
-            year, week, _ = now.isocalendar()
             filename = f"{year}W{week:02d}_{now.strftime('%Y%m%d_%H%M%S')}.json"
 
             # Save to file
