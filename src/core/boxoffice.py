@@ -195,7 +195,7 @@ class BoxOfficeService:
         """
         try:
             soup = BeautifulSoup(html, "html.parser")
-            movies = []
+            movies: List[BoxOfficeMovie] = []
 
             # Find the main table
             table = soup.find("table", class_="a-bordered")
