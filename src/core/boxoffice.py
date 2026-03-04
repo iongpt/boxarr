@@ -255,7 +255,7 @@ class BoxOfficeService:
                     )
 
                 movie = BoxOfficeMovie(
-                    rank=idx,
+                    rank=len(movies) + 1,
                     title=title,
                     weekend_gross=weekend_gross,
                     total_gross=total_gross,
