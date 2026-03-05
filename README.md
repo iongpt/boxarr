@@ -23,14 +23,14 @@ Boxarr monitors weekly box office charts and seamlessly integrates with Radarr t
 - **Smart Automation** - Automatically add movies based on your preferences
 - **Family Friendly** - Keep your media server stocked with what people actually want to watch
 
-## 🤔 Why Not Overseerr?
+## 🤔 Why Not Seerr?
 
-Overseerr is excellent for request-based libraries where users actively request content. Boxarr serves a different purpose:
+Seerr is excellent for request-based libraries where users actively request content. Boxarr serves a different purpose:
 
 - **Automatic vs Request-Based**: Boxarr automatically adds mainstream hits without anyone having to request them
 - **Box Office Focus**: Tracks actual commercial success, not just user requests
 - **Zero User Interaction**: Works silently in the background, no user accounts or requests needed
-- **Complementary Tool**: Use both! Overseerr for specific requests, Boxarr for mainstream coverage
+- **Complementary Tool**: Use both! Seerr for specific requests, Boxarr for mainstream coverage
 
 ## 📋 Why Not Radarr Lists?
 
