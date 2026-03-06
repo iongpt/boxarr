@@ -399,9 +399,10 @@ class BoxarrScheduler:
         """
         if not self.radarr_service:
             return []
-        return await self._run_in_executor(
+        result: List[str] = await self._run_in_executor(
             auto_add_missing_movies, match_results, self.radarr_service, top_year
         )
+        return result
 
     def _on_job_executed(self, event) -> None:
         """Handle job execution event."""
