@@ -53,6 +53,18 @@ def _seed_config(dir_path: Path) -> Path:
     return p
 
 
+class _FakeQualityProfile:
+    def __init__(self):
+        self.id = 1
+        self.name = "HD-1080p"
+
+
+class _FakeAddedMovie:
+    def __init__(self, tmdb_id, title):
+        self.id = tmdb_id
+        self.title = title
+
+
 class _FakeRadarrService:
     """Captures add_movie calls and simulates minimal Radarr behavior."""
 
@@ -68,7 +80,10 @@ class _FakeRadarrService:
         # Advertise both default and mapped folder so mapping validates
         return ["/movies", "/movies/horror"]
 
-    def search_movie_tmdb(self, title: str):
+    def get_quality_profiles(self):
+        return [_FakeQualityProfile()]
+
+    def search_movie(self, title: str):
         # Return a Horror movie to trigger mapping
         return [{"tmdbId": 999999, "title": title, "genres": ["Horror"]}]
 
@@ -88,7 +103,7 @@ class _FakeRadarrService:
                 "search": search_for_movie,
             }
         )
-        return {"id": 1, "tmdbId": tmdb_id}
+        return _FakeAddedMovie(tmdb_id, f"Movie {tmdb_id}")
 
 
 class _FakeBoxOfficeService:

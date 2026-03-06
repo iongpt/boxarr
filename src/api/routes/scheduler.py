@@ -310,9 +310,7 @@ async def update_specific_week(request: UpdateWeekRequest):  # noqa: C901
 
                 # Re-fetch and re-match after adding (fixes stale status bug)
                 if added_count > 0:
-                    logger.info(
-                        f"Added {added_count} movies to Radarr, re-matching..."
-                    )
+                    logger.info(f"Added {added_count} movies to Radarr, re-matching...")
                     radarr_movies = radarr_service.get_all_movies()
                     matcher.build_movie_index(radarr_movies)
                     match_results = matcher.match_movies(

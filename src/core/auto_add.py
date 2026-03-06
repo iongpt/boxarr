@@ -66,9 +66,7 @@ def auto_add_missing_movies(
     for result in unmatched:
         try:
             # Search for movie in Radarr database (TMDB)
-            search_results = radarr_service.search_movie(
-                result.box_office_movie.title
-            )
+            search_results = radarr_service.search_movie(result.box_office_movie.title)
 
             if not search_results:
                 logger.warning(
@@ -110,13 +108,8 @@ def auto_add_missing_movies(
             if settings.boxarr_features_auto_add_genre_filter_enabled:
                 movie_genres = movie_info.get("genres", [])
 
-                if (
-                    settings.boxarr_features_auto_add_genre_filter_mode
-                    == "whitelist"
-                ):
-                    whitelist = (
-                        settings.boxarr_features_auto_add_genre_whitelist
-                    )
+                if settings.boxarr_features_auto_add_genre_filter_mode == "whitelist":
+                    whitelist = settings.boxarr_features_auto_add_genre_whitelist
                     if whitelist and not any(
                         genre in whitelist for genre in movie_genres
                     ):
@@ -126,12 +119,8 @@ def auto_add_missing_movies(
                         )
                         continue
                 else:  # blacklist mode
-                    blacklist = (
-                        settings.boxarr_features_auto_add_genre_blacklist
-                    )
-                    if blacklist and any(
-                        genre in blacklist for genre in movie_genres
-                    ):
+                    blacklist = settings.boxarr_features_auto_add_genre_blacklist
+                    if blacklist and any(genre in blacklist for genre in movie_genres):
                         logger.info(
                             f"Skipping '{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
                             f"contains blacklisted genre(s) from {blacklist}"
@@ -141,9 +130,7 @@ def auto_add_missing_movies(
             # Apply rating filter if enabled
             if settings.boxarr_features_auto_add_rating_filter_enabled:
                 movie_rating = movie_info.get("certification")
-                rating_whitelist = (
-                    settings.boxarr_features_auto_add_rating_whitelist
-                )
+                rating_whitelist = settings.boxarr_features_auto_add_rating_whitelist
 
                 if (
                     rating_whitelist
@@ -163,16 +150,11 @@ def auto_add_missing_movies(
                     if isinstance(movie_info.get("originalLanguage"), dict)
                     else None
                 )
-                lang_mode = (
-                    settings.boxarr_features_auto_add_language_filter_mode
-                )
+                lang_mode = settings.boxarr_features_auto_add_language_filter_mode
                 if lang_mode == "whitelist":
-                    whitelist = (
-                        settings.boxarr_features_auto_add_language_whitelist
-                    )
+                    whitelist = settings.boxarr_features_auto_add_language_whitelist
                     if whitelist and (
-                        not original_language
-                        or original_language not in whitelist
+                        not original_language or original_language not in whitelist
                     ):
                         logger.info(
                             f"Skipping '{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
@@ -180,9 +162,7 @@ def auto_add_missing_movies(
                         )
                         continue
                 else:
-                    blacklist = (
-                        settings.boxarr_features_auto_add_language_blacklist
-                    )
+                    blacklist = settings.boxarr_features_auto_add_language_blacklist
                     if (
                         blacklist
                         and original_language
@@ -217,8 +197,6 @@ def auto_add_missing_movies(
             added_movies.append(added_movie.title)
 
         except Exception as e:
-            logger.warning(
-                f"Failed to auto-add {result.box_office_movie.title}: {e}"
-            )
+            logger.warning(f"Failed to auto-add {result.box_office_movie.title}: {e}")
 
     return added_movies

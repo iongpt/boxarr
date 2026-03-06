@@ -49,6 +49,18 @@ def _seed_config(dir_path: Path) -> Path:
     return p
 
 
+class _FakeQualityProfile:
+    def __init__(self):
+        self.id = 1
+        self.name = "HD-1080p"
+
+
+class _FakeAddedMovie:
+    def __init__(self, tmdb_id, title):
+        self.id = tmdb_id
+        self.title = title
+
+
 class _FakeRadarrService:
     """Captures add_movie calls and simulates minimal Radarr behavior."""
 
@@ -64,7 +76,10 @@ class _FakeRadarrService:
         # Advertise the default folder so validation passes
         return ["/movies"]
 
-    def search_movie_tmdb(self, title: str):
+    def get_quality_profiles(self):
+        return [_FakeQualityProfile()]
+
+    def search_movie(self, title: str):
         # Return different release years to simulate a re-release scenario
         if title == "New Hit":
             return [
@@ -104,8 +119,7 @@ class _FakeRadarrService:
                 "search": search_for_movie,
             }
         )
-        # Return truthy to increment added_count in route
-        return {"id": tmdb_id, "tmdbId": tmdb_id}
+        return _FakeAddedMovie(tmdb_id, f"Movie {tmdb_id}")
 
 
 class _FakeBoxOfficeService:

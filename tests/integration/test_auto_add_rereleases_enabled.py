@@ -45,6 +45,18 @@ def _seed_config(dir_path: Path) -> Path:
     return p
 
 
+class _FakeQualityProfile:
+    def __init__(self):
+        self.id = 1
+        self.name = "HD-1080p"
+
+
+class _FakeAddedMovie:
+    def __init__(self, tmdb_id, title):
+        self.id = tmdb_id
+        self.title = title
+
+
 class _FakeRadarrService:
     added_calls = []
 
@@ -57,7 +69,10 @@ class _FakeRadarrService:
     def get_root_folder_paths(self):
         return ["/movies"]
 
-    def search_movie_tmdb(self, title: str):
+    def get_quality_profiles(self):
+        return [_FakeQualityProfile()]
+
+    def search_movie(self, title: str):
         if title == "New Hit":
             return [
                 {
@@ -91,7 +106,7 @@ class _FakeRadarrService:
         _FakeRadarrService.added_calls.append(
             {"tmdb_id": tmdb_id, "root_folder": root_folder}
         )
-        return {"id": tmdb_id, "tmdbId": tmdb_id}
+        return _FakeAddedMovie(tmdb_id, f"Movie {tmdb_id}")
 
 
 class _FakeBoxOfficeService:
