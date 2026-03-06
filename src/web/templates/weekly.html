@@ -370,6 +370,41 @@
 {% block scripts %}
 <script>
     window.IGNORED_TMDB_IDS = new Set({{ ignored_tmdb_ids | tojson }});
+
+    async function regenerateWeek(year, week) {
+        if (!confirm(`Regenerate data for ${year}W${String(week).padStart(2, '0')}? This will re-fetch box office data and re-match with Radarr.`)) {
+            return;
+        }
+
+        const btn = document.getElementById('regenerate-btn');
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '⏳ Regenerating...';
+        btn.disabled = true;
+
+        try {
+            const rootPath = '{{ request.scope.get("root_path", "") }}';
+            const response = await fetch(`${rootPath}/api/scheduler/update-week`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ year, week }),
+            });
+
+            const data = await response.json();
+
+            if (response.ok && data.success) {
+                btn.innerHTML = '✓ Done!';
+                setTimeout(() => location.reload(), 500);
+            } else {
+                alert('Regeneration failed: ' + (data.detail || data.message || 'Unknown error'));
+                btn.innerHTML = originalText;
+                btn.disabled = false;
+            }
+        } catch (err) {
+            alert('Regeneration failed: ' + err.message);
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+        }
+    }
 </script>
 {% endblock %}
 
@@ -426,12 +461,16 @@
             {% if previous_week %}
             <a href="{{ request.scope.get('root_path', '') }}/{{ previous_week }}" class="nav-btn">← Previous</a>
             {% endif %}
-            
+
             <a href="{{ request.scope.get('root_path', '') }}/weeks" class="nav-btn">📊 Weeks</a>
-            
+
             {% if next_week %}
             <a href="{{ request.scope.get('root_path', '') }}/{{ next_week }}" class="nav-btn">Next →</a>
             {% endif %}
+
+            <button class="nav-btn" id="regenerate-btn" onclick="regenerateWeek({{ week_data.year }}, {{ week_data.week }})">
+                🔄 Regenerate
+            </button>
         </div>
     </div>
     
