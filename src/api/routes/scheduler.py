@@ -8,7 +8,6 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from ...core.root_folder_manager import RootFolderManager
 from ...core.scheduler import BoxarrScheduler
 from ...utils.config import settings
 from ...utils.logger import get_logger
@@ -300,172 +299,25 @@ async def update_specific_week(request: UpdateWeekRequest):  # noqa: C901
             matcher.build_movie_index(radarr_movies)
             match_results = matcher.match_movies(box_office_movies, radarr_movies)
 
-            # Auto-add if enabled (using global settings only)
+            # Auto-add if enabled
             if settings.boxarr_features_auto_add:
-                # Get unmatched movies and apply limit
-                unmatched = [r for r in match_results if not r.is_matched]
+                from ...core.auto_add import auto_add_missing_movies
 
-                # Apply limit if configured
-                limit = settings.boxarr_features_auto_add_limit
-                if limit < len(unmatched):
+                added_titles = auto_add_missing_movies(
+                    match_results, radarr_service, year
+                )
+                added_count = len(added_titles)
+
+                # Re-fetch and re-match after adding (fixes stale status bug)
+                if added_count > 0:
                     logger.info(
-                        f"Limiting auto-add to top {limit} movies (out of {len(unmatched)} unmatched)"
+                        f"Added {added_count} movies to Radarr, re-matching..."
                     )
-                    # Sort by rank to get top movies
-                    unmatched = sorted(
-                        unmatched, key=lambda r: r.box_office_movie.rank
-                    )[:limit]
-
-                if not unmatched:
-                    logger.info(
-                        "No movies to auto-add - all top movies are already in Radarr"
+                    radarr_movies = radarr_service.get_all_movies()
+                    matcher.build_movie_index(radarr_movies)
+                    match_results = matcher.match_movies(
+                        box_office_movies, radarr_movies
                     )
-                else:
-                    logger.info(
-                        f"Processing {len(unmatched)} movies for auto-add with filters"
-                    )
-
-                # Prepare root folder manager (uses Radarr folders for validation)
-                root_folder_manager = RootFolderManager(radarr_service)
-
-                for result in unmatched:
-                    # Search for movie in TMDB
-                    search = radarr_service.search_movie_tmdb(
-                        result.box_office_movie.title
-                    )
-                    if search:
-                        movie_info = search[0]
-
-                        # Optional: Ignore re-releases (older than selected year - 1)
-                        if settings.boxarr_features_auto_add_ignore_rereleases:
-                            try:
-                                movie_year = None
-                                if isinstance(movie_info, dict):
-                                    # Prefer explicit year field if present
-                                    movie_year = movie_info.get("year")
-                                    # Fall back to releaseDate (YYYY-MM-DD)
-                                    if not movie_year:
-                                        rd = movie_info.get(
-                                            "releaseDate"
-                                        ) or movie_info.get("inCinemas")
-                                        if isinstance(rd, str) and len(rd) >= 4:
-                                            movie_year = int(rd[:4])
-                                if movie_year and int(movie_year) < (year - 1):
-                                    logger.info(
-                                        f"Skipping '{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
-                                        f"release year {movie_year} older than cutoff {(year - 1)}"
-                                    )
-                                    continue
-                            except Exception:
-                                # Be permissive if metadata is missing or malformed
-                                pass
-
-                        # Apply genre filter if enabled
-                        movie_genres = movie_info.get("genres", [])
-                        if settings.boxarr_features_auto_add_genre_filter_enabled:
-
-                            if (
-                                settings.boxarr_features_auto_add_genre_filter_mode
-                                == "whitelist"
-                            ):
-                                whitelist = (
-                                    settings.boxarr_features_auto_add_genre_whitelist
-                                )
-                                if whitelist and not any(
-                                    genre in whitelist for genre in movie_genres
-                                ):
-                                    logger.info(
-                                        f"Skipping '{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
-                                        f"genres {movie_genres} not in whitelist {whitelist}"
-                                    )
-                                    continue
-                            else:  # blacklist mode
-                                blacklist = (
-                                    settings.boxarr_features_auto_add_genre_blacklist
-                                )
-                                if blacklist and any(
-                                    genre in blacklist for genre in movie_genres
-                                ):
-                                    logger.info(
-                                        f"Skipping '{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
-                                        f"contains blacklisted genre(s) from {blacklist}"
-                                    )
-                                    continue
-
-                        # Apply rating filter if enabled
-                        if settings.boxarr_features_auto_add_rating_filter_enabled:
-                            movie_rating = movie_info.get("certification")
-                            rating_whitelist = (
-                                settings.boxarr_features_auto_add_rating_whitelist
-                            )
-
-                            if (
-                                rating_whitelist
-                                and movie_rating
-                                and movie_rating not in rating_whitelist
-                            ):
-                                logger.info(
-                                    f"Skipping '{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
-                                    f"rating '{movie_rating}' not in allowed ratings {rating_whitelist}"
-                                )
-                                continue
-
-                        # Apply language filter if enabled
-                        if settings.boxarr_features_auto_add_language_filter_enabled:
-                            original_language = (
-                                movie_info.get("originalLanguage", {}).get("name")
-                                if isinstance(movie_info.get("originalLanguage"), dict)
-                                else None
-                            )
-                            lang_mode = (
-                                settings.boxarr_features_auto_add_language_filter_mode
-                            )
-                            if lang_mode == "whitelist":
-                                whitelist = (
-                                    settings.boxarr_features_auto_add_language_whitelist
-                                )
-                                if whitelist and (
-                                    not original_language
-                                    or original_language not in whitelist
-                                ):
-                                    logger.info(
-                                        f"Skipping '{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
-                                        f"language '{original_language}' not in whitelist {whitelist}"
-                                    )
-                                    continue
-                            else:
-                                blacklist = (
-                                    settings.boxarr_features_auto_add_language_blacklist
-                                )
-                                if (
-                                    blacklist
-                                    and original_language
-                                    and original_language in blacklist
-                                ):
-                                    logger.info(
-                                        f"Skipping '{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
-                                        f"language '{original_language}' blacklisted"
-                                    )
-                                    continue
-
-                        # Determine destination root folder based on genres (with validation)
-                        chosen_root = root_folder_manager.determine_root_folder(
-                            genres=movie_genres,
-                            movie_title=movie_info.get(
-                                "title", result.box_office_movie.title
-                            ),
-                        )
-
-                        # Add the movie
-                        movie = radarr_service.add_movie(
-                            tmdb_id=movie_info["tmdbId"],
-                            quality_profile_id=None,  # Uses default from settings
-                            root_folder=chosen_root,
-                            monitored=True,
-                            search_for_movie=True,
-                        )
-                        if movie:
-                            added_count += 1
         else:
             # No Radarr, create unmatched results
             from ...core.matcher import MatchResult
