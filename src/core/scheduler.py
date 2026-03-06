@@ -161,25 +161,20 @@ class BoxarrScheduler:
                 actual_year = year
                 actual_week = week
             else:
-                # Mirror get_current_week_movies: use previous week's data
-                last_week = datetime.now() - timedelta(weeks=1)
+                # get_weekend_dates() returns the most recent complete weekend
+                # (Friday morning guard already handles runs on Friday before noon)
                 _, _, actual_year, actual_week = (
-                    self.boxoffice_service.get_weekend_dates(last_week)
+                    self.boxoffice_service.get_weekend_dates()
                 )
 
-            # Fetch box office movies for specified or current week
+            # Fetch box office movies
             limit = settings.boxarr_features_box_office_limit
-            if year and week:
-                box_office_movies = await self._run_in_executor(
-                    self.boxoffice_service.fetch_weekend_box_office,
-                    year,
-                    week,
-                    limit,
-                )
-            else:
-                box_office_movies = await self._run_in_executor(
-                    self.boxoffice_service.get_current_week_movies, limit
-                )
+            box_office_movies = await self._run_in_executor(
+                self.boxoffice_service.fetch_weekend_box_office,
+                actual_year,
+                actual_week,
+                limit,
+            )
 
             # Fetch Radarr movies
             radarr_movies = await self._run_in_executor(

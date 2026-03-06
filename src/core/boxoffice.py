@@ -389,11 +389,8 @@ class BoxOfficeService:
         Returns:
             List of BoxOfficeMovie objects
         """
-        # Get previous week's data (most recent complete week)
-        from datetime import datetime, timedelta
-
-        last_week = datetime.now() - timedelta(weeks=1)
-        _, _, year, week = self.get_weekend_dates(last_week)
+        # get_weekend_dates() returns the most recent complete weekend
+        _, _, year, week = self.get_weekend_dates()
         return self.fetch_weekend_box_office(year, week, limit=limit)
 
     def get_historical_movies(
