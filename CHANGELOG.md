@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.4] - 2026-03-07
+
+### Fixed
+- **Weekend Calculation Bug**: Fixed `get_weekend_dates()` returning the current (incomplete) weekend when run on Friday afternoon through Sunday (#96)
+  - Box Office Mojo does not publish weekend data until Monday, so requesting the current weekend returned empty results
+  - Replaced fragile hour-based Friday morning check with a clean weekday guard: Friday/Saturday/Sunday always return the previous completed weekend
+  - Added 11 unit tests covering all days of the week and edge cases
+
 ## [Unreleased]
 
 ### Added
