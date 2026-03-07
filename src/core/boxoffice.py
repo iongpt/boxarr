@@ -77,13 +77,18 @@ class BoxOfficeService:
         if date is None:
             date = datetime.now()
 
-        # Find the most recent Friday
-        days_since_friday = (date.weekday() - 4) % 7
-        if days_since_friday == 0 and date.hour < 12:
-            # If it's Friday morning, use previous weekend
-            days_since_friday = 7
+        today = date.date()
+        weekday = today.weekday()  # Monday=0 ... Sunday=6
+        days_since_friday = (weekday - 4) % 7
 
-        friday = date - timedelta(days=days_since_friday)
+        # If today is Friday, Saturday, or Sunday, the weekend is NOT complete yet
+        # (Box Office Mojo publishes data on Monday), so go back to previous weekend
+        if weekday in (4, 5, 6):
+            days_since_friday += 7
+
+        friday = datetime.combine(
+            today - timedelta(days=days_since_friday), datetime.min.time()
+        )
         sunday = friday + timedelta(days=2)
 
         # Get ISO week number
