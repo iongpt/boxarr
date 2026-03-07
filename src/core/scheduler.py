@@ -161,7 +161,6 @@ class BoxarrScheduler:
                 actual_week = week
             else:
                 # get_weekend_dates() returns the most recent complete weekend
-                # (Friday morning guard already handles runs on Friday before noon)
                 _, _, actual_year, actual_week = (
                     self.boxoffice_service.get_weekend_dates()
                 )

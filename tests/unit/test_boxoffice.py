@@ -1,12 +1,89 @@
 """Unit tests for box office parsing - focused on critical functionality."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import MagicMock, Mock, patch
 
 import httpx
 import pytest
 
 from src.core.boxoffice import BoxOfficeError, BoxOfficeService
+
+
+class TestGetWeekendDates:
+    """Test weekend date calculation always returns the last completed weekend."""
+
+    def setup_method(self):
+        self.service = BoxOfficeService()
+
+    def test_monday_returns_previous_friday(self):
+        """Monday should return the just-completed weekend."""
+        # Monday 2026-03-09 -> previous Friday 2026-03-06
+        date = datetime(2026, 3, 9, 14, 0)
+        friday, sunday, year, week = self.service.get_weekend_dates(date)
+        assert friday.date().isoformat() == "2026-03-06"
+        assert sunday.date().isoformat() == "2026-03-08"
+
+    def test_tuesday_returns_previous_friday(self):
+        date = datetime(2026, 3, 10, 10, 0)
+        friday, sunday, _, _ = self.service.get_weekend_dates(date)
+        assert friday.date().isoformat() == "2026-03-06"
+
+    def test_wednesday_returns_previous_friday(self):
+        date = datetime(2026, 3, 11, 10, 0)
+        friday, sunday, _, _ = self.service.get_weekend_dates(date)
+        assert friday.date().isoformat() == "2026-03-06"
+
+    def test_thursday_returns_previous_friday(self):
+        date = datetime(2026, 3, 12, 10, 0)
+        friday, sunday, _, _ = self.service.get_weekend_dates(date)
+        assert friday.date().isoformat() == "2026-03-06"
+
+    def test_friday_returns_previous_friday(self):
+        """Friday should return the PREVIOUS completed weekend, not current."""
+        # Friday 2026-03-06 -> previous Friday 2026-02-27
+        date = datetime(2026, 3, 6, 18, 0)
+        friday, sunday, _, _ = self.service.get_weekend_dates(date)
+        assert friday.date().isoformat() == "2026-02-27"
+        assert sunday.date().isoformat() == "2026-03-01"
+
+    def test_friday_morning_returns_previous_friday(self):
+        """Friday morning should also return previous completed weekend."""
+        date = datetime(2026, 3, 6, 8, 0)
+        friday, _, _, _ = self.service.get_weekend_dates(date)
+        assert friday.date().isoformat() == "2026-02-27"
+
+    def test_saturday_returns_previous_friday(self):
+        """Saturday should return the PREVIOUS completed weekend."""
+        # Saturday 2026-03-07 -> previous Friday 2026-02-27
+        date = datetime(2026, 3, 7, 14, 0)
+        friday, sunday, _, _ = self.service.get_weekend_dates(date)
+        assert friday.date().isoformat() == "2026-02-27"
+        assert sunday.date().isoformat() == "2026-03-01"
+
+    def test_sunday_returns_previous_friday(self):
+        """Sunday should return the PREVIOUS completed weekend."""
+        # Sunday 2026-03-08 -> previous Friday 2026-02-27
+        date = datetime(2026, 3, 8, 20, 0)
+        friday, sunday, _, _ = self.service.get_weekend_dates(date)
+        assert friday.date().isoformat() == "2026-02-27"
+        assert sunday.date().isoformat() == "2026-03-01"
+
+    def test_returns_iso_year_and_week(self):
+        """Verify ISO year and week number are correct."""
+        # Monday 2026-03-09 -> Friday 2026-03-06 (ISO week 10)
+        date = datetime(2026, 3, 9)
+        _, _, year, week = self.service.get_weekend_dates(date)
+        assert year == 2026
+        assert week == 10
+
+    def test_friday_time_at_midnight(self):
+        """Return values should have time set to midnight."""
+        date = datetime(2026, 3, 9, 15, 30)
+        friday, sunday, _, _ = self.service.get_weekend_dates(date)
+        assert friday.hour == 0
+        assert friday.minute == 0
+        assert sunday.hour == 0
+        assert sunday.minute == 0
 
 
 class TestBoxOfficeHTMLParsing:
