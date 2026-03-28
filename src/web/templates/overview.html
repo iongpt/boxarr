@@ -495,6 +495,10 @@
                 <span class="stat-value">{{ stats.not_in_radarr }}</span>
                 <span class="stat-label">Not in Radarr</span>
             </div>
+            <div class="stat-card">
+                <span class="stat-value">{{ stats.ignored }}</span>
+                <span class="stat-label">Ignored</span>
+            </div>
         </div>
         
         <!-- Recent Weeks Quick Links -->
@@ -539,8 +543,10 @@
                    class="filter-btn {% if status_filter == 'downloaded' %}active{% endif %}">Downloaded</a>
                 <a href="?status=missing&year={{ year_filter or '' }}&search={{ search_query }}&per_page={{ per_page }}" 
                    class="filter-btn {% if status_filter == 'missing' %}active{% endif %}">Missing</a>
-                <a href="?status=not_in_radarr&year={{ year_filter or '' }}&search={{ search_query }}&per_page={{ per_page }}" 
+                <a href="?status=not_in_radarr&year={{ year_filter or '' }}&search={{ search_query }}&per_page={{ per_page }}"
                    class="filter-btn {% if status_filter == 'not_in_radarr' %}active{% endif %}">Not in Radarr</a>
+                <a href="?status=ignored&year={{ year_filter or '' }}&search={{ search_query }}&per_page={{ per_page }}"
+                   class="filter-btn {% if status_filter == 'ignored' %}active{% endif %}">Ignored</a>
             </div>
         </div>
         

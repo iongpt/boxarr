@@ -180,6 +180,11 @@ async def movie_overview_page(request: Request):
 
     # Avoid synchronous full Radarr fetch here; hydrate via AJAX on the client
 
+    # Load ignore list (needed for filtering and stats)
+    ignore_list = IgnoreList()
+    ignored_tmdb_ids_set = ignore_list.get_ignored_tmdb_ids()
+    ignored_tmdb_ids = list(ignored_tmdb_ids_set)
+
     # Apply filters
     filtered_movies = all_movies
 
@@ -192,6 +197,10 @@ async def movie_overview_page(request: Request):
         filtered_movies = [m for m in filtered_movies if m.get("status") == "Missing"]
     elif status_filter == "not_in_radarr":
         filtered_movies = [m for m in filtered_movies if not m.get("radarr_id")]
+    elif status_filter == "ignored":
+        filtered_movies = [
+            m for m in filtered_movies if m.get("tmdb_id") in ignored_tmdb_ids_set
+        ]
 
     # Year filter
     if year_filter_str and year_filter_str.isdigit():
@@ -229,15 +238,12 @@ async def movie_overview_page(request: Request):
         "downloaded": sum(1 for m in all_movies if m.get("status") == "Downloaded"),
         "missing": sum(1 for m in all_movies if m.get("status") == "Missing"),
         "not_in_radarr": sum(1 for m in all_movies if not m.get("radarr_id")),
+        "ignored": sum(1 for m in all_movies if m.get("tmdb_id") in ignored_tmdb_ids_set),
     }
 
     # Get recent weeks for quick navigation
     recent_weeks = await get_available_weeks()
     recent_weeks = recent_weeks[:5]  # Show last 5 weeks
-
-    # Load ignore list
-    ignore_list = IgnoreList()
-    ignored_tmdb_ids = list(ignore_list.get_ignored_tmdb_ids())
 
     return templates.TemplateResponse(
         "overview.html",
