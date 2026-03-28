@@ -373,8 +373,9 @@
 
 .ignored-badge {
     position: absolute;
-    bottom: 10px;
-    left: 10px;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
     background: rgba(245, 101, 101, 0.9);
     color: white;
     padding: 4px 10px;
@@ -383,6 +384,7 @@
     font-weight: 600;
     z-index: 2;
     box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    white-space: nowrap;
 }
 
 .action-btn.ignore-btn {
