@@ -2,11 +2,12 @@ name: CI Pipeline
 
 on:
   pull_request:
+    branches: [ main, develop ]
     paths-ignore:
       - '**.md'
       - 'docs/**'
   push:
-    branches: [ main, develop, 'feature/**', 'fix/**' ]
+    branches: [ main, develop ]
     paths-ignore:
       - '**.md'
       - 'docs/**'
