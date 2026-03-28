@@ -268,6 +268,7 @@ async def movie_overview_page(request: Request):
     recent_weeks = recent_weeks[:5]  # Show last 5 weeks
 
     return templates.TemplateResponse(
+        request,
         "overview.html",
         get_template_context(
             request,
@@ -422,6 +423,7 @@ async def dashboard_page(request: Request):
         filter_descriptions.append("Ignore re-releases")
 
     return templates.TemplateResponse(
+        request,
         "dashboard.html",
         get_template_context(
             request,
@@ -482,6 +484,7 @@ async def setup_page(request: Request):
     )  # Default to Tuesday if unknown
 
     return templates.TemplateResponse(
+        request,
         "setup.html",
         get_template_context(
             request,
@@ -624,6 +627,7 @@ async def serve_weekly_page(request: Request, year: int, week: int):
     ignored_tmdb_ids = list(ignore_list.get_ignored_tmdb_ids())
 
     return templates.TemplateResponse(
+        request,
         "weekly.html",
         get_template_context(
             request,
