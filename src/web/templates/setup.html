@@ -194,6 +194,16 @@
                     <small class="text-muted">Single word, up to 20 characters.</small>
                 </div>
                 
+                <!-- Box Office Country -->
+                <div class="form-group" style="margin-top: 1rem;">
+                    <label for="boxOfficeCountry" class="form-label">Box Office Country</label>
+                    <select id="boxOfficeCountry" name="boxarr_features_box_office_country" class="form-select">
+                        <option value="us" {% if box_office_country == 'us' %}selected{% endif %}>United States (Box Office Mojo)</option>
+                        <option value="fr" {% if box_office_country == 'fr' %}selected{% endif %}>France (AlloCiné)</option>
+                    </select>
+                    <small class="text-muted">Source for weekly box office rankings</small>
+                </div>
+
                 <!-- Box Office Fetch Limit -->
                 <div class="form-group" style="margin-top: 1rem;">
                     <label for="boxOfficeLimit" class="form-label">Box Office Fetch Limit</label>
@@ -202,7 +212,7 @@
                         <option value="{{ i }}" {% if box_office_limit == i %}selected{% endif %}>{{ i }} movies</option>
                         {% endfor %}
                     </select>
-                    <small class="text-muted">Number of movies to fetch from Box Office Mojo each week (1-30)</small>
+                    <small class="text-muted">Number of movies to fetch from box office chart each week (1-30)</small>
                 </div>
 
                 <!-- Auto-Add Advanced Options -->

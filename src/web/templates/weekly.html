@@ -501,7 +501,11 @@
                     {% if movie.year %}<span>{{ movie.year }}</span>{% endif %}
                     {% if movie.genres %}<span>{{ movie.genres }}</span>{% endif %}
                     {% if movie.weekend_gross %}
+                    {% if gross_unit == 'admissions' %}
+                    <span>{{ "{:,.0f}".format(movie.weekend_gross) }} entrées</span>
+                    {% else %}
                     <span>Weekend: ${{ "{:,.0f}".format(movie.weekend_gross) }}</span>
+                    {% endif %}
                     {% endif %}
                 </div>
                 

@@ -99,6 +99,20 @@ async def settings_redirect(request: Request):
     return RedirectResponse(url=f"{base}/setup")
 
 
+def _get_gross_unit() -> str:
+    """Get the gross unit for the current box office country."""
+    try:
+        from ...core.providers.registry import get_supported_countries
+
+        country_code = settings.boxarr_features_box_office_country
+        for country in get_supported_countries():
+            if country["code"] == country_code:
+                return country["gross_unit"]
+    except Exception:
+        pass
+    return "currency"
+
+
 async def aggregate_all_movies() -> List[dict]:
     """Aggregate all movies from all weekly JSON files, handling duplicates."""
     weekly_pages_dir = Path(settings.boxarr_data_directory) / "weekly_pages"
@@ -298,6 +312,8 @@ async def movie_overview_page(request: Request):
             # Features
             auto_add=settings.boxarr_features_auto_add,
             quality_upgrade=settings.boxarr_features_quality_upgrade,
+            # Box office display
+            gross_unit=_get_gross_unit(),
             # Ignore list
             ignored_tmdb_ids=ignored_tmdb_ids,
         ),
@@ -525,7 +541,8 @@ async def setup_page(request: Request):
             scheduler_time=current_time,
             auto_add=settings.boxarr_features_auto_add,
             quality_upgrade=settings.boxarr_features_quality_upgrade,
-            # Box office fetch limit
+            # Box office settings
+            box_office_country=settings.boxarr_features_box_office_country,
             box_office_limit=settings.boxarr_features_box_office_limit,
             # Auto tagging
             auto_tag_enabled=settings.boxarr_features_auto_tag_enabled,
@@ -636,6 +653,9 @@ async def serve_weekly_page(request: Request, year: int, week: int):
     ignore_list = IgnoreList()
     ignored_tmdb_ids = list(ignore_list.get_ignored_tmdb_ids())
 
+    # Get gross_unit from metadata (backward compatible with old JSON files)
+    gross_unit = metadata.get("gross_unit", "currency")
+
     return templates.TemplateResponse(
         request,
         "weekly.html",
@@ -649,6 +669,7 @@ async def serve_weekly_page(request: Request, year: int, week: int):
                 "movies": movies,
                 "generated_at": generated_at,
             },
+            gross_unit=gross_unit,
             auto_add=settings.boxarr_features_auto_add,
             scheduler_enabled=settings.boxarr_scheduler_enabled,
             previous_week=f"{prev_year}W{prev_week_num:02d}" if prev_week else None,

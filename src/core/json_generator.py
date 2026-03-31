@@ -215,11 +215,20 @@ class WeeklyDataGenerator:
 
             movies_data.append(movie_data)
 
+        # Determine country and gross unit from match results
+        country = "us"
+        gross_unit = "currency"
+        if match_results and match_results[0].box_office_movie:
+            country = match_results[0].box_office_movie.country
+            gross_unit = match_results[0].box_office_movie.gross_unit
+
         # Save metadata with full movie data
         metadata = {
             "generated_at": datetime.now().isoformat(),
             "year": year,
             "week": week,
+            "country": country,
+            "gross_unit": gross_unit,
             "friday": friday.isoformat(),
             "sunday": sunday.isoformat(),
             "total_movies": len(movies_data),
