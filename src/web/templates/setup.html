@@ -198,10 +198,11 @@
                 <div class="form-group" style="margin-top: 1rem;">
                     <label for="boxOfficeCountry" class="form-label">Box Office Country</label>
                     <select id="boxOfficeCountry" name="boxarr_features_box_office_country" class="form-select">
-                        <option value="us" {% if box_office_country == 'us' %}selected{% endif %}>United States (Box Office Mojo)</option>
-                        <option value="fr" {% if box_office_country == 'fr' %}selected{% endif %}>France (AlloCiné)</option>
+                        {% for country in supported_countries %}
+                        <option value="{{ country.code }}" {% if box_office_country == country.code %}selected{% endif %}>{{ country.name }}</option>
+                        {% endfor %}
                     </select>
-                    <small class="text-muted">Source for weekly box office rankings</small>
+                    <small class="text-muted">Source for weekly box office rankings. Most countries use Box Office Mojo (USD). France (AlloCiné) uses admissions.</small>
                 </div>
 
                 <!-- Box Office Fetch Limit -->

@@ -113,6 +113,16 @@ def _get_gross_unit() -> str:
     return "currency"
 
 
+def _get_supported_countries() -> List[dict]:
+    """Get the list of supported countries for the UI dropdown."""
+    try:
+        from ...core.providers.registry import get_supported_countries
+
+        return get_supported_countries()
+    except Exception:
+        return [{"code": "us", "name": "United States", "gross_unit": "currency"}]
+
+
 async def aggregate_all_movies() -> List[dict]:
     """Aggregate all movies from all weekly JSON files, handling duplicates."""
     weekly_pages_dir = Path(settings.boxarr_data_directory) / "weekly_pages"
@@ -543,6 +553,7 @@ async def setup_page(request: Request):
             quality_upgrade=settings.boxarr_features_quality_upgrade,
             # Box office settings
             box_office_country=settings.boxarr_features_box_office_country,
+            supported_countries=_get_supported_countries(),
             box_office_limit=settings.boxarr_features_box_office_limit,
             # Auto tagging
             auto_tag_enabled=settings.boxarr_features_auto_tag_enabled,
