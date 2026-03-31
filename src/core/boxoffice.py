@@ -1,11 +1,11 @@
 """Box office service facade with multi-country provider support."""
 
-import re
-from dataclasses import asdict, dataclass, field
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from dataclasses import asdict, dataclass
+from datetime import datetime
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
-import httpx
+if TYPE_CHECKING:
+    import httpx
 
 from ..utils.logger import get_logger
 from .exceptions import BoxOfficeError
@@ -37,7 +37,7 @@ class BoxOfficeService:
 
     def __init__(
         self,
-        http_client: Optional[httpx.Client] = None,
+        http_client: "Optional[httpx.Client]" = None,
         country: Optional[str] = None,
     ):
         """
@@ -98,41 +98,35 @@ class BoxOfficeService:
         """Get historical box office data for multiple weeks."""
         return self._provider.get_historical_movies(weeks_back)
 
-    # Keep legacy methods for backward compatibility with existing code
+    # Legacy methods delegating directly to the BOM provider.
+    # These exist only because existing tests call them on BoxOfficeService.
     def parse_money_value(self, text: str) -> Optional[float]:
         """Parse monetary value from string."""
-        if hasattr(self._provider, "parse_money_value"):
-            return self._provider.parse_money_value(text)
-        return None
+        return self._provider.parse_money_value(text)
 
     def parse_integer_value(self, text: str) -> Optional[int]:
         """Parse integer value from string."""
-        if hasattr(self._provider, "parse_integer_value"):
-            return self._provider.parse_integer_value(text)
-        return None
+        return self._provider.parse_integer_value(text)
 
     def parse_box_office_html(self, html: str, limit: int = 10) -> List[BoxOfficeMovie]:
-        """Parse box office data from HTML (US provider only)."""
-        if hasattr(self._provider, "_parse_box_office_html"):
-            return self._provider._parse_box_office_html(html, limit)
-        raise BoxOfficeError("HTML parsing not supported for this provider")
+        """Parse box office data from HTML."""
+        return self._provider._parse_box_office_html(html, limit)
 
     def _parse_alternative_format(
         self, html: str, limit: int = 10
     ) -> List[BoxOfficeMovie]:
-        """Parse box office data using regex (US fallback, exposed for tests)."""
-        if hasattr(self._provider, "_parse_alternative_format"):
-            return self._provider._parse_alternative_format(html, limit)
-        raise BoxOfficeError("Alternative parsing not supported for this provider")
+        """Parse box office data using regex (fallback)."""
+        return self._provider._parse_alternative_format(html, limit)
 
     def extract_imdb_id(self, release_url: str) -> Optional[str]:
-        """Extract IMDb ID from release page (US provider only)."""
-        if hasattr(self._provider, "_extract_imdb_id"):
-            return self._provider._extract_imdb_id(release_url)
-        return None
+        """Extract IMDb ID from release page."""
+        return self._provider._extract_imdb_id(release_url)
 
     def enrich_with_imdb_ids(self, movies: List[BoxOfficeMovie]) -> None:
-        """Enrich movies with IMDb IDs."""
+        """Enrich movies with IMDb IDs.
+
+        Uses self.extract_imdb_id so that tests can patch it on the facade.
+        """
         count = 0
         for movie in movies:
             if not movie.release_url:

@@ -49,6 +49,14 @@ class BoxOfficeProvider(ABC):
             Tuple of (start_date, end_date, year, week_number)
         """
 
+    def parse_money_value(self, text: str) -> Optional[float]:
+        """Parse monetary value from string. Override for locale-specific formats."""
+        return None
+
+    def parse_integer_value(self, text: str) -> Optional[int]:
+        """Parse integer value from string. Override for locale-specific formats."""
+        return None
+
     def get_current_week_movies(self, limit: int = 10) -> "List[BoxOfficeMovie]":
         """Get current week's box office movies."""
         _, _, year, week = self.get_weekend_dates()
@@ -58,7 +66,7 @@ class BoxOfficeProvider(ABC):
         self, weeks_back: int = 1
     ) -> "Dict[str, List[BoxOfficeMovie]]":
         """Get historical box office data for multiple weeks."""
-        from ..boxoffice import BoxOfficeError
+        from ..exceptions import BoxOfficeError
 
         history: Dict[str, "List[BoxOfficeMovie]"] = {}
 

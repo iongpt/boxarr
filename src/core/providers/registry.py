@@ -1,16 +1,14 @@
 """Provider registry for box office data sources."""
 
-from typing import Dict, List, Optional, Type
+from typing import Dict, List, Optional
 
 import httpx
 
-from ...utils.logger import get_logger
 from .base import BoxOfficeProvider
 
-logger = get_logger(__name__)
-
-# Registry of available providers
+# Registry of available providers (populated lazily on first access)
 _PROVIDERS: Dict[str, dict] = {}
+_SUPPORTED_COUNTRIES: Optional[List[Dict]] = None
 
 # Box Office Mojo international markets.
 # Key = country code used in Boxarr config.
@@ -68,8 +66,11 @@ BOM_MARKETS = {
 }
 
 
-def _build_registry() -> None:
-    """Build the provider registry from BOM markets."""
+def _ensure_registry() -> None:
+    """Build the provider registry if not already built."""
+    if _PROVIDERS:
+        return
+
     from .bom import BoxOfficeMojoProvider
 
     for code, info in BOM_MARKETS.items():
@@ -100,8 +101,7 @@ def get_provider(
     Raises:
         ValueError: If the country is not supported
     """
-    if not _PROVIDERS:
-        _build_registry()
+    _ensure_registry()
 
     entry = _PROVIDERS.get(country.lower())
     if not entry:
@@ -120,18 +120,16 @@ def get_supported_countries() -> List[Dict]:
     Get list of supported countries for the UI.
 
     Returns:
-        List of dicts with keys: code, name
+        Cached list of dicts with keys: code, name
     """
-    if not _PROVIDERS:
-        _build_registry()
+    global _SUPPORTED_COUNTRIES
+    if _SUPPORTED_COUNTRIES is not None:
+        return _SUPPORTED_COUNTRIES
 
-    countries = []
-    for code in sorted(_PROVIDERS.keys(), key=lambda c: _PROVIDERS[c]["name"]):
-        entry = _PROVIDERS[code]
-        countries.append(
-            {
-                "code": code,
-                "name": entry["name"],
-            }
-        )
-    return countries
+    _ensure_registry()
+
+    _SUPPORTED_COUNTRIES = [
+        {"code": code, "name": _PROVIDERS[code]["name"]}
+        for code in sorted(_PROVIDERS.keys(), key=lambda c: _PROVIDERS[c]["name"])
+    ]
+    return _SUPPORTED_COUNTRIES

@@ -2,13 +2,16 @@
 
 import re
 from datetime import datetime, timedelta
-from typing import List, Optional, Tuple
+from typing import TYPE_CHECKING, List, Optional, Tuple
 
-import httpx
 from bs4 import BeautifulSoup
 
+if TYPE_CHECKING:
+    import httpx
+
 from ...utils.logger import get_logger
-from ..boxoffice import BoxOfficeError, BoxOfficeMovie
+from ..boxoffice import BoxOfficeMovie
+from ..exceptions import BoxOfficeError
 from .base import BoxOfficeProvider
 
 logger = get_logger(__name__)
@@ -25,27 +28,23 @@ class BoxOfficeMojoProvider(BoxOfficeProvider):
 
     BASE_URL = "https://www.boxofficemojo.com"
 
-    # BOM area code (None = US domestic, otherwise ISO-like code)
-    AREA_CODE: Optional[str] = None
-
     def __init__(
         self,
-        http_client: Optional[httpx.Client] = None,
+        http_client: "Optional[httpx.Client]" = None,
         area_code: Optional[str] = None,
         country_code: str = "us",
         country_name: str = "United States",
     ):
         super().__init__(http_client=http_client)
-        if area_code is not None:
-            self.AREA_CODE = area_code
+        self.area_code = area_code
         self.COUNTRY_CODE = country_code
         self.COUNTRY_NAME = country_name
 
     def _build_weekend_url(self, year: int, week: int) -> str:
         """Build the BOM weekend URL with optional area parameter."""
         url = f"{self.BASE_URL}/weekend/{year}W{week:02d}/"
-        if self.AREA_CODE:
-            url += f"?area={self.AREA_CODE}"
+        if self.area_code:
+            url += f"?area={self.area_code}"
         return url
 
     def get_weekend_dates(
@@ -110,9 +109,6 @@ class BoxOfficeMojoProvider(BoxOfficeProvider):
         try:
             response = self.client.get(url)
             response.raise_for_status()
-        except httpx.HTTPError as e:
-            logger.error(f"Failed to fetch box office data: {e}")
-            raise BoxOfficeError(f"Failed to fetch box office data: {e}") from e
         except Exception as e:
             logger.error(f"Failed to fetch box office data: {e}")
             raise BoxOfficeError(f"Failed to fetch box office data: {e}") from e
@@ -133,17 +129,14 @@ class BoxOfficeMojoProvider(BoxOfficeProvider):
             if not table:
                 return self._parse_alternative_format(html, limit=limit)
 
-            rows = table.find_all("tr")[1:] if hasattr(table, "find_all") else []
+            rows = table.find_all("tr")[1:]
 
             for idx, row in enumerate(rows[:limit], start=1):
                 cells = row.find_all("td")
                 if len(cells) < 3:
                     continue
 
-                title_cell = cells[2] if len(cells) > 2 else None
-                if not title_cell:
-                    continue
-                title_link = title_cell.find("a")
+                title_link = cells[2].find("a")
                 if not title_link:
                     continue
 
