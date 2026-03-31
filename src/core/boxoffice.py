@@ -26,7 +26,6 @@ class BoxOfficeMovie:
     imdb_id: Optional[str] = None
     release_url: Optional[str] = None
     country: str = "us"
-    gross_unit: str = "currency"  # "currency" or "admissions"
 
     def to_dict(self) -> Dict:
         """Convert to dictionary."""

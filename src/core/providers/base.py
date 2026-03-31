@@ -19,8 +19,6 @@ class BoxOfficeProvider(ABC):
 
     COUNTRY_CODE: str = ""
     COUNTRY_NAME: str = ""
-    GROSS_UNIT: str = "currency"  # "currency" or "admissions"
-    GROSS_LABEL: str = "$"
 
     USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 

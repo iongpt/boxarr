@@ -646,11 +646,7 @@
                     {% if movie.year %}<span>{{ movie.year }}</span>{% endif %}
                     {% if movie.genres %}<span>{{ movie.genres }}</span>{% endif %}
                     {% if movie.best_weekend_gross %}
-                    {% if gross_unit == 'admissions' %}
-                    <span>Best: {{ "{:,.0f}".format(movie.best_weekend_gross) }} entrées</span>
-                    {% else %}
                     <span>Best: ${{ "{:,.0f}".format(movie.best_weekend_gross) }}</span>
-                    {% endif %}
                     {% endif %}
                     {% if movie.weeks|length > 1 %}
                     <span>{{ movie.weeks|length }} weeks in top 10</span>

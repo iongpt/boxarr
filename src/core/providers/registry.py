@@ -19,7 +19,7 @@ BOM_MARKETS = {
     "us": {"name": "United States", "area": None},
     "gb": {"name": "United Kingdom", "area": "GB"},
     "de": {"name": "Germany", "area": "DE"},
-    "fr-bom": {"name": "France (Box Office Mojo)", "area": "FR"},
+    "fr": {"name": "France", "area": "FR"},
     "it": {"name": "Italy", "area": "IT"},
     "es": {"name": "Spain", "area": "ES"},
     "au": {"name": "Australia", "area": "AU"},
@@ -69,11 +69,9 @@ BOM_MARKETS = {
 
 
 def _build_registry() -> None:
-    """Build the provider registry from BOM markets + custom providers."""
+    """Build the provider registry from BOM markets."""
     from .bom import BoxOfficeMojoProvider
-    from .fr import FranceProvider
 
-    # Register all BOM markets
     for code, info in BOM_MARKETS.items():
         _PROVIDERS[code] = {
             "class": BoxOfficeMojoProvider,
@@ -83,20 +81,7 @@ def _build_registry() -> None:
                 "country_name": info["name"],
             },
             "name": info["name"],
-            "gross_unit": "currency",
-            "gross_label": "$",
-            "source": "Box Office Mojo",
         }
-
-    # France via AlloCiné (admissions-based, more relevant for French users)
-    _PROVIDERS["fr"] = {
-        "class": FranceProvider,
-        "kwargs": {},
-        "name": "France (AlloCiné)",
-        "gross_unit": "admissions",
-        "gross_label": "entrées",
-        "source": "AlloCiné",
-    }
 
 
 def get_provider(
@@ -135,7 +120,7 @@ def get_supported_countries() -> List[Dict]:
     Get list of supported countries for the UI.
 
     Returns:
-        List of dicts with keys: code, name, gross_unit, gross_label, source
+        List of dicts with keys: code, name
     """
     if not _PROVIDERS:
         _build_registry()
@@ -147,9 +132,6 @@ def get_supported_countries() -> List[Dict]:
             {
                 "code": code,
                 "name": entry["name"],
-                "gross_unit": entry["gross_unit"],
-                "gross_label": entry["gross_label"],
-                "source": entry["source"],
             }
         )
     return countries

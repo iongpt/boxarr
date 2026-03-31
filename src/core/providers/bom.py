@@ -40,8 +40,6 @@ class BoxOfficeMojoProvider(BoxOfficeProvider):
             self.AREA_CODE = area_code
         self.COUNTRY_CODE = country_code
         self.COUNTRY_NAME = country_name
-        self.GROSS_UNIT = "currency"
-        self.GROSS_LABEL = "$"
 
     def _build_weekend_url(self, year: int, week: int) -> str:
         """Build the BOM weekend URL with optional area parameter."""
@@ -185,7 +183,6 @@ class BoxOfficeMojoProvider(BoxOfficeProvider):
                     theater_count=theater_count,
                     release_url=release_url,
                     country=self.COUNTRY_CODE,
-                    gross_unit=self.GROSS_UNIT,
                 )
                 movies.append(movie)
                 logger.debug(f"Parsed movie: {movie}")
@@ -221,7 +218,6 @@ class BoxOfficeMojoProvider(BoxOfficeProvider):
                 title=title,
                 release_url=release_url,
                 country=self.COUNTRY_CODE,
-                gross_unit=self.GROSS_UNIT,
             )
             movies.append(movie)
             rank += 1
