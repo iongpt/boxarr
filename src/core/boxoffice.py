@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 if TYPE_CHECKING:
     import httpx
 
+    from .providers.bom import BoxOfficeMojoProvider
+
 from ..utils.logger import get_logger
 from .exceptions import BoxOfficeError
 
@@ -57,7 +59,7 @@ class BoxOfficeService:
             except Exception:
                 country = "us"
 
-        self._provider = get_provider(country, http_client=http_client)
+        self._provider: "BoxOfficeMojoProvider" = get_provider(country, http_client=http_client)  # type: ignore[assignment]
         # Expose client for backward compatibility (used by tests)
         self.client = self._provider.client
 

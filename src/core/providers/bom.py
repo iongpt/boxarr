@@ -117,7 +117,7 @@ class BoxOfficeMojoProvider(BoxOfficeProvider):
         self._enrich_with_imdb_ids(movies)
         return movies
 
-    def _parse_box_office_html(
+    def _parse_box_office_html(  # noqa: C901
         self, html: str, limit: int = 10
     ) -> List[BoxOfficeMovie]:
         """Parse box office data from BOM HTML table."""

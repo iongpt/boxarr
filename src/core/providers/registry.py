@@ -112,7 +112,8 @@ def get_provider(
     if http_client is not None:
         kwargs["http_client"] = http_client
 
-    return entry["class"](**kwargs)
+    provider: BoxOfficeProvider = entry["class"](**kwargs)
+    return provider
 
 
 def get_supported_countries() -> List[Dict]:
