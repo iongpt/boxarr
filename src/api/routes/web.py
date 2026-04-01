@@ -191,21 +191,23 @@ async def movie_overview_page(request: Request):
     # Status filter — ignored movies are excluded from all other status views
     if status_filter == "downloaded":
         filtered_movies = [
-            m for m in filtered_movies
+            m
+            for m in filtered_movies
             if m.get("status") == "Downloaded"
             and m.get("tmdb_id") not in ignored_tmdb_ids_set
         ]
     elif status_filter == "missing":
         filtered_movies = [
-            m for m in filtered_movies
+            m
+            for m in filtered_movies
             if m.get("status") == "Missing"
             and m.get("tmdb_id") not in ignored_tmdb_ids_set
         ]
     elif status_filter == "not_in_radarr":
         filtered_movies = [
-            m for m in filtered_movies
-            if not m.get("radarr_id")
-            and m.get("tmdb_id") not in ignored_tmdb_ids_set
+            m
+            for m in filtered_movies
+            if not m.get("radarr_id") and m.get("tmdb_id") not in ignored_tmdb_ids_set
         ]
     elif status_filter == "ignored":
         filtered_movies = [
@@ -245,22 +247,30 @@ async def movie_overview_page(request: Request):
     stats = {
         "total": len(all_movies),
         "in_radarr": sum(
-            1 for m in all_movies
+            1
+            for m in all_movies
             if m.get("radarr_id") and m.get("tmdb_id") not in ignored_tmdb_ids_set
         ),
         "downloaded": sum(
-            1 for m in all_movies
-            if m.get("status") == "Downloaded" and m.get("tmdb_id") not in ignored_tmdb_ids_set
+            1
+            for m in all_movies
+            if m.get("status") == "Downloaded"
+            and m.get("tmdb_id") not in ignored_tmdb_ids_set
         ),
         "missing": sum(
-            1 for m in all_movies
-            if m.get("status") == "Missing" and m.get("tmdb_id") not in ignored_tmdb_ids_set
+            1
+            for m in all_movies
+            if m.get("status") == "Missing"
+            and m.get("tmdb_id") not in ignored_tmdb_ids_set
         ),
         "not_in_radarr": sum(
-            1 for m in all_movies
+            1
+            for m in all_movies
             if not m.get("radarr_id") and m.get("tmdb_id") not in ignored_tmdb_ids_set
         ),
-        "ignored": sum(1 for m in all_movies if m.get("tmdb_id") in ignored_tmdb_ids_set),
+        "ignored": sum(
+            1 for m in all_movies if m.get("tmdb_id") in ignored_tmdb_ids_set
+        ),
     }
 
     # Get recent weeks for quick navigation
