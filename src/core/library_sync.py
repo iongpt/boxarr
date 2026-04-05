@@ -8,7 +8,11 @@ from typing import Any, Dict, Optional
 from ..utils.config import settings
 from ..utils.logger import get_logger
 from .models import MovieStatus
-from .radarr import RadarrMovie, RadarrService
+from .radarr import (
+    RadarrMovie,
+    RadarrService,
+    get_all_movies_with_optional_cache_bypass,
+)
 
 logger = get_logger(__name__)
 
@@ -74,7 +78,9 @@ def refresh_weekly_data_from_radarr(
     ignore_cache: bool = False,
 ) -> Dict[str, int]:
     """Refresh stored weekly JSON files with current Radarr status/details."""
-    weekly_pages_dir = (data_directory or settings.boxarr_data_directory) / "weekly_pages"
+    weekly_pages_dir = (
+        data_directory or settings.boxarr_data_directory
+    ) / "weekly_pages"
     if not weekly_pages_dir.exists():
         return {
             "weeks_scanned": 0,
@@ -84,7 +90,7 @@ def refresh_weekly_data_from_radarr(
         }
 
     service = radarr_service or RadarrService()
-    radarr_movies = service.get_all_movies(ignore_cache=ignore_cache)
+    radarr_movies = get_all_movies_with_optional_cache_bypass(service, ignore_cache)
     profiles = service.get_quality_profiles()
     profiles_by_id = {profile.id: profile.name for profile in profiles}
     upgrade_profile_id = next(

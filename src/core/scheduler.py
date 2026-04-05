@@ -21,7 +21,7 @@ from .json_generator import WeeklyDataGenerator
 from .library_sync import refresh_weekly_data_from_radarr
 from .matcher import MatchResult, MovieMatcher
 from .models import MovieStatus
-from .radarr import RadarrService
+from .radarr import RadarrService, get_all_movies_with_optional_cache_bypass
 
 logger = get_logger(__name__)
 
@@ -177,7 +177,8 @@ class BoxarrScheduler:
 
             # Fetch Radarr movies
             radarr_movies = await self._run_in_executor(
-                self.radarr_service.get_all_movies,
+                get_all_movies_with_optional_cache_bypass,
+                self.radarr_service,
                 True,
             )
 
@@ -206,7 +207,8 @@ class BoxarrScheduler:
                     f"Added {len(added_movies)} movies to Radarr, re-matching..."
                 )
                 radarr_movies = await self._run_in_executor(
-                    self.radarr_service.get_all_movies,
+                    get_all_movies_with_optional_cache_bypass,
+                    self.radarr_service,
                     True,
                 )
                 match_results = await self._run_in_executor(

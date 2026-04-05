@@ -11,7 +11,7 @@ from ...core.ignore_list import IgnoreList
 from ...core.json_generator import WeeklyDataGenerator
 from ...core.library_sync import refresh_weekly_data_from_radarr
 from ...core.models import MovieStatus
-from ...core.radarr import RadarrService
+from ...core.radarr import RadarrService, get_all_movies_with_optional_cache_bypass
 from ...core.root_folder_manager import RootFolderManager
 from ...utils.config import settings
 from ...utils.logger import get_logger
@@ -400,7 +400,9 @@ async def add_movie_to_radarr(request: AddMovieRequest):
 
         # Before adding, check if this TMDB ID already exists in Radarr (fresh library)
         try:
-            existing_movies = radarr_service.get_all_movies(ignore_cache=True)
+            existing_movies = get_all_movies_with_optional_cache_bypass(
+                radarr_service, ignore_cache=True
+            )
             tmdb_id = (
                 int(movie_data.get("tmdbId")) if movie_data.get("tmdbId") else None
             )
@@ -491,7 +493,9 @@ def regenerate_weeks_with_movie(movie_title: str):
 
     # Get updated Radarr library
     # Always bypass cache so recently added movies are visible to the matcher
-    radarr_movies = radarr_service.get_all_movies(ignore_cache=True)
+    radarr_movies = get_all_movies_with_optional_cache_bypass(
+        radarr_service, ignore_cache=True
+    )
 
     # Search all metadata files
     for json_file in weekly_pages_dir.glob("*.json"):

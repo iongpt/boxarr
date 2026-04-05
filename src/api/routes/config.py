@@ -203,7 +203,7 @@ async def save_configuration(config: SaveConfigRequest):
         #   - else, save exactly what was posted
         #   - Regardless, normalize each mapping's priority to its list index (0..N-1)
         # - If field absent: preserve existing config untouched
-        if config.radarr_root_folder_config:
+        if config.radarr_root_folder_config is not None:
             posted = config.radarr_root_folder_config
             current = settings.radarr_root_folder_config
 
