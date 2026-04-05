@@ -275,7 +275,7 @@
 .movie-card {
     background: var(--card-bg);
     border-radius: 12px;
-    overflow: hidden;
+    overflow: visible;
     transition: all 0.3s;
     box-shadow: var(--shadow);
     border: 1px solid var(--border-color);
@@ -305,28 +305,141 @@
     box-shadow: 0 2px 8px rgba(0,0,0,0.3);
 }
 
-/* Week badges showing which weeks the movie appeared in */
-.week-badges {
+/* Tenure badge (replaces stacked week badges) */
+.tenure-badge {
     position: absolute;
     top: 10px;
     right: 10px;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    z-index: 1;
-    max-height: 150px;
-    overflow-y: auto;
-}
-
-.week-badge {
-    background: rgba(255, 255, 255, 0.9);
-    color: var(--primary-color);
-    padding: 2px 6px;
-    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.68);
+    backdrop-filter: blur(6px);
+    border: 1px solid rgba(255, 255, 255, 0.13);
+    color: white;
+    border-radius: 20px;
+    padding: 0.28rem 0.6rem;
     font-size: 0.7rem;
     font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    cursor: default;
+    z-index: 10;
     white-space: nowrap;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    transition: background 0.2s, border-color 0.2s;
+    user-select: none;
+}
+
+.tenure-badge:hover {
+    background: rgba(124, 58, 237, 0.55);
+    border-color: rgba(167, 139, 250, 0.4);
+}
+
+.tenure-popover {
+    display: none;
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    background: #1e2130;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.7);
+    z-index: 100;
+    overflow: hidden;
+    min-width: 170px;
+}
+
+.tenure-badge:hover .tenure-popover {
+    display: block;
+}
+
+.tenure-popover-header {
+    padding: 0.5rem 0.75rem 0.35rem;
+    font-size: 0.62rem;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.tenure-year-group {
+    padding: 0.45rem 0.7rem;
+}
+
+.tenure-year-group + .tenure-year-group {
+    border-top: 1px solid var(--border-color);
+}
+
+.tenure-year-label {
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #a78bfa;
+    margin-bottom: 0.35rem;
+}
+
+.tenure-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+}
+
+.tenure-chip {
+    flex: 1 1 calc(33.333% - 0.25rem);
+    min-width: calc(33.333% - 0.25rem);
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    padding: 0.22rem 0;
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+    text-decoration: none;
+    text-align: center;
+    display: block;
+}
+
+.tenure-chip:hover {
+    background: rgba(124, 58, 237, 0.3);
+    border-color: rgba(167, 139, 250, 0.5);
+    color: #c4b5fd;
+}
+
+.tenure-single-wrap {
+    padding: 0.55rem 0.7rem;
+    display: flex;
+    justify-content: center;
+}
+
+.tenure-single-pill {
+    background: rgba(124, 58, 237, 0.2);
+    border: 1px solid rgba(124, 58, 237, 0.4);
+    border-radius: 6px;
+    padding: 0.35rem 0.85rem;
+    text-align: center;
+    text-decoration: none;
+    display: block;
+    transition: background 0.15s;
+}
+
+.tenure-single-pill:hover {
+    background: rgba(124, 58, 237, 0.4);
+}
+
+.tenure-pill-year {
+    display: block;
+    font-size: 0.58rem;
+    color: var(--text-secondary);
+    font-weight: 400;
+    margin-bottom: 0.1rem;
+}
+
+.tenure-pill-week {
+    display: block;
+    font-size: 0.82rem;
+    font-weight: 800;
+    color: #c4b5fd;
 }
 
 .poster-container {
@@ -334,6 +447,7 @@
     aspect-ratio: 2/3;
     background: linear-gradient(135deg, #e0e0e0, #f5f5f5);
     overflow: hidden;
+    border-radius: 12px 12px 0 0;
 }
 
 .poster-container img {
@@ -720,15 +834,34 @@
             <div class="ignored-badge">Ignored</div>
             {% endif %}
 
-            <!-- Week badges showing when this movie appeared -->
+            <!-- Tenure badge: weeks this movie appeared in -->
             {% if movie.weeks|length > 0 %}
-            <div class="week-badges">
-                {% for week in movie.weeks[:5] %}
-                <a href="{{ request.scope.get('root_path', '') }}/{{ week }}" class="week-badge" title="Week {{ week }}">{{ week }}</a>
-                {% endfor %}
-                {% if movie.weeks|length > 5 %}
-                <span class="week-badge">+{{ movie.weeks|length - 5 }} more</span>
-                {% endif %}
+            <div class="tenure-badge">
+                <span>📅</span>
+                <span>{{ movie.weeks|length }} week{% if movie.weeks|length != 1 %}s{% endif %}</span>
+                <div class="tenure-popover">
+                    <div class="tenure-popover-header">Appeared in</div>
+                    {% if movie.weeks|length == 1 %}
+                    <div class="tenure-single-wrap">
+                        <a href="{{ request.scope.get('root_path', '') }}/{{ movie.weeks[0] }}" class="tenure-single-pill">
+                            <span class="tenure-pill-year">{{ movie.weeks[0][:4] }}</span>
+                            <span class="tenure-pill-week">{{ movie.weeks[0][4:] }}</span>
+                        </a>
+                    </div>
+                    {% else %}
+                    {% set ns = namespace(cur_year='') %}
+                    {% for week in movie.weeks %}
+                    {% set yr = week[:4] %}
+                    {% if yr != ns.cur_year %}
+                    {% if ns.cur_year != '' %}</div></div>{% endif %}
+                    <div class="tenure-year-group"><div class="tenure-year-label">{{ yr }}</div><div class="tenure-chips">
+                    {% set ns.cur_year = yr %}
+                    {% endif %}
+                    <a href="{{ request.scope.get('root_path', '') }}/{{ week }}" class="tenure-chip">{{ week[4:] }}</a>
+                    {% endfor %}
+                    {% if ns.cur_year != '' %}</div></div>{% endif %}
+                    {% endif %}
+                </div>
             </div>
             {% endif %}
             
