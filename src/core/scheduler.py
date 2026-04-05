@@ -4,6 +4,7 @@ import asyncio
 import json
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+from functools import partial
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -237,10 +238,11 @@ class BoxarrScheduler:
 
             # Refresh all stored weekly pages against current Radarr status/details.
             refresh_results = await self._run_in_executor(
-                refresh_weekly_data_from_radarr,
-                self.radarr_service,
-                None,
-                True,
+                partial(
+                    refresh_weekly_data_from_radarr,
+                    radarr_service=self.radarr_service,
+                    ignore_cache=True,
+                )
             )
             logger.info(
                 "Refreshed weekly data from Radarr: %s weeks updated, %s movies refreshed, %s movies linked",

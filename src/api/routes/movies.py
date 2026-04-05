@@ -1,5 +1,6 @@
 """Movie management routes."""
 
+import asyncio
 import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -180,7 +181,10 @@ async def refresh_stored_status():
         if not settings.radarr_api_key:
             raise HTTPException(status_code=400, detail="Radarr not configured")
 
-        results = refresh_weekly_data_from_radarr(ignore_cache=True)
+        results = await asyncio.to_thread(
+            refresh_weekly_data_from_radarr,
+            ignore_cache=True,
+        )
         return RefreshStoredStatusResponse(
             success=True,
             message="Weekly movie data refreshed from Radarr",
