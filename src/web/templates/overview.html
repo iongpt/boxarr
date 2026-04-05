@@ -92,6 +92,12 @@
     gap: 0.5rem;
 }
 
+.overview-actions {
+    display: flex;
+    align-items: flex-end;
+    margin-left: auto;
+}
+
 .filter-btn {
     padding: 0.5rem 1rem;
     border: 1px solid var(--border-color);
@@ -550,6 +556,12 @@
                 <a href="?status=ignored&year={{ year_filter or '' }}&search={{ search_query }}&per_page={{ per_page }}"
                    class="filter-btn {% if status_filter == 'ignored' %}active{% endif %}">Ignored</a>
             </div>
+        </div>
+
+        <div class="overview-actions">
+            <button type="button" class="filter-btn" onclick="refreshStoredMovieStatuses(this)">
+                Refresh Radarr Status
+            </button>
         </div>
         
         <div class="filter-group">

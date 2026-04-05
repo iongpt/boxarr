@@ -1600,6 +1600,44 @@ function reloadScheduler() {
         loadAvailableRootFolders(true);
     };
 
+    window.refreshStoredMovieStatuses = async function (buttonEl) {
+        const originalText = buttonEl ? buttonEl.textContent : 'Refresh Radarr Status';
+
+        if (buttonEl) {
+            buttonEl.disabled = true;
+            buttonEl.textContent = 'Refreshing...';
+        }
+
+        try {
+            const response = await fetch(apiUrl('/movies/refresh-stored-status'), {
+                method: 'POST'
+            });
+            const data = await response.json();
+
+            if (!response.ok || !data.success) {
+                throw new Error(data.detail || data.message || 'Failed to refresh movie data');
+            }
+
+            showMessage(
+                `Refreshed ${data.movies_refreshed || 0} movie entries across ${data.weeks_updated || 0} weeks`,
+                'success'
+            );
+            setTimeout(() => window.location.reload(), 800);
+        } catch (error) {
+            showMessage('Failed to refresh stored movie data: ' + error.message, 'error');
+            if (buttonEl) {
+                buttonEl.disabled = false;
+                buttonEl.textContent = originalText;
+            }
+            return;
+        }
+
+        if (buttonEl) {
+            buttonEl.disabled = false;
+            buttonEl.textContent = originalText;
+        }
+    };
+
     // Toggle ignore status for a movie
     window.toggleIgnore = async function (tmdbId, title, buttonEl) {
         if (!tmdbId) return;

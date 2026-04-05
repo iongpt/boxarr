@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 from enum import Enum
+from inspect import signature
 from typing import Any, Dict, List, Optional, cast
 
 import httpx
@@ -91,6 +92,24 @@ class RadarrMovie:
 
 _movies_cache: Dict[str, Any] = {"ts": 0.0, "data": []}
 _profiles_cache: Dict[str, Any] = {"ts": 0.0, "data": []}
+
+
+def get_all_movies_with_optional_cache_bypass(
+    radarr_service: Any, ignore_cache: bool = False
+) -> List[RadarrMovie]:
+    """Fetch movies while tolerating test doubles without ``ignore_cache`` support."""
+    get_all_movies = radarr_service.get_all_movies
+
+    if not ignore_cache:
+        return cast(List[RadarrMovie], get_all_movies())
+
+    try:
+        if "ignore_cache" in signature(get_all_movies).parameters:
+            return cast(List[RadarrMovie], get_all_movies(ignore_cache=True))
+    except (TypeError, ValueError):
+        pass
+
+    return cast(List[RadarrMovie], get_all_movies())
 
 
 class RadarrService:

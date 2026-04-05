@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-04-05
+
+### Added
+- **Ignored Status in Overview**: Added a 6th "Ignored" stat card to the Movie Overview stats grid and a matching filter button, so ignored movies are clearly counted and filterable (#101, #102)
+- **Refresh Radarr Status for Stored Data**: Added a reusable sync helper that refreshes persisted `weekly_pages/*.json` entries from current Radarr state (#99, #104)
+  - Scheduler automatically refreshes stored weekly pages after update runs so historical weeks stay in sync
+  - New manual "Refresh Radarr Status" button on the Movies overview page for on-demand resync
+- **CD Workflow Dispatch**: Added `workflow_dispatch` trigger to CD pipeline so branch images can be manually built from the Actions UI (#102)
+
+### Fixed
+- **Badge Overlap**: Ignored badge no longer covers week info badges on movie cards — repositioned to top-center (#100, #102)
+- **Filter Bleed**: Ignored movies no longer leak into Missing and Not in Radarr filter results; stat counts now match filtered views (#102)
+- **Stale Missing Status**: Downloaded movies in Radarr are now correctly removed from stale "Missing" results in historical weeks without manual regeneration (#99, #104)
+- **Config Save Path**: Config saves now write to the active data directory (#104)
+
+### Community
+- Thanks to [@xFlawless11x](https://github.com/xFlawless11x) for contributing PR #102 and opening issues #99, #100, and #101 — all addressed in this release!
+
 ## [1.6.4] - 2026-03-07
 
 ### Fixed
@@ -12,67 +30,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Box Office Mojo does not publish weekend data until Monday, so requesting the current weekend returned empty results
   - Replaced fragile hour-based Friday morning check with a clean weekday guard: Friday/Saturday/Sunday always return the previous completed weekend
   - Added 11 unit tests covering all days of the week and edge cases
-
-## [Unreleased]
-
-### Added
-- **Movie Overview Page**: Consolidated view of all movies across all weeks (#26)
-  - **Unified Movie List**: See all movies from all weeks in a single view
-  - **Week Tracking**: Shows which weeks each movie appeared in top 10 with clickable badges
-  - **Advanced Filtering**: Filter by status (Downloaded/Missing/Not in Radarr), year, and search by title
-  - **Bulk Management**: Add multiple movies to Radarr or upgrade quality from one page
-  - **Deduplication**: Movies appearing in multiple weeks are shown once with week badges
-  - **Performance Stats**: Shows best box office performance and total weeks in top 10
-  - **Flexible Pagination**: Choose 20, 50, 100, or 200 movies per page
-  - **Quick Navigation**: Recent weeks section for easy access to weekly views
-- **Historical Range Update**: Bulk update multiple weeks of box office data in one operation (#27)
-  - **Single/Range Mode Switcher**: Toggle between updating one week or a range of weeks
-  - **Smart Week Calculation**: Automatic ISO week calculation across year boundaries
-  - **Quick Presets**: One-click selections for Last 4 Weeks, Last 8 Weeks, This Year, Last Quarter
-  - **Real-time Progress Bar**: Visual progress indicator showing current week being processed
-  - **Sequential Processing**: Fetches weeks one-by-one with 500ms throttle to prevent overload
-  - **Comprehensive Summary**: Shows total weeks updated, movies found, and movies added
-  - **Error Tracking**: Lists failed weeks with detailed error messages
-  - **Duplicate Detection**: Shows count of existing weeks that will be updated
-  - **Cancel Functionality**: Stop processing mid-operation with user cancellation
-  - **Date Range Preview**: Shows actual calendar dates for selected week range
-- **Dark Mode Support**: Complete dark mode implementation with theme persistence (#24)
-  - **Three Theme Options**: Light (☀️), Dark (🌙), and Auto (💻) modes
-  - **System Preference Detection**: Auto mode follows OS dark/light preference
-  - **Instant Theme Switching**: Real-time updates without page reload
-  - **Persistent Preferences**: Server-side config and client-side localStorage
-  - **Accessibility Focused**: WCAG AA compliant contrast ratios
-  - **Purple Gradient Preserved**: Signature branding maintained in both themes
-- **Improved Dashboard Pagination**: Complete overhaul of weekly card display system (#18)
-  - **Proper Pagination**: Navigate through pages with Previous/Next buttons and page numbers
-  - **Configurable Page Size**: Choose to display 10, 20, 50, or 100 cards per page (default: 10)
-  - **Year Filtering**: Filter weekly cards by year with dedicated filter buttons
-  - **Smart Navigation**: Page numbers show current page ± 2 with ellipsis for gaps
-- **Advanced Auto-Add Filtering**: Comprehensive filtering options for automatic movie additions (#16)
-  - **Top X Movies Limit**: Choose to add only the top 1-10 movies from box office rankings
-  - **Genre Filtering**: Whitelist or blacklist specific genres (19 common genres pre-populated)
-  - **Age Rating Filter**: Filter by MPAA ratings (G, PG, PG-13, R, NC-17, NR)
-- **Enhanced Dashboard Display**: Shows active filters when auto-add is enabled
-- **Expandable Settings UI**: Auto-add options only appear when feature is enabled
-
-### Fixed
-- **Dashboard Navigation**: Replaced limited dropdown system with full pagination controls (#18)
-- **UI Bug**: Movies already in Radarr no longer show "Add to Radarr" button when JSON is outdated
-- **Status Updates**: Weekly pages now correctly update movie status by matching on title when radarr_id is missing
-
-### Changed
-- **Navigation Structure**: Overview page is now the default landing page instead of weekly dashboard (#26)
-  - **Menu Reorganization**: "Movies" (overview) → "Weeks" (weekly view) → "Settings"
-  - **Route Updates**: `/overview` is home, `/weeks` replaces `/dashboard` (backward compatible)
-  - **Improved User Flow**: Land on consolidated view, drill down to weeks as needed
-- **CSS Architecture**: Consolidated all CSS variables into single stylesheet, removed duplication
-- **Theme Migration**: Legacy PURPLE and BLUE themes automatically migrate to LIGHT theme
-- **Dashboard Layout**: Removed old "6 cards + dropdown" system in favor of paginated display (#18)
-- **Historical Fetch Modals**: Removed confusing auto-add override option, now shows current settings with link to Settings page
-- **Improved Logging**: Added detailed logging showing why movies are filtered out during auto-add
-
-### Screenshots
-![Advanced Auto-Add Filters](docs/images/auto-add-filters.png)
 
 ## [1.0.3] - 2025-08-30
 
