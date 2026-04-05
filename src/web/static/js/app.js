@@ -1604,25 +1604,17 @@ function reloadScheduler() {
         if (!buttonEl) return;
 
         const labelEl = buttonEl.querySelector('.btn-label');
-        const progressBox  = document.getElementById('refreshProgress');
-        const progressFill = document.getElementById('refreshProgressFill');
-        const progressText = document.getElementById('refreshProgressText');
-
-        // Enter loading state
-        buttonEl.disabled = true;
-        buttonEl.classList.add('loading');
-        if (labelEl) labelEl.textContent = 'Syncing...';
-
-        // Show progress bar in indeterminate mode while Radarr fetch is in flight
-        if (progressBox)  progressBox.style.display  = 'block';
-        if (progressFill) { progressFill.style.width = '0%'; progressFill.classList.add('indeterminate'); }
-        if (progressText) progressText.textContent = 'Fetching from Radarr…';
 
         const resetBtn = () => {
             buttonEl.disabled = false;
             buttonEl.classList.remove('loading');
             if (labelEl) labelEl.textContent = 'Refresh Radarr Status';
         };
+
+        // Enter loading state
+        buttonEl.disabled = true;
+        buttonEl.classList.add('loading');
+        if (labelEl) labelEl.textContent = 'Fetching from Radarr…';
 
         let pollInterval = null;
         let pollFailures = 0;
@@ -1635,20 +1627,16 @@ function reloadScheduler() {
         };
 
         try {
-            // Fire the job — returns immediately
             const res = await fetch(apiUrl('/movies/refresh-stored-status'), { method: 'POST' });
             const data = await res.json();
             if (!res.ok || !data.success) {
                 throw new Error(data.detail || data.message || 'Failed to start refresh');
             }
 
-            // Poll progress every 500 ms
             pollInterval = setInterval(async () => {
-                // Safety timeout
                 if (Date.now() - pollStart > MAX_POLL_MS) {
                     stopPolling();
                     resetBtn();
-                    if (progressText) progressText.textContent = 'Refresh timed out — check logs';
                     showMessage('Refresh is taking too long. It may still be running in the background.', 'error');
                     return;
                 }
@@ -1669,32 +1657,14 @@ function reloadScheduler() {
                     if (p.error) {
                         stopPolling();
                         resetBtn();
-                        if (progressBox) progressBox.style.display = 'none';
                         showMessage('Refresh failed: ' + p.error, 'error');
                         return;
                     }
 
-                    const total   = p.total   || 0;
-                    const scanned = p.scanned || 0;
-
-                    if (total > 0) {
-                        // Switch from indeterminate to determinate
-                        if (progressFill) progressFill.classList.remove('indeterminate');
-                        const pct = Math.min(100, Math.round((scanned / total) * 100));
-                        if (progressFill) progressFill.style.width = pct + '%';
-                        if (progressText) progressText.textContent =
-                            `Week ${scanned} of ${total} · ${p.refreshed || 0} movies updated`;
-                    } else if (p.running) {
-                        if (progressText) progressText.textContent = 'Fetching from Radarr…';
-                    }
-
                     if (p.complete) {
                         stopPolling();
-                        if (progressFill) progressFill.style.width = '100%';
-                        if (progressText) progressText.textContent =
-                            `Done — ${p.refreshed || 0} movies updated across ${p.updated || 0} weeks`;
                         showMessage(
-                            `Refreshed ${p.refreshed || 0} movie entries across ${p.updated || 0} weeks`,
+                            `Refreshed ${p.refreshed || 0} movies across ${p.updated || 0} weeks`,
                             'success'
                         );
                         resetBtn();
@@ -1713,7 +1683,6 @@ function reloadScheduler() {
         } catch (error) {
             stopPolling();
             resetBtn();
-            if (progressBox) progressBox.style.display = 'none';
             showMessage('Failed to start refresh: ' + error.message, 'error');
         }
     };
