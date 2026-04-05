@@ -189,6 +189,7 @@ def _run_refresh_job() -> None:
     """Synchronous worker that runs in a thread and updates _refresh_state."""
     global _refresh_state
     try:
+
         def _progress(scanned: int, total: int, updated: int, refreshed: int) -> None:
             _refresh_state["scanned"] = scanned
             _refresh_state["total"] = total
@@ -212,9 +213,7 @@ def _run_refresh_job() -> None:
         )
     except Exception as exc:
         logger.error(f"Error in background refresh job: {exc}")
-        _refresh_state.update(
-            {"running": False, "complete": False, "error": str(exc)}
-        )
+        _refresh_state.update({"running": False, "complete": False, "error": str(exc)})
 
 
 @router.post("/refresh-stored-status")
