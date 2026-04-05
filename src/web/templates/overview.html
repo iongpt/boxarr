@@ -56,7 +56,6 @@
 }
 
 .refresh-btn:disabled {
-    opacity: 0.65;
     cursor: not-allowed;
     transform: none;
 }
@@ -64,16 +63,39 @@
 .refresh-btn .btn-icon {
     font-size: 1rem;
     line-height: 1;
-    display: inline-block;
+}
+
+/* CSS border spinner — shown instead of icon while loading */
+.refresh-btn .btn-spinner {
+    display: none;
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    flex-shrink: 0;
+    animation: btn-spin 0.75s linear infinite;
 }
 
 .refresh-btn.loading .btn-icon {
-    animation: btn-spin 0.9s linear infinite;
+    display: none;
+}
+
+.refresh-btn.loading .btn-spinner {
+    display: block;
+}
+
+.refresh-btn.loading {
+    animation: btn-pulse 1.5s ease-in-out infinite;
 }
 
 @keyframes btn-spin {
-    from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
+}
+
+@keyframes btn-pulse {
+    0%, 100% { box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25); }
+    50%       { box-shadow: 0 0 18px rgba(124, 58, 237, 0.6); }
 }
 
 /* Recent Weeks */
@@ -711,6 +733,7 @@
                 Movie Overview
             </h1>
             <button class="refresh-btn" onclick="refreshStoredMovieStatuses(this)">
+                <span class="btn-spinner"></span>
                 <span class="btn-icon">⟳</span>
                 <span class="btn-label">Refresh Radarr Status</span>
             </button>
