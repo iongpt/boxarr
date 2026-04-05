@@ -1604,32 +1604,86 @@ function reloadScheduler() {
         if (!buttonEl) return;
 
         const labelEl = buttonEl.querySelector('.btn-label');
-        const originalLabel = labelEl ? labelEl.textContent : 'Refresh Radarr Status';
+        const progressBox  = document.getElementById('refreshProgress');
+        const progressFill = document.getElementById('refreshProgressFill');
+        const progressText = document.getElementById('refreshProgressText');
 
+        // Enter loading state
         buttonEl.disabled = true;
         buttonEl.classList.add('loading');
         if (labelEl) labelEl.textContent = 'Syncing...';
 
-        try {
-            const response = await fetch(apiUrl('/movies/refresh-stored-status'), {
-                method: 'POST'
-            });
-            const data = await response.json();
+        // Show progress bar in indeterminate mode while Radarr fetch is in flight
+        if (progressBox)  progressBox.style.display  = 'block';
+        if (progressFill) { progressFill.style.width = '0%'; progressFill.classList.add('indeterminate'); }
+        if (progressText) progressText.textContent = 'Fetching from Radarr…';
 
-            if (!response.ok || !data.success) {
-                throw new Error(data.detail || data.message || 'Failed to refresh movie data');
-            }
-
-            showMessage(
-                `Refreshed ${data.movies_refreshed || 0} movie entries across ${data.weeks_updated || 0} weeks`,
-                'success'
-            );
-            setTimeout(() => window.location.reload(), 800);
-        } catch (error) {
-            showMessage('Failed to refresh stored movie data: ' + error.message, 'error');
+        const resetBtn = () => {
             buttonEl.disabled = false;
             buttonEl.classList.remove('loading');
-            if (labelEl) labelEl.textContent = originalLabel;
+            if (labelEl) labelEl.textContent = 'Refresh Radarr Status';
+        };
+
+        let pollInterval = null;
+
+        const stopPolling = () => {
+            if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+        };
+
+        try {
+            // Fire the job — returns immediately
+            const res = await fetch(apiUrl('/movies/refresh-stored-status'), { method: 'POST' });
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+                throw new Error(data.detail || data.message || 'Failed to start refresh');
+            }
+
+            // Poll progress every 400 ms
+            pollInterval = setInterval(async () => {
+                try {
+                    const pr = await fetch(apiUrl('/movies/refresh-stored-status/progress'));
+                    const p  = await pr.json();
+
+                    if (p.error) {
+                        stopPolling();
+                        resetBtn();
+                        if (progressBox) progressBox.style.display = 'none';
+                        showMessage('Refresh failed: ' + p.error, 'error');
+                        return;
+                    }
+
+                    const total   = p.total   || 0;
+                    const scanned = p.scanned || 0;
+
+                    if (total > 0) {
+                        // Switch from indeterminate to determinate
+                        if (progressFill) progressFill.classList.remove('indeterminate');
+                        const pct = Math.min(100, Math.round((scanned / total) * 100));
+                        if (progressFill) progressFill.style.width = pct + '%';
+                        if (progressText) progressText.textContent =
+                            `Week ${scanned} of ${total} · ${p.refreshed || 0} movies updated`;
+                    }
+
+                    if (p.complete) {
+                        stopPolling();
+                        if (progressFill) progressFill.style.width = '100%';
+                        if (progressText) progressText.textContent =
+                            `Done — ${p.refreshed || 0} movies updated across ${p.updated || 0} weeks`;
+                        showMessage(
+                            `Refreshed ${p.refreshed || 0} movie entries across ${p.updated || 0} weeks`,
+                            'success'
+                        );
+                        resetBtn();
+                        setTimeout(() => window.location.reload(), 1500);
+                    }
+                } catch (_) { /* transient poll error — keep trying */ }
+            }, 400);
+
+        } catch (error) {
+            stopPolling();
+            resetBtn();
+            if (progressBox) progressBox.style.display = 'none';
+            showMessage('Failed to start refresh: ' + error.message, 'error');
         }
     };
 

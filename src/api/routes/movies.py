@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 
 from ...core.ignore_list import IgnoreList
@@ -19,6 +19,17 @@ from ...utils.logger import get_logger
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/api/movies", tags=["movies"])
+
+# In-memory state for the refresh job (single-instance; reset on each run)
+_refresh_state: Dict[str, Any] = {
+    "running": False,
+    "complete": False,
+    "total": 0,
+    "scanned": 0,
+    "updated": 0,
+    "refreshed": 0,
+    "error": None,
+}
 
 
 class MovieStatusRequest(BaseModel):
@@ -174,30 +185,59 @@ async def unignore_movie(tmdb_id: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/refresh-stored-status", response_model=RefreshStoredStatusResponse)
-async def refresh_stored_status():
-    """Refresh stored weekly movie data using current Radarr state."""
+def _run_refresh_job() -> None:
+    """Synchronous worker that runs in a thread and updates _refresh_state."""
+    global _refresh_state
     try:
-        if not settings.radarr_api_key:
-            raise HTTPException(status_code=400, detail="Radarr not configured")
+        def _progress(scanned: int, total: int, updated: int, refreshed: int) -> None:
+            _refresh_state["scanned"] = scanned
+            _refresh_state["total"] = total
+            _refresh_state["updated"] = updated
+            _refresh_state["refreshed"] = refreshed
 
-        results = await asyncio.to_thread(
-            refresh_weekly_data_from_radarr,
+        results = refresh_weekly_data_from_radarr(
             ignore_cache=True,
+            progress_callback=_progress,
         )
-        return RefreshStoredStatusResponse(
-            success=True,
-            message="Weekly movie data refreshed from Radarr",
-            weeks_scanned=results.get("weeks_scanned", 0),
-            weeks_updated=results.get("weeks_updated", 0),
-            movies_refreshed=results.get("movies_refreshed", 0),
-            movies_linked=results.get("movies_linked", 0),
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error refreshing stored weekly data: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        _refresh_state.update({
+            "running": False,
+            "complete": True,
+            "total": results.get("weeks_scanned", 0),
+            "scanned": results.get("weeks_scanned", 0),
+            "updated": results.get("weeks_updated", 0),
+            "refreshed": results.get("movies_refreshed", 0),
+            "error": None,
+        })
+    except Exception as exc:
+        logger.error(f"Error in background refresh job: {exc}")
+        _refresh_state.update({"running": False, "complete": False, "error": str(exc)})
+
+
+@router.post("/refresh-stored-status")
+async def refresh_stored_status(background_tasks: BackgroundTasks):
+    """Start a background refresh of stored weekly movie data from Radarr."""
+    if not settings.radarr_api_key:
+        raise HTTPException(status_code=400, detail="Radarr not configured")
+    if _refresh_state.get("running"):
+        raise HTTPException(status_code=409, detail="Refresh already in progress")
+
+    _refresh_state.update({
+        "running": True,
+        "complete": False,
+        "total": 0,
+        "scanned": 0,
+        "updated": 0,
+        "refreshed": 0,
+        "error": None,
+    })
+    background_tasks.add_task(_run_refresh_job)
+    return {"success": True, "started": True}
+
+
+@router.get("/refresh-stored-status/progress")
+async def refresh_stored_status_progress():
+    """Return the current state of the running (or last completed) refresh job."""
+    return _refresh_state
 
 
 @router.get("/{movie_id}")

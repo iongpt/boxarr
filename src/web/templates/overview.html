@@ -31,6 +31,58 @@
     gap: 0.5rem;
 }
 
+.refresh-btn-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.5rem;
+    flex-shrink: 0;
+}
+
+.refresh-progress {
+    display: none;
+    width: 240px;
+    background: var(--bg-color);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 0.5rem 0.75rem;
+}
+
+.refresh-progress-track {
+    height: 4px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 2px;
+    overflow: hidden;
+    margin-bottom: 0.35rem;
+}
+
+.refresh-progress-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, var(--primary-color), #a78bfa);
+    border-radius: 2px;
+    transition: width 0.35s ease;
+}
+
+.refresh-progress-fill.indeterminate {
+    width: 40%;
+    animation: progress-slide 1.2s ease-in-out infinite;
+}
+
+@keyframes progress-slide {
+    0%   { margin-left: -40%; }
+    100% { margin-left: 100%; }
+}
+
+.refresh-progress-text {
+    font-size: 0.65rem;
+    color: var(--text-secondary);
+    text-align: right;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 .refresh-btn {
     display: inline-flex;
     align-items: center;
@@ -732,11 +784,19 @@
                 <span>🎬</span>
                 Movie Overview
             </h1>
-            <button class="refresh-btn" onclick="refreshStoredMovieStatuses(this)">
-                <span class="btn-spinner"></span>
-                <span class="btn-icon">⟳</span>
-                <span class="btn-label">Refresh Radarr Status</span>
-            </button>
+            <div class="refresh-btn-wrapper">
+                <button class="refresh-btn" id="refreshRadarrBtn" onclick="refreshStoredMovieStatuses(this)">
+                    <span class="btn-spinner"></span>
+                    <span class="btn-icon">⟳</span>
+                    <span class="btn-label">Refresh Radarr Status</span>
+                </button>
+                <div class="refresh-progress" id="refreshProgress">
+                    <div class="refresh-progress-track">
+                        <div class="refresh-progress-fill" id="refreshProgressFill"></div>
+                    </div>
+                    <div class="refresh-progress-text" id="refreshProgressText">Starting…</div>
+                </div>
+            </div>
         </div>
         
         <!-- Statistics -->
