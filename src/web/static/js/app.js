@@ -1698,7 +1698,7 @@ function reloadScheduler() {
             }
         } catch (err) {
             buttonEl.textContent = origText;
-            showToast('Error: ' + err.message, 'error');
+            showMessage('Error: ' + err.message, 'error');
         } finally {
             buttonEl.disabled = false;
         }

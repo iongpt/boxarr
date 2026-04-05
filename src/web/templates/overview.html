@@ -955,10 +955,10 @@
                     {% endif %}
 
                     {% if movie.tmdb_id %}
-                    <button class="action-btn ignore-btn" {% if is_ignored %}style="display:none"{% endif %} onclick="toggleIgnore({{ movie.tmdb_id }}, {{ movie.title|tojson }}, this)">
+                    <button class="action-btn ignore-btn" {% if is_ignored %}style="display:none"{% endif %} onclick='toggleIgnore({{ movie.tmdb_id }}, {{ movie.title|tojson }}, this)'>
                         Ignore
                     </button>
-                    <button class="action-btn unignore-btn" {% if not is_ignored %}style="display:none"{% endif %} onclick="toggleIgnore({{ movie.tmdb_id }}, {{ movie.title|tojson }}, this)">
+                    <button class="action-btn unignore-btn" {% if not is_ignored %}style="display:none"{% endif %} onclick='toggleIgnore({{ movie.tmdb_id }}, {{ movie.title|tojson }}, this)'>
                         Unignore
                     </button>
                     {% endif %}
