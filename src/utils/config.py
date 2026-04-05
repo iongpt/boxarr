@@ -163,11 +163,15 @@ class Settings(BaseSettings):
     )
 
     # Feature Flags
+    boxarr_features_box_office_country: str = Field(
+        default="us",
+        description="Country/region for box office data (e.g., 'us', 'fr')",
+    )
     boxarr_features_box_office_limit: int = Field(
         default=10,
         ge=1,
         le=30,
-        description="Number of movies to fetch from Box Office Mojo (1-30)",
+        description="Number of movies to fetch from box office chart (1-30)",
     )
     boxarr_features_auto_add: bool = Field(
         default=False, description="Automatically add movies to Radarr"

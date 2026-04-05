@@ -215,11 +215,17 @@ class WeeklyDataGenerator:
 
             movies_data.append(movie_data)
 
+        # Determine country from match results
+        country = "us"
+        if match_results and match_results[0].box_office_movie:
+            country = match_results[0].box_office_movie.country
+
         # Save metadata with full movie data
         metadata = {
             "generated_at": datetime.now().isoformat(),
             "year": year,
             "week": week,
+            "country": country,
             "friday": friday.isoformat(),
             "sunday": sunday.isoformat(),
             "total_movies": len(movies_data),
