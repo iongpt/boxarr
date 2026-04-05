@@ -241,14 +241,6 @@ async def refresh_stored_status(background_tasks: BackgroundTasks):
 @router.get("/refresh-stored-status/progress")
 async def refresh_stored_status_progress():
     """Return the current state of the running (or last completed) refresh job."""
-    logger.debug(
-        "progress polled: running=%s complete=%s total=%s scanned=%s error=%s",
-        _refresh_state.get("running"),
-        _refresh_state.get("complete"),
-        _refresh_state.get("total"),
-        _refresh_state.get("scanned"),
-        _refresh_state.get("error"),
-    )
     return _refresh_state
 
 
