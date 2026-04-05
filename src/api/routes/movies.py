@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from ...core.ignore_list import IgnoreList
 from ...core.json_generator import WeeklyDataGenerator
+from ...core.library_sync import refresh_weekly_data_from_radarr
 from ...core.models import MovieStatus
 from ...core.radarr import RadarrService
 from ...core.root_folder_manager import RootFolderManager
@@ -43,6 +44,17 @@ class UpgradeResponse(BaseModel):
     success: bool
     message: str
     new_profile: Optional[str] = None
+
+
+class RefreshStoredStatusResponse(BaseModel):
+    """Response model for refreshing stored weekly data from Radarr."""
+
+    success: bool
+    message: str
+    weeks_scanned: int = 0
+    weeks_updated: int = 0
+    movies_refreshed: int = 0
+    movies_linked: int = 0
 
 
 class AddMovieRequest(BaseModel):
@@ -158,6 +170,29 @@ async def unignore_movie(tmdb_id: int):
         }
     except Exception as e:
         logger.error(f"Error removing from ignore list: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/refresh-stored-status", response_model=RefreshStoredStatusResponse)
+async def refresh_stored_status():
+    """Refresh stored weekly movie data using current Radarr state."""
+    try:
+        if not settings.radarr_api_key:
+            raise HTTPException(status_code=400, detail="Radarr not configured")
+
+        results = refresh_weekly_data_from_radarr(ignore_cache=True)
+        return RefreshStoredStatusResponse(
+            success=True,
+            message="Weekly movie data refreshed from Radarr",
+            weeks_scanned=results.get("weeks_scanned", 0),
+            weeks_updated=results.get("weeks_updated", 0),
+            movies_refreshed=results.get("movies_refreshed", 0),
+            movies_linked=results.get("movies_linked", 0),
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error refreshing stored weekly data: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
