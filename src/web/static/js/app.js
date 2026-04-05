@@ -1601,12 +1601,14 @@ function reloadScheduler() {
     };
 
     window.refreshStoredMovieStatuses = async function (buttonEl) {
-        const originalText = buttonEl ? buttonEl.textContent : 'Refresh Radarr Status';
+        if (!buttonEl) return;
 
-        if (buttonEl) {
-            buttonEl.disabled = true;
-            buttonEl.textContent = 'Refreshing...';
-        }
+        const labelEl = buttonEl.querySelector('.btn-label');
+        const originalLabel = labelEl ? labelEl.textContent : 'Refresh Radarr Status';
+
+        buttonEl.disabled = true;
+        buttonEl.classList.add('loading');
+        if (labelEl) labelEl.textContent = 'Syncing...';
 
         try {
             const response = await fetch(apiUrl('/movies/refresh-stored-status'), {
@@ -1625,16 +1627,9 @@ function reloadScheduler() {
             setTimeout(() => window.location.reload(), 800);
         } catch (error) {
             showMessage('Failed to refresh stored movie data: ' + error.message, 'error');
-            if (buttonEl) {
-                buttonEl.disabled = false;
-                buttonEl.textContent = originalText;
-            }
-            return;
-        }
-
-        if (buttonEl) {
             buttonEl.disabled = false;
-            buttonEl.textContent = originalText;
+            buttonEl.classList.remove('loading');
+            if (labelEl) labelEl.textContent = originalLabel;
         }
     };
 
