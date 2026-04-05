@@ -187,7 +187,6 @@ async def unignore_movie(tmdb_id: int):
 
 def _run_refresh_job() -> None:
     """Synchronous worker that runs in a thread and updates _refresh_state."""
-    global _refresh_state
     try:
 
         def _progress(scanned: int, total: int, updated: int, refreshed: int) -> None:
