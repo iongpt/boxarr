@@ -1,5 +1,6 @@
 """Configuration management routes."""
 
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -151,6 +152,14 @@ async def test_configuration(config: TestConfigRequest):
 async def save_configuration(config: SaveConfigRequest):
     """Save configuration to file."""
     try:
+        data_directory = Path(
+            os.getenv("BOXARR_DATA_DIRECTORY", str(settings.boxarr_data_directory))
+        )
+        config_path = data_directory / "local.yaml"
+        current_file_settings = Settings(boxarr_data_directory=data_directory)
+        if config_path.exists():
+            current_file_settings.load_from_yaml(config_path)
+
         # Validate cron expression first
         if config.boxarr_scheduler_enabled:
             try:
@@ -205,7 +214,7 @@ async def save_configuration(config: SaveConfigRequest):
         # - If field absent: preserve existing config untouched
         if config.radarr_root_folder_config is not None:
             posted = config.radarr_root_folder_config
-            current = settings.radarr_root_folder_config
+            current = current_file_settings.radarr_root_folder_config
 
             if len(posted.mappings) == 0 and len(current.mappings) > 0:
                 # Keep rules, apply posted enabled flag (allows disabling without losing rules)
@@ -236,7 +245,7 @@ async def save_configuration(config: SaveConfigRequest):
                 }
         else:
             # No root folder config provided at all - preserve existing if any
-            current_settings = settings
+            current_settings = current_file_settings
             if (
                 current_settings.radarr_root_folder_config.enabled
                 or current_settings.radarr_root_folder_config.mappings
@@ -292,7 +301,6 @@ async def save_configuration(config: SaveConfigRequest):
         }
 
         # Save to local.yaml
-        config_path = Path(settings.boxarr_data_directory) / "local.yaml"
         import yaml
 
         with open(config_path, "w") as f:

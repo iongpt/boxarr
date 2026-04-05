@@ -9,7 +9,6 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from ...core.scheduler import BoxarrScheduler
-from ...core.radarr import RadarrService, get_all_movies_with_optional_cache_bypass
 from ...utils.config import settings
 from ...utils.logger import get_logger
 
@@ -25,6 +24,7 @@ def get_scheduler() -> BoxarrScheduler:
     global _scheduler
     if not _scheduler:
         from ...core.boxoffice import BoxOfficeService
+        from ...core.radarr import RadarrService
 
         _scheduler = BoxarrScheduler(
             boxoffice_service=BoxOfficeService(),
@@ -272,6 +272,11 @@ async def update_specific_week(request: UpdateWeekRequest):  # noqa: C901
         from ...core.boxoffice import BoxOfficeService
         from ...core.json_generator import WeeklyDataGenerator
         from ...core.matcher import MovieMatcher
+        from ...core.radarr import (
+            RadarrService,
+            get_all_movies_with_optional_cache_bypass,
+        )
+
         # Get box office data
         boxoffice_service = BoxOfficeService()
         limit = settings.boxarr_features_box_office_limit
