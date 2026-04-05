@@ -6,6 +6,7 @@ on:
       - 'v*'
   release:
     types: [published]
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
@@ -48,10 +49,11 @@ jobs:
         images: |
           ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
         tags: |
+          type=ref,event=branch
           type=semver,pattern={{version}}
           type=semver,pattern={{major}}.{{minor}}
           type=semver,pattern={{major}}
-          type=raw,value=latest
+          type=raw,value=latest,enable={{is_default_branch}}
         labels: |
           org.opencontainers.image.title=Boxarr
           org.opencontainers.image.description=Box Office Tracking for Radarr

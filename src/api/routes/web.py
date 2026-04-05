@@ -180,18 +180,39 @@ async def movie_overview_page(request: Request):
 
     # Avoid synchronous full Radarr fetch here; hydrate via AJAX on the client
 
+    # Load ignore list (needed for filtering and stats)
+    ignore_list = IgnoreList()
+    ignored_tmdb_ids_set = ignore_list.get_ignored_tmdb_ids()
+    ignored_tmdb_ids = list(ignored_tmdb_ids_set)
+
     # Apply filters
     filtered_movies = all_movies
 
-    # Status filter
+    # Status filter — ignored movies are excluded from all other status views
     if status_filter == "downloaded":
         filtered_movies = [
-            m for m in filtered_movies if m.get("status") == "Downloaded"
+            m
+            for m in filtered_movies
+            if m.get("status") == "Downloaded"
+            and m.get("tmdb_id") not in ignored_tmdb_ids_set
         ]
     elif status_filter == "missing":
-        filtered_movies = [m for m in filtered_movies if m.get("status") == "Missing"]
+        filtered_movies = [
+            m
+            for m in filtered_movies
+            if m.get("status") == "Missing"
+            and m.get("tmdb_id") not in ignored_tmdb_ids_set
+        ]
     elif status_filter == "not_in_radarr":
-        filtered_movies = [m for m in filtered_movies if not m.get("radarr_id")]
+        filtered_movies = [
+            m
+            for m in filtered_movies
+            if not m.get("radarr_id") and m.get("tmdb_id") not in ignored_tmdb_ids_set
+        ]
+    elif status_filter == "ignored":
+        filtered_movies = [
+            m for m in filtered_movies if m.get("tmdb_id") in ignored_tmdb_ids_set
+        ]
 
     # Year filter
     if year_filter_str and year_filter_str.isdigit():
@@ -222,24 +243,42 @@ async def movie_overview_page(request: Request):
 
     # Avoid per-request full-library status refresh; client will update via AJAX
 
-    # Count statistics
+    # Count statistics — ignored movies are excluded from all other buckets
     stats = {
         "total": len(all_movies),
-        "in_radarr": sum(1 for m in all_movies if m.get("radarr_id")),
-        "downloaded": sum(1 for m in all_movies if m.get("status") == "Downloaded"),
-        "missing": sum(1 for m in all_movies if m.get("status") == "Missing"),
-        "not_in_radarr": sum(1 for m in all_movies if not m.get("radarr_id")),
+        "in_radarr": sum(
+            1
+            for m in all_movies
+            if m.get("radarr_id") and m.get("tmdb_id") not in ignored_tmdb_ids_set
+        ),
+        "downloaded": sum(
+            1
+            for m in all_movies
+            if m.get("status") == "Downloaded"
+            and m.get("tmdb_id") not in ignored_tmdb_ids_set
+        ),
+        "missing": sum(
+            1
+            for m in all_movies
+            if m.get("status") == "Missing"
+            and m.get("tmdb_id") not in ignored_tmdb_ids_set
+        ),
+        "not_in_radarr": sum(
+            1
+            for m in all_movies
+            if not m.get("radarr_id") and m.get("tmdb_id") not in ignored_tmdb_ids_set
+        ),
+        "ignored": sum(
+            1 for m in all_movies if m.get("tmdb_id") in ignored_tmdb_ids_set
+        ),
     }
 
     # Get recent weeks for quick navigation
     recent_weeks = await get_available_weeks()
     recent_weeks = recent_weeks[:5]  # Show last 5 weeks
 
-    # Load ignore list
-    ignore_list = IgnoreList()
-    ignored_tmdb_ids = list(ignore_list.get_ignored_tmdb_ids())
-
     return templates.TemplateResponse(
+        request,
         "overview.html",
         get_template_context(
             request,
@@ -394,6 +433,7 @@ async def dashboard_page(request: Request):
         filter_descriptions.append("Ignore re-releases")
 
     return templates.TemplateResponse(
+        request,
         "dashboard.html",
         get_template_context(
             request,
@@ -454,6 +494,7 @@ async def setup_page(request: Request):
     )  # Default to Tuesday if unknown
 
     return templates.TemplateResponse(
+        request,
         "setup.html",
         get_template_context(
             request,
@@ -596,6 +637,7 @@ async def serve_weekly_page(request: Request, year: int, week: int):
     ignored_tmdb_ids = list(ignore_list.get_ignored_tmdb_ids())
 
     return templates.TemplateResponse(
+        request,
         "weekly.html",
         get_template_context(
             request,
