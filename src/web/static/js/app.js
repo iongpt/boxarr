@@ -1625,6 +1625,10 @@ function reloadScheduler() {
         };
 
         let pollInterval = null;
+        let pollFailures = 0;
+        const MAX_POLL_FAILURES = 5;
+        const MAX_POLL_MS = 10 * 60 * 1000; // 10-minute safety timeout
+        const pollStart = Date.now();
 
         const stopPolling = () => {
             if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
@@ -1638,11 +1642,29 @@ function reloadScheduler() {
                 throw new Error(data.detail || data.message || 'Failed to start refresh');
             }
 
-            // Poll progress every 400 ms
+            // Poll progress every 500 ms
             pollInterval = setInterval(async () => {
+                // Safety timeout
+                if (Date.now() - pollStart > MAX_POLL_MS) {
+                    stopPolling();
+                    resetBtn();
+                    if (progressText) progressText.textContent = 'Refresh timed out — check logs';
+                    showMessage('Refresh is taking too long. It may still be running in the background.', 'error');
+                    return;
+                }
+
                 try {
                     const pr = await fetch(apiUrl('/movies/refresh-stored-status/progress'));
-                    const p  = await pr.json();
+                    if (!pr.ok) {
+                        if (++pollFailures >= MAX_POLL_FAILURES) {
+                            stopPolling();
+                            resetBtn();
+                            showMessage('Lost connection to refresh progress. The job may still be running.', 'error');
+                        }
+                        return;
+                    }
+                    pollFailures = 0;
+                    const p = await pr.json();
 
                     if (p.error) {
                         stopPolling();
@@ -1662,6 +1684,8 @@ function reloadScheduler() {
                         if (progressFill) progressFill.style.width = pct + '%';
                         if (progressText) progressText.textContent =
                             `Week ${scanned} of ${total} · ${p.refreshed || 0} movies updated`;
+                    } else if (p.running) {
+                        if (progressText) progressText.textContent = 'Fetching from Radarr…';
                     }
 
                     if (p.complete) {
@@ -1674,10 +1698,17 @@ function reloadScheduler() {
                             'success'
                         );
                         resetBtn();
-                        setTimeout(() => window.location.reload(), 1500);
+                        setTimeout(() => { window.location.href = window.location.href; }, 1500);
                     }
-                } catch (_) { /* transient poll error — keep trying */ }
-            }, 400);
+                } catch (pollErr) {
+                    console.warn('Refresh poll error:', pollErr);
+                    if (++pollFailures >= MAX_POLL_FAILURES) {
+                        stopPolling();
+                        resetBtn();
+                        showMessage('Lost connection to refresh progress. The job may still be running.', 'error');
+                    }
+                }
+            }, 500);
 
         } catch (error) {
             stopPolling();
