@@ -112,8 +112,7 @@ def refresh_weekly_data_from_radarr(
     movies_linked = 0
 
     all_files = [
-        f for f in sorted(weekly_pages_dir.glob("*.json"))
-        if f.name != "current.json"
+        f for f in sorted(weekly_pages_dir.glob("*.json")) if f.name != "current.json"
     ]
     total_weeks = len(all_files)
 
@@ -172,7 +171,9 @@ def refresh_weekly_data_from_radarr(
             weeks_updated += 1
 
         if progress_callback:
-            progress_callback(weeks_scanned, total_weeks, weeks_updated, movies_refreshed)
+            progress_callback(
+                weeks_scanned, total_weeks, weeks_updated, movies_refreshed
+            )
 
     return {
         "weeks_scanned": weeks_scanned,

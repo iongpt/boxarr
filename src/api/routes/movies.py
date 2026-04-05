@@ -199,18 +199,22 @@ def _run_refresh_job() -> None:
             ignore_cache=True,
             progress_callback=_progress,
         )
-        _refresh_state.update({
-            "running": False,
-            "complete": True,
-            "total": results.get("weeks_scanned", 0),
-            "scanned": results.get("weeks_scanned", 0),
-            "updated": results.get("weeks_updated", 0),
-            "refreshed": results.get("movies_refreshed", 0),
-            "error": None,
-        })
+        _refresh_state.update(
+            {
+                "running": False,
+                "complete": True,
+                "total": results.get("weeks_scanned", 0),
+                "scanned": results.get("weeks_scanned", 0),
+                "updated": results.get("weeks_updated", 0),
+                "refreshed": results.get("movies_refreshed", 0),
+                "error": None,
+            }
+        )
     except Exception as exc:
         logger.error(f"Error in background refresh job: {exc}")
-        _refresh_state.update({"running": False, "complete": False, "error": str(exc)})
+        _refresh_state.update(
+            {"running": False, "complete": False, "error": str(exc)}
+        )
 
 
 @router.post("/refresh-stored-status")
@@ -221,15 +225,17 @@ async def refresh_stored_status(background_tasks: BackgroundTasks):
     if _refresh_state.get("running"):
         raise HTTPException(status_code=409, detail="Refresh already in progress")
 
-    _refresh_state.update({
-        "running": True,
-        "complete": False,
-        "total": 0,
-        "scanned": 0,
-        "updated": 0,
-        "refreshed": 0,
-        "error": None,
-    })
+    _refresh_state.update(
+        {
+            "running": True,
+            "complete": False,
+            "total": 0,
+            "scanned": 0,
+            "updated": 0,
+            "refreshed": 0,
+            "error": None,
+        }
+    )
     background_tasks.add_task(_run_refresh_job)
     return {"success": True, "started": True}
 
