@@ -374,10 +374,10 @@ select.filter-input {
     position: absolute;
     top: calc(100% + 8px);
     right: 0;
-    background: #1e2130;
+    background: var(--card-bg);
     border: 1px solid var(--border-color);
     border-radius: 10px;
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.7);
+    box-shadow: var(--shadow);
     z-index: 100;
     overflow: hidden;
     min-width: 170px;
@@ -422,8 +422,8 @@ select.filter-input {
 .tenure-chip {
     flex: 1 1 calc(33.333% - 0.25rem);
     min-width: calc(33.333% - 0.25rem);
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: var(--bg-color);
+    border: 1px solid var(--border-color);
     border-radius: 4px;
     padding: 0.22rem 0;
     font-size: 0.68rem;
@@ -437,9 +437,9 @@ select.filter-input {
 }
 
 .tenure-chip:hover {
-    background: rgba(124, 58, 237, 0.3);
-    border-color: rgba(167, 139, 250, 0.5);
-    color: #c4b5fd;
+    background: rgba(124, 58, 237, 0.15);
+    border-color: var(--primary-color);
+    color: var(--primary-color);
 }
 
 .tenure-single-wrap {
