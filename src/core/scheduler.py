@@ -4,6 +4,7 @@ import asyncio
 import json
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+from functools import partial
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -18,9 +19,10 @@ from .auto_add import auto_add_missing_movies
 from .boxoffice import BoxOfficeService
 from .exceptions import SchedulerError
 from .json_generator import WeeklyDataGenerator
+from .library_sync import refresh_weekly_data_from_radarr
 from .matcher import MatchResult, MovieMatcher
 from .models import MovieStatus
-from .radarr import RadarrService
+from .radarr import RadarrService, get_all_movies_with_optional_cache_bypass
 
 logger = get_logger(__name__)
 
@@ -176,7 +178,9 @@ class BoxarrScheduler:
 
             # Fetch Radarr movies
             radarr_movies = await self._run_in_executor(
-                self.radarr_service.get_all_movies
+                get_all_movies_with_optional_cache_bypass,
+                self.radarr_service,
+                True,
             )
 
             # Match movies
@@ -204,7 +208,9 @@ class BoxarrScheduler:
                     f"Added {len(added_movies)} movies to Radarr, re-matching..."
                 )
                 radarr_movies = await self._run_in_executor(
-                    self.radarr_service.get_all_movies
+                    get_all_movies_with_optional_cache_bypass,
+                    self.radarr_service,
+                    True,
                 )
                 match_results = await self._run_in_executor(
                     self.matcher.match_batch, box_office_movies, radarr_movies
@@ -230,10 +236,26 @@ class BoxarrScheduler:
                 actual_week,
             )
 
+            # Refresh all stored weekly pages against current Radarr status/details.
+            refresh_results = await self._run_in_executor(
+                partial(
+                    refresh_weekly_data_from_radarr,
+                    radarr_service=self.radarr_service,
+                    ignore_cache=True,
+                )
+            )
+            logger.info(
+                "Refreshed weekly data from Radarr: %s weeks updated, %s movies refreshed, %s movies linked",
+                refresh_results.get("weeks_updated", 0),
+                refresh_results.get("movies_refreshed", 0),
+                refresh_results.get("movies_linked", 0),
+            )
+
             # Process results for history
             results = self._process_match_results(match_results)
             results["data_path"] = str(data_path)
             results["added_movies"] = added_movies
+            results["status_refresh"] = refresh_results
 
             # Save to history
             await self._save_to_history(results, actual_year, actual_week)
