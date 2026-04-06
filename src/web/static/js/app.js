@@ -1601,40 +1601,89 @@ function reloadScheduler() {
     };
 
     window.refreshStoredMovieStatuses = async function (buttonEl) {
-        const originalText = buttonEl ? buttonEl.textContent : 'Refresh Radarr Status';
+        if (!buttonEl) return;
 
-        if (buttonEl) {
-            buttonEl.disabled = true;
-            buttonEl.textContent = 'Refreshing...';
-        }
+        const labelEl = buttonEl.querySelector('.btn-label');
+
+        const resetBtn = () => {
+            buttonEl.disabled = false;
+            buttonEl.classList.remove('loading');
+            if (labelEl) labelEl.textContent = 'Refresh Radarr Status';
+        };
+
+        // Enter loading state
+        buttonEl.disabled = true;
+        buttonEl.classList.add('loading');
+        if (labelEl) labelEl.textContent = 'Fetching from Radarr…';
+
+        let pollInterval = null;
+        let pollFailures = 0;
+        const MAX_POLL_FAILURES = 5;
+        const MAX_POLL_MS = 10 * 60 * 1000; // 10-minute safety timeout
+        const pollStart = Date.now();
+
+        const stopPolling = () => {
+            if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+        };
 
         try {
-            const response = await fetch(apiUrl('/movies/refresh-stored-status'), {
-                method: 'POST'
-            });
-            const data = await response.json();
-
-            if (!response.ok || !data.success) {
-                throw new Error(data.detail || data.message || 'Failed to refresh movie data');
+            const res = await fetch(apiUrl('/movies/refresh-stored-status'), { method: 'POST' });
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+                throw new Error(data.detail || data.message || 'Failed to start refresh');
             }
 
-            showMessage(
-                `Refreshed ${data.movies_refreshed || 0} movie entries across ${data.weeks_updated || 0} weeks`,
-                'success'
-            );
-            setTimeout(() => window.location.reload(), 800);
+            pollInterval = setInterval(async () => {
+                if (Date.now() - pollStart > MAX_POLL_MS) {
+                    stopPolling();
+                    resetBtn();
+                    showMessage('Refresh is taking too long. It may still be running in the background.', 'error');
+                    return;
+                }
+
+                try {
+                    const pr = await fetch(apiUrl('/movies/refresh-stored-status/progress'));
+                    if (!pr.ok) {
+                        if (++pollFailures >= MAX_POLL_FAILURES) {
+                            stopPolling();
+                            resetBtn();
+                            showMessage('Lost connection to refresh progress. The job may still be running.', 'error');
+                        }
+                        return;
+                    }
+                    pollFailures = 0;
+                    const p = await pr.json();
+
+                    if (p.error) {
+                        stopPolling();
+                        resetBtn();
+                        showMessage('Refresh failed: ' + p.error, 'error');
+                        return;
+                    }
+
+                    if (p.complete) {
+                        stopPolling();
+                        showMessage(
+                            `Refreshed ${p.refreshed || 0} movies across ${p.updated || 0} weeks`,
+                            'success'
+                        );
+                        resetBtn();
+                        setTimeout(() => { window.location.href = window.location.href; }, 1500);
+                    }
+                } catch (pollErr) {
+                    console.warn('Refresh poll error:', pollErr);
+                    if (++pollFailures >= MAX_POLL_FAILURES) {
+                        stopPolling();
+                        resetBtn();
+                        showMessage('Lost connection to refresh progress. The job may still be running.', 'error');
+                    }
+                }
+            }, 500);
+
         } catch (error) {
-            showMessage('Failed to refresh stored movie data: ' + error.message, 'error');
-            if (buttonEl) {
-                buttonEl.disabled = false;
-                buttonEl.textContent = originalText;
-            }
-            return;
-        }
-
-        if (buttonEl) {
-            buttonEl.disabled = false;
-            buttonEl.textContent = originalText;
+            stopPolling();
+            resetBtn();
+            showMessage('Failed to start refresh: ' + error.message, 'error');
         }
     };
 
@@ -1703,7 +1752,7 @@ function reloadScheduler() {
             }
         } catch (err) {
             buttonEl.textContent = origText;
-            showToast('Error: ' + err.message, 'error');
+            showMessage('Error: ' + err.message, 'error');
         } finally {
             buttonEl.disabled = false;
         }

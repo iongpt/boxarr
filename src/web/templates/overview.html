@@ -14,13 +14,159 @@
     box-shadow: var(--shadow);
 }
 
+.overview-title-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+    gap: 1rem;
+}
+
 .overview-title {
     font-size: 1.5rem;
     font-weight: 600;
-    margin-bottom: 1rem;
+    margin: 0;
     display: flex;
     align-items: center;
     gap: 0.5rem;
+}
+
+.refresh-btn-wrapper {
+    flex-shrink: 0;
+}
+
+.refresh-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1.25rem;
+    background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: opacity 0.2s, transform 0.2s, box-shadow 0.2s;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.refresh-btn:hover:not(:disabled) {
+    opacity: 0.9;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+}
+
+.refresh-btn:disabled {
+    cursor: not-allowed;
+    transform: none;
+}
+
+.refresh-btn .btn-icon {
+    font-size: 1rem;
+    line-height: 1;
+}
+
+/* CSS border spinner — shown instead of icon while loading */
+.refresh-btn .btn-spinner {
+    display: none;
+    width: 14px;
+    height: 14px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: white;
+    border-radius: 50%;
+    flex-shrink: 0;
+    animation: btn-spin 0.75s linear infinite;
+}
+
+.refresh-btn.loading .btn-icon {
+    display: none;
+}
+
+.refresh-btn.loading .btn-spinner {
+    display: block;
+}
+
+.refresh-btn.loading {
+    animation: btn-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes btn-spin {
+    to { transform: rotate(360deg); }
+}
+
+@keyframes btn-pulse {
+    0%, 100% { box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25); }
+    50%       { box-shadow: 0 0 18px rgba(124, 58, 237, 0.6); }
+}
+
+/* Recent Weeks */
+.recent-weeks-section {
+    margin-top: 1.5rem;
+    padding: 1rem;
+    background: var(--bg-color);
+    border-radius: 8px;
+}
+
+.recent-weeks-label {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 0.75rem;
+}
+
+.recent-weeks-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
+    gap: 0.75rem;
+}
+
+.week-link {
+    padding: 0.5rem 1rem;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    text-decoration: none;
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    transition: all 0.2s;
+    display: block;
+}
+
+.week-link:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow);
+    border-color: var(--primary-color);
+}
+
+.week-link-title { font-weight: 600; }
+
+.week-link-sub {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin-top: 0.15rem;
+}
+
+.view-all-weeks-btn {
+    padding: 0.5rem 1rem;
+    background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+    border-radius: 6px;
+    text-decoration: none;
+    color: white;
+    font-size: 0.85rem;
+    font-weight: 500;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.view-all-weeks-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow);
+    opacity: 0.9;
 }
 
 /* Stats Grid */
@@ -87,16 +233,21 @@
     font-size: 0.9rem;
 }
 
+select.filter-input {
+    appearance: none;
+    -webkit-appearance: none;
+    padding-right: 2.25rem;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.75rem center;
+    cursor: pointer;
+}
+
 .filter-buttons {
     display: flex;
     gap: 0.5rem;
 }
 
-.overview-actions {
-    display: flex;
-    align-items: flex-end;
-    margin-left: auto;
-}
 
 .filter-btn {
     padding: 0.5rem 1rem;
@@ -160,7 +311,7 @@
 .movie-card {
     background: var(--card-bg);
     border-radius: 12px;
-    overflow: hidden;
+    overflow: visible;
     transition: all 0.3s;
     box-shadow: var(--shadow);
     border: 1px solid var(--border-color);
@@ -190,28 +341,141 @@
     box-shadow: 0 2px 8px rgba(0,0,0,0.3);
 }
 
-/* Week badges showing which weeks the movie appeared in */
-.week-badges {
+/* Tenure badge (replaces stacked week badges) */
+.tenure-badge {
     position: absolute;
     top: 10px;
     right: 10px;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    z-index: 1;
-    max-height: 150px;
-    overflow-y: auto;
-}
-
-.week-badge {
-    background: rgba(255, 255, 255, 0.9);
-    color: var(--primary-color);
-    padding: 2px 6px;
-    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.68);
+    backdrop-filter: blur(6px);
+    border: 1px solid rgba(255, 255, 255, 0.13);
+    color: white;
+    border-radius: 20px;
+    padding: 0.28rem 0.6rem;
     font-size: 0.7rem;
     font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    cursor: default;
+    z-index: 10;
     white-space: nowrap;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    transition: background 0.2s, border-color 0.2s;
+    user-select: none;
+}
+
+.tenure-badge:hover {
+    background: rgba(124, 58, 237, 0.55);
+    border-color: rgba(167, 139, 250, 0.4);
+}
+
+.tenure-popover {
+    display: none;
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+    z-index: 100;
+    overflow: hidden;
+    min-width: 170px;
+}
+
+.tenure-badge:hover .tenure-popover {
+    display: block;
+}
+
+.tenure-popover-header {
+    padding: 0.5rem 0.75rem 0.35rem;
+    font-size: 0.62rem;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.tenure-year-group {
+    padding: 0.45rem 0.7rem;
+}
+
+.tenure-year-group + .tenure-year-group {
+    border-top: 1px solid var(--border-color);
+}
+
+.tenure-year-label {
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #a78bfa;
+    margin-bottom: 0.35rem;
+}
+
+.tenure-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+}
+
+.tenure-chip {
+    flex: 1 1 calc(33.333% - 0.25rem);
+    min-width: calc(33.333% - 0.25rem);
+    background: var(--bg-color);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 0.22rem 0;
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+    text-decoration: none;
+    text-align: center;
+    display: block;
+}
+
+.tenure-chip:hover {
+    background: rgba(124, 58, 237, 0.15);
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+}
+
+.tenure-single-wrap {
+    padding: 0.55rem 0.7rem;
+    display: flex;
+    justify-content: center;
+}
+
+.tenure-single-pill {
+    background: rgba(124, 58, 237, 0.2);
+    border: 1px solid rgba(124, 58, 237, 0.4);
+    border-radius: 6px;
+    padding: 0.35rem 0.85rem;
+    text-align: center;
+    text-decoration: none;
+    display: block;
+    transition: background 0.15s;
+}
+
+.tenure-single-pill:hover {
+    background: rgba(124, 58, 237, 0.4);
+}
+
+.tenure-pill-year {
+    display: block;
+    font-size: 0.58rem;
+    color: var(--text-secondary);
+    font-weight: 400;
+    margin-bottom: 0.1rem;
+}
+
+.tenure-pill-week {
+    display: block;
+    font-size: 0.82rem;
+    font-weight: 800;
+    color: #c4b5fd;
 }
 
 .poster-container {
@@ -219,6 +483,7 @@
     aspect-ratio: 2/3;
     background: linear-gradient(135deg, #e0e0e0, #f5f5f5);
     overflow: hidden;
+    border-radius: 12px 12px 0 0;
 }
 
 .poster-container img {
@@ -476,10 +741,19 @@
 <div class="container">
     <!-- Overview Header -->
     <div class="overview-header">
-        <h1 class="overview-title">
-            <span>🎬</span>
-            Movie Overview
-        </h1>
+        <div class="overview-title-row">
+            <h1 class="overview-title">
+                <span>🎬</span>
+                Movie Overview
+            </h1>
+            <div class="refresh-btn-wrapper">
+                <button class="refresh-btn" id="refreshRadarrBtn" onclick="refreshStoredMovieStatuses(this)">
+                    <span class="btn-spinner"></span>
+                    <span class="btn-icon">⟳</span>
+                    <span class="btn-label">Refresh Radarr Status</span>
+                </button>
+            </div>
+        </div>
         
         <!-- Statistics -->
         <div class="stats-grid">
@@ -511,28 +785,17 @@
         
         <!-- Recent Weeks Quick Links -->
         {% if recent_weeks %}
-        <div style="margin-top: 1.5rem; padding: 1rem; background: var(--bg-color); border-radius: 8px;">
-            <div style="font-size: 0.9rem; font-weight: 600; color: var(--text-primary); margin-bottom: 0.75rem;">
-                Recent Weeks:
-            </div>
-            <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
+        <div class="recent-weeks-section">
+            <div class="recent-weeks-label">Recent Weeks:</div>
+            <div class="recent-weeks-grid">
                 {% for week in recent_weeks %}
-                <a href="{{ request.scope.get('root_path', '') }}/{{ week.year }}W{{ "%02d"|format(week.week) }}" 
-                   style="padding: 0.5rem 1rem; background: var(--card-bg); border: 1px solid var(--border-color); 
-                          border-radius: 6px; text-decoration: none; color: var(--text-primary); 
-                          font-size: 0.85rem; transition: all 0.2s;"
-                   onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='var(--shadow)';"
-                   onmouseout="this.style.transform=''; this.style.boxShadow='';">
-                    <div style="font-weight: 600;">Week {{ week.week }}, {{ week.year }}</div>
-                    <div style="font-size: 0.75rem; color: var(--text-secondary);">{{ week.movie_count }} movies</div>
+                <a href="{{ request.scope.get('root_path', '') }}/{{ week.year }}W{{ "%02d"|format(week.week) }}"
+                   class="week-link">
+                    <div class="week-link-title">Week {{ week.week }}, {{ week.year }}</div>
+                    <div class="week-link-sub">{{ week.movie_count }} movies</div>
                 </a>
                 {% endfor %}
-                <a href="{{ request.scope.get('root_path', '') }}/weeks" 
-                   style="padding: 0.5rem 1rem; background: linear-gradient(135deg, var(--primary-color), var(--secondary-color)); 
-                          border-radius: 6px; text-decoration: none; color: white; 
-                          font-size: 0.85rem; transition: all 0.2s; display: flex; align-items: center;"
-                   onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='var(--shadow)';"
-                   onmouseout="this.style.transform=''; this.style.boxShadow='';">
+                <a href="{{ request.scope.get('root_path', '') }}/weeks" class="view-all-weeks-btn">
                     View All Weeks →
                 </a>
             </div>
@@ -558,12 +821,6 @@
             </div>
         </div>
 
-        <div class="overview-actions">
-            <button type="button" class="filter-btn" onclick="refreshStoredMovieStatuses(this)">
-                Refresh Radarr Status
-            </button>
-        </div>
-        
         <div class="filter-group">
             <label class="filter-label">Year</label>
             <select class="filter-input" onchange="filterByYear(this.value)">
@@ -616,15 +873,34 @@
             <div class="ignored-badge">Ignored</div>
             {% endif %}
 
-            <!-- Week badges showing when this movie appeared -->
+            <!-- Tenure badge: weeks this movie appeared in -->
             {% if movie.weeks|length > 0 %}
-            <div class="week-badges">
-                {% for week in movie.weeks[:5] %}
-                <a href="{{ request.scope.get('root_path', '') }}/{{ week }}" class="week-badge" title="Week {{ week }}">{{ week }}</a>
-                {% endfor %}
-                {% if movie.weeks|length > 5 %}
-                <span class="week-badge">+{{ movie.weeks|length - 5 }} more</span>
-                {% endif %}
+            <div class="tenure-badge">
+                <span>📅</span>
+                <span>{{ movie.weeks|length }} week{% if movie.weeks|length != 1 %}s{% endif %}</span>
+                <div class="tenure-popover">
+                    <div class="tenure-popover-header">Appeared in</div>
+                    {% if movie.weeks|length == 1 %}
+                    <div class="tenure-single-wrap">
+                        <a href="{{ request.scope.get('root_path', '') }}/{{ movie.weeks[0] }}" class="tenure-single-pill">
+                            <span class="tenure-pill-year">{{ movie.weeks[0][:4] }}</span>
+                            <span class="tenure-pill-week">{{ movie.weeks[0][4:] }}</span>
+                        </a>
+                    </div>
+                    {% else %}
+                    {% set ns = namespace(cur_year='') %}
+                    {% for week in movie.weeks %}
+                    {% set yr = week[:4] %}
+                    {% if yr != ns.cur_year %}
+                    {% if ns.cur_year != '' %}</div></div>{% endif %}
+                    <div class="tenure-year-group"><div class="tenure-year-label">{{ yr }}</div><div class="tenure-chips">
+                    {% set ns.cur_year = yr %}
+                    {% endif %}
+                    <a href="{{ request.scope.get('root_path', '') }}/{{ week }}" class="tenure-chip">{{ week[4:] }}</a>
+                    {% endfor %}
+                    {% if ns.cur_year != '' %}</div></div>{% endif %}
+                    {% endif %}
+                </div>
             </div>
             {% endif %}
             
@@ -695,10 +971,10 @@
                     {% endif %}
 
                     {% if movie.tmdb_id %}
-                    <button class="action-btn ignore-btn" {% if is_ignored %}style="display:none"{% endif %} onclick="toggleIgnore({{ movie.tmdb_id }}, {{ movie.title|tojson }}, this)">
+                    <button class="action-btn ignore-btn" {% if is_ignored %}style="display:none"{% endif %} onclick='toggleIgnore({{ movie.tmdb_id }}, {{ movie.title|tojson }}, this)'>
                         Ignore
                     </button>
-                    <button class="action-btn unignore-btn" {% if not is_ignored %}style="display:none"{% endif %} onclick="toggleIgnore({{ movie.tmdb_id }}, {{ movie.title|tojson }}, this)">
+                    <button class="action-btn unignore-btn" {% if not is_ignored %}style="display:none"{% endif %} onclick='toggleIgnore({{ movie.tmdb_id }}, {{ movie.title|tojson }}, this)'>
                         Unignore
                     </button>
                     {% endif %}
