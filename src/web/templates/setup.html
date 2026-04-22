@@ -603,6 +603,52 @@
         </form>
     </div>
 
+<style>
+@media (max-width: 640px) {
+    .setup-page {
+        align-items: flex-start;
+        padding: 0.75rem;
+    }
+
+    .auto-add-options {
+        margin-left: 0 !important;
+    }
+
+    /* Advanced settings: "Add New Rule" grid → stack vertically */
+    #rootFolderMappingControls .btn-primary[onclick="addRootFolderMapping()"] {
+        width: 100%;
+    }
+    #rootFolderMappingControls > div:first-child > div > div[style*="grid-template-columns"] {
+        grid-template-columns: 1fr !important;
+    }
+
+    /* Active Rules rows → stack vertically */
+    .mapping-rule {
+        grid-template-columns: 1fr !important;
+        gap: 0.5rem !important;
+    }
+
+    /* Auto-tag label indentation */
+    .form-group[style*="margin-left: 2rem"] {
+        margin-left: 0 !important;
+    }
+
+    /* Button row stack */
+    .button-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .button-row .btn {
+        width: 100%;
+    }
+
+    /* Scheduler controls stack */
+    .scheduler-controls.active {
+        grid-template-columns: 1fr !important;
+    }
+}
+</style>
 <script src="{{ request.scope.get('root_path', '') }}/static/js/theme-manager.js?v=1"></script>
 <script src="{{ request.scope.get('root_path', '') }}/static/js/app.js?v=2"></script>
 <script>

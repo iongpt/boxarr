@@ -191,7 +191,8 @@ body {
 }
 
 .theme-toggle-btn {
-  padding: 0.25rem 0.5rem;
+  padding: 0.4rem 0.6rem;
+  min-height: 36px;
   background: transparent;
   color: var(--text-secondary);
   border: none;
@@ -400,7 +401,7 @@ body {
 
 .movie-poster {
   width: 100%;
-  height: 375px;
+  aspect-ratio: 2/3;
   object-fit: cover;
   background: #1a1a1a;
 }
@@ -987,38 +988,80 @@ small.text-muted {
 /* Responsive Design */
 @media (max-width: 768px) {
   .movie-grid {
-    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
     gap: 1rem;
   }
-  
+
   .header h1 {
     font-size: 1.75rem;
   }
-  
+
   .setup-page {
     padding: 1rem;
   }
-  
+
   .setup-container {
-    padding: 2rem;
+    padding: 1.5rem;
   }
-  
+
   .form-row.two-col,
   .scheduler-controls.active {
     grid-template-columns: 1fr;
   }
-  
+
   .setup-title {
     font-size: 1.5rem;
   }
-  
+
   .theme-toggle {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .range-inputs {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  .container {
+    padding: 0 0.75rem;
+  }
+
+  .movie-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.75rem;
+  }
+
+  .header h1 {
+    font-size: 1.375rem;
+  }
+
+  .setup-container {
+    padding: 1.25rem 1rem;
+    border-radius: 8px;
+  }
+
+  .setup-title {
+    font-size: 1.25rem;
+  }
+
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .button-row {
     flex-direction: column;
     align-items: stretch;
   }
-  
-  .theme-toggle-btn {
+
+  .button-row .btn {
     width: 100%;
+    min-width: unset;
+  }
+
+  .summary-stats {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -1215,31 +1258,9 @@ small.text-muted {
   margin-bottom: 1.5rem;
 }
 
-.stat-card {
-  padding: 1.5rem;
-  background: var(--bg-color);
-  border-radius: 8px;
-  text-align: center;
-  border: 1px solid var(--border-color);
-}
-
 .stat-card.success {
   background: rgba(72, 187, 120, 0.05);
   border-color: var(--success-color);
-}
-
-.stat-value {
-  font-size: 2rem;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 0.25rem;
-}
-
-.stat-label {
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
 }
 
 /* Failed Weeks */

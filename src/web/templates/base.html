@@ -199,6 +199,104 @@
         .update-icon {
             animation: pulse 2s infinite;
         }
+
+        /* Hamburger button */
+        .nav-hamburger {
+            display: none;
+            flex-direction: column;
+            justify-content: center;
+            gap: 5px;
+            width: 40px;
+            height: 40px;
+            padding: 8px;
+            background: none;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            cursor: pointer;
+            color: var(--text-primary);
+            flex-shrink: 0;
+        }
+
+        .nav-hamburger span {
+            display: block;
+            width: 18px;
+            height: 2px;
+            background: currentColor;
+            transition: transform 0.25s, opacity 0.25s;
+        }
+
+        .navbar.nav-open .nav-hamburger span:nth-child(1) {
+            transform: translateY(7px) rotate(45deg);
+        }
+
+        .navbar.nav-open .nav-hamburger span:nth-child(2) {
+            opacity: 0;
+        }
+
+        .navbar.nav-open .nav-hamburger span:nth-child(3) {
+            transform: translateY(-7px) rotate(-45deg);
+        }
+
+        /* Mobile nav */
+        @media (max-width: 640px) {
+            .nav-hamburger {
+                display: flex;
+            }
+
+            .navbar {
+                position: relative;
+            }
+
+            .navbar-container {
+                padding: 0.75rem 1rem;
+            }
+
+            .navbar-brand h1 {
+                font-size: 1.2rem;
+            }
+
+            .navbar-menu {
+                display: none;
+                position: absolute;
+                top: 100%;
+                left: 0;
+                right: 0;
+                background: var(--card-bg);
+                flex-direction: column;
+                align-items: stretch;
+                padding: 0.75rem;
+                gap: 0.5rem;
+                border-bottom: 1px solid var(--border-color);
+                box-shadow: var(--shadow-lg);
+                z-index: 200;
+            }
+
+            .navbar.nav-open .navbar-menu {
+                display: flex;
+            }
+
+            .nav-link {
+                padding: 0.75rem 1rem;
+                min-height: 44px;
+                display: flex;
+                align-items: center;
+            }
+
+            .connection-status {
+                justify-content: flex-start;
+                padding: 0.5rem 1rem;
+            }
+
+            .theme-toggle {
+                justify-content: flex-start;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .version-badge {
+                display: none;
+            }
+        }
     </style>
     {% block styles %}{% endblock %}
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
@@ -218,6 +316,11 @@
                     <span id="updateText">See what's changed</span>
                 </a>
             </div>
+            <button class="nav-hamburger" aria-label="Toggle navigation" onclick="this.closest('.navbar').classList.toggle('nav-open')">
+                <span></span>
+                <span></span>
+                <span></span>
+            </button>
             <div class="navbar-menu">
                 <a href="{{ request.scope.get('root_path', '') }}/overview" class="nav-link {% if request.path.endswith('/overview') %}active{% endif %}">Movies</a>
                 <a href="{{ request.scope.get('root_path', '') }}/weeks" class="nav-link {% if request.path.endswith('/dashboard') or request.path.endswith('/weeks') %}active{% endif %}">Weeks</a>

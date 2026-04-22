@@ -95,20 +95,22 @@
 /* Movies Grid */
 .movies-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 1.5rem;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 1rem;
     margin-top: 2rem;
 }
 
-@media (min-width: 768px) {
-    .movies-grid { 
-        grid-template-columns: repeat(3, 1fr); 
+@media (min-width: 600px) {
+    .movies-grid {
+        grid-template-columns: repeat(3, 1fr);
+        gap: 1.25rem;
     }
 }
 
 @media (min-width: 1200px) {
-    .movies-grid { 
-        grid-template-columns: repeat(5, 1fr); 
+    .movies-grid {
+        grid-template-columns: repeat(5, 1fr);
+        gap: 1.5rem;
     }
 }
 
@@ -344,6 +346,30 @@
     background: rgba(72, 187, 120, 0.1);
     color: var(--success-color);
     border-color: var(--success-color);
+}
+
+/* Mobile overrides */
+@media (max-width: 640px) {
+    .week-title {
+        font-size: 1.2rem;
+    }
+
+    .summary {
+        gap: 0.5rem;
+    }
+
+    .summary-value {
+        font-size: 1.5rem;
+    }
+
+    .nav-controls {
+        gap: 0.5rem;
+    }
+
+    .nav-btn {
+        padding: 0.6rem 0.9rem;
+        font-size: 0.85rem;
+    }
 }
 
 /* Footer */
