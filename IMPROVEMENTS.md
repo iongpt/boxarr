@@ -125,7 +125,7 @@ These are small, low-risk, high-value. Most are 5–20 line changes.
 
 ---
 
-### 1.6 — API Cache-Control Headers (Stable Data)
+### ✅ 1.6 — API Cache-Control Headers (Stable Data)
 - **Files:** `src/api/routes/web.py` (or whichever route returns weekly page data)
 - **Problem:** Every response returns with no `Cache-Control` header. Weekly box office data doesn't change — there's no reason the browser re-fetches it on every navigation.
 - **Approach:** Add headers by data stability tier:
@@ -230,7 +230,7 @@ These reduce technical debt and make Phase 3/5 work significantly easier.
 
 ---
 
-### 2.3 — Remove Inline Style Debt from `setup.html`
+### ✅ 2.3 — Remove Inline Style Debt from `setup.html`
 - **File:** `src/web/templates/setup.html`, `src/web/static/css/style.css`
 - **Problem:** The advanced settings section (genre-based root folder mappings) has grids, borders, colors, and display states all as inline `style=` attributes on ~40 elements. This is why the mobile overhaul in Phase 0 required `!important` hacks in `setup.html`'s `<style>` block.
 - **Approach:**
@@ -245,7 +245,7 @@ These reduce technical debt and make Phase 3/5 work significantly easier.
 
 ---
 
-### 2.4 — Search Debounce + AbortController
+### ✅ 2.4 — Search Debounce (form auto-submit, 300 ms)
 - **File:** `src/web/templates/overview.html` (inline script at bottom) and `src/web/static/js/app.js`
 - **Problem:** The search input form currently does a full page navigation on every submit. Even if it were wired to a live JS search, there's no debounce. Typing "Inception" = 9 requests; older responses can overwrite newer ones (race condition).
 - **Approach:**
@@ -275,7 +275,7 @@ These reduce technical debt and make Phase 3/5 work significantly easier.
 
 ---
 
-### 2.5 — Consolidate CSS Variable Aliases
+### ✅ 2.5 — Consolidate CSS Variable Aliases
 - **File:** `src/web/static/css/style.css`
 - **Problem:** `--bg-color` and `--background` are both defined and used interchangeably (identical values). `--success` and `--success-color` are the same. `--error` and `--error-color` are the same. This creates silent drift risk when someone updates one but not the other.
 - **Approach:**
@@ -319,7 +319,7 @@ These require touching Python backend code. Run `black` + `isort` + `pytest` aft
 
 ---
 
-### 3.2 — TTL Cache for Radarr Quality Profiles and Root Folders
+### ✅ 3.2 — TTL Cache for Radarr Quality Profiles and Root Folders
 - **Files:** `src/core/radarr.py`, or a new `src/core/cache.py`
 - **Problem:** Quality profiles and root folders are fetched from Radarr on every page load — the setup page, the overview page (per movie), and the weekly page. These change extremely rarely (user adds a new profile maybe once a month).
 - **Approach:**
@@ -442,7 +442,7 @@ These require touching Python backend code. Run `black` + `isort` + `pytest` aft
 
 ---
 
-### 4.1 — Skeleton Loading States for Movie Grid
+### ⚠️ 4.1 — Skeleton Loading States for Movie Grid (CSS done; template wiring pending)
 - **Files:** `src/web/static/css/style.css`, `src/web/templates/overview.html`, `src/web/templates/weekly.html`
 - **Problem:** On page load with 100+ movies, there's a blank screen while the server renders and the browser paints. No visual feedback. On slow home networks this can be 2–4 seconds of nothing.
 - **Approach:**
@@ -509,7 +509,7 @@ These require touching Python backend code. Run `black` + `isort` + `pytest` aft
 
 ---
 
-### 4.3 — ARIA Labels and Focus Trap in Modals
+### ✅ 4.3 — ARIA Labels and Focus Trap in Modals
 - **Files:** `src/web/templates/dashboard.html`, `src/web/templates/overview.html` (if it gains modals), `src/web/static/js/app.js`
 - **Problem:** Modals have no `role="dialog"`, no `aria-modal="true"`, no `aria-labelledby`. Keyboard users can tab outside open modals. Screen readers don't announce modal context.
 - **Approach:**
@@ -551,7 +551,7 @@ These require touching Python backend code. Run `black` + `isort` + `pytest` aft
 
 ---
 
-### 4.4 — Fluid Typography with `clamp()`
+### ✅ 4.4 — Fluid Typography with `clamp()`
 - **File:** `src/web/static/css/style.css`
 - **Problem:** Font sizes step hard between breakpoints (3 media queries for heading sizes). `clamp()` gives smooth scaling between a min and max with zero media queries needed.
 - **Approach:**
@@ -572,7 +572,7 @@ These require touching Python backend code. Run `black` + `isort` + `pytest` aft
 
 ---
 
-### 4.5 — Toast Queue with Maximum Visible Count
+### ✅ 4.5 — Toast Queue with Maximum Visible Count
 - **File:** `src/web/static/js/app.js`
 - **Problem:** Toasts can stack infinitely. A failed batch operation (e.g., 20 movies fail to add) triggers 20 simultaneous error toasts that cover the entire screen.
 - **Approach:**
@@ -606,7 +606,7 @@ These require touching Python backend code. Run `black` + `isort` + `pytest` aft
 
 ---
 
-### 4.6 — Respect `prefers-reduced-motion`
+### ✅ 4.6 — Respect `prefers-reduced-motion`
 - **File:** `src/web/static/css/style.css`
 - **Problem:** Users who have vestibular disorders or motion sensitivity set `prefers-reduced-motion: reduce` in their OS. Boxarr ignores this and plays all animations regardless.
 - **Approach:**
@@ -625,7 +625,7 @@ These require touching Python backend code. Run `black` + `isort` + `pytest` aft
 
 ---
 
-### 4.7 — GPU-Accelerated Animations (Replace Layout Properties)
+### ✅ 4.7 — GPU-Accelerated Animations (Replace Layout Properties)
 - **File:** `src/web/static/css/style.css`
 - **Problem:** Any animation using `left`, `top`, `width`, `height`, or `margin` triggers a full layout recalculation on every animation frame. Only `transform` and `opacity` are composited on the GPU and run at 60fps without layout cost.
 - **Approach:** Audit every `@keyframes` block. Replace:
@@ -871,7 +871,7 @@ These don't fit a single phase but should be addressed as files are touched.
 
 ---
 
-### O.4 — `prefers-color-scheme` in `<meta>` for Status Bar
+### ✅ O.4 — `prefers-color-scheme` in `<meta>` for Status Bar
 - **File:** `src/web/templates/base.html`
 - **Problem:** On iOS Safari, the browser chrome (address bar, status bar) defaults to white regardless of Boxarr's dark mode. The `theme-color` meta tag controls this.
 - **Approach:**
@@ -887,34 +887,36 @@ These don't fit a single phase but should be addressed as files are touched.
 
 ## Summary Checklist by Priority
 
+> Last updated: 2026-04-22 — v1.7.3 on `feature/phase2-should-do` ([PR #5](https://github.com/xFlawless11x/boxarr/pull/5))
+
 ### Must-do before Phase 5 work begins
-- [ ] 1.1 GZip middleware
-- [ ] 1.2 Security headers
-- [ ] 1.3 Interval memory leak
-- [ ] 2.1 Extract dashboard.js
-- [ ] 2.2 ApiClient class
-- [ ] 3.1 httpx async migration
+- [x] 1.1 GZip middleware
+- [x] 1.2 Security headers
+- [x] 1.3 Interval memory leak
+- [x] 2.1 Extract dashboard.js
+- [x] 2.2 ApiClient class
+- [ ] 3.1 httpx async migration ← **next priority**
 - [ ] 3.3 Bulk Radarr fetch
 
 ### Should-do for code health
-- [ ] 1.4 External link rel attributes
-- [ ] 1.5 Touch targets 44px
-- [ ] 1.6 Cache-Control headers
-- [ ] 2.3 Remove setup.html inline styles
-- [ ] 2.4 Search debounce + AbortController
-- [ ] 2.5 CSS variable aliases
-- [ ] 3.2 TTL cache Radarr profiles
+- [x] 1.4 External link rel attributes
+- [x] 1.5 Touch targets 44px
+- [x] 1.6 Cache-Control headers
+- [x] 2.3 Remove setup.html inline styles
+- [x] 2.4 Search debounce (form auto-submit, 300 ms; full AbortController live search still possible as enhancement)
+- [x] 2.5 CSS variable aliases
+- [x] 3.2 TTL cache Radarr profiles + root folders
 - [ ] 3.4 Lazy tenure popovers
 - [ ] 3.5 Asset fingerprinting
 
 ### UX polish
-- [ ] 4.1 Skeleton loading states
-- [ ] 4.2 Modal wizard
-- [ ] 4.3 ARIA + focus trap
-- [ ] 4.4 clamp() typography
-- [ ] 4.5 Toast queue
-- [ ] 4.6 prefers-reduced-motion
-- [ ] 4.7 GPU-accelerated animations
+- [~] 4.1 Skeleton loading states — CSS + shimmer done; template wiring (showing skeletons before JS-triggered fetch) still pending
+- [ ] 4.2 Modal wizard (consolidate 4 modals → single step wizard)
+- [x] 4.3 ARIA + focus trap (role/aria-modal/aria-labelledby + MutationObserver trap)
+- [x] 4.4 clamp() typography
+- [x] 4.5 Toast queue (max 3 visible, overflow queued, CSS-driven animations)
+- [x] 4.6 prefers-reduced-motion
+- [x] 4.7 GPU-accelerated animations (will-change on modal + toast)
 
 ### Big swings (own PRs)
 - [ ] 5.1 Movie detail slide-over
@@ -927,4 +929,4 @@ These don't fit a single phase but should be addressed as files are touched.
 - [ ] O.1 Rate limiting
 - [ ] O.2 Standardize error shape
 - [ ] O.3 Docker layer caching
-- [ ] O.4 theme-color meta tag
+- [x] O.4 theme-color meta tag
