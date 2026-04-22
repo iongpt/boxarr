@@ -22,7 +22,7 @@ These are small, low-risk, high-value. Most are 5–20 line changes.
 
 ---
 
-### 1.1 — GZip Compression Middleware
+### ✅ 1.1 — GZip Compression Middleware
 - **File:** `src/api/app.py`
 - **Problem:** All JSON and HTML responses sent uncompressed. A 100-movie week payload is 200–500 KB raw; gzip brings it to ~30–60 KB.
 - **Approach:**
@@ -35,7 +35,7 @@ These are small, low-risk, high-value. Most are 5–20 line changes.
 
 ---
 
-### 1.2 — Security Headers Middleware
+### ✅ 1.2 — Security Headers Middleware
 - **File:** `src/api/app.py`
 - **Problem:** No `X-Frame-Options`, no `X-Content-Type-Options`, no `Content-Security-Policy`. Boxarr is commonly exposed via reverse proxy (Nginx/Traefik) to the internet.
 - **Approach:** Add a lightweight middleware class (no external dep needed):
@@ -66,7 +66,7 @@ These are small, low-risk, high-value. Most are 5–20 line changes.
 
 ---
 
-### 1.3 — Fix `statusCheckInterval` Memory Leak
+### ✅ 1.3 — Fix `statusCheckInterval` Memory Leak
 - **File:** `src/web/static/js/app.js`
 - **Problem:** `statusCheckInterval` is assigned with `setInterval` but never cleared. Every page navigation (or hot-reload in dev) stacks another interval on top. After a few navigations, multiple overlapping polls hammer Radarr simultaneously.
 - **Approach:**
@@ -93,7 +93,7 @@ These are small, low-risk, high-value. Most are 5–20 line changes.
 
 ---
 
-### 1.4 — External Links: Add `rel="noopener noreferrer"`
+### ✅ 1.4 — External Links: Add `rel="noopener noreferrer"`
 - **Files:** `src/web/templates/overview.html`, `src/web/templates/weekly.html`
 - **Problem:** All IMDb and Wikipedia links use `target="_blank"` without `rel="noopener noreferrer"`. The opened tab can access `window.opener` and redirect the parent page — a well-known phishing vector.
 - **Approach:** Search both templates for `target="_blank"` and add the rel attribute. Also add a Jinja macro to avoid repeating:
@@ -107,7 +107,7 @@ These are small, low-risk, high-value. Most are 5–20 line changes.
 
 ---
 
-### 1.5 — Pagination Touch Targets (44px minimum)
+### ✅ 1.5 — Pagination Touch Targets (44px minimum)
 - **Files:** `src/web/static/css/style.css`, `src/web/templates/overview.html`, `src/web/templates/dashboard.html`
 - **Problem:** Pagination `.page-btn` and `.page-link` elements are ~32px tall. iOS HIG and WCAG both specify 44×44px as the minimum touch target.
 - **Approach:**
@@ -150,7 +150,7 @@ These reduce technical debt and make Phase 3/5 work significantly easier.
 
 ---
 
-### 2.1 — Extract `dashboard.html` JavaScript to `dashboard.js`
+### ✅ 2.1 — Extract `dashboard.html` JavaScript to `dashboard.js`
 - **Files:** `src/web/templates/dashboard.html` → `src/web/static/js/dashboard.js`
 - **Problem:** `dashboard.html` is 1883 lines. The bottom ~800 lines are a `<script>` block containing the `RangeProcessor` class, all modal functions, SSE handler, metadata repair flow, progress tracking, and page-size logic. It cannot be tested, linted, or minified while embedded in HTML.
 - **Approach:**
@@ -179,7 +179,7 @@ These reduce technical debt and make Phase 3/5 work significantly easier.
 
 ---
 
-### 2.2 — Central `ApiClient` Class
+### ✅ 2.2 — Central `ApiClient` Class
 - **File:** `src/web/static/js/app.js` (or new `src/web/static/js/api-client.js`)
 - **Problem:** The same try/catch/error-display/spinner pattern is copy-pasted ~20 times. Each fetch has its own response validation, error message shape handling (`error.message || error.detail || 'Unknown error'`), and spinner toggle.
 - **Approach:** A minimal class that all callers use:
