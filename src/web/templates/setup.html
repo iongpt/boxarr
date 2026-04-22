@@ -250,12 +250,12 @@
                                 <label class="form-label" id="genreListLabel">
                                     {% if genre_filter_mode == 'whitelist' %}Allowed Genres{% else %}Excluded Genres{% endif %}
                                 </label>
-                                <div class="genre-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.5rem;">
+                                <div class="genre-grid">
                                     {% set common_genres = ['Action', 'Adventure', 'Animation', 'Comedy', 'Crime', 'Documentary', 
                                                            'Drama', 'Family', 'Fantasy', 'History', 'Horror', 'Music', 
                                                            'Mystery', 'Romance', 'Science Fiction', 'TV Movie', 'Thriller', 'War', 'Western'] %}
                                     {% for genre in common_genres %}
-                                    <label class="checkbox-label" style="display: flex; align-items: center; gap: 0.5rem;">
+                                    <label class="checkbox-label field-row">
                                         <input type="checkbox" name="genre_{{ genre | replace(' ', '_') }}" value="{{ genre }}"
                                                data-genre-whitelist="{% if genre in genre_whitelist %}true{% else %}false{% endif %}"
                                                data-genre-blacklist="{% if genre in genre_blacklist %}true{% else %}false{% endif %}"
@@ -300,10 +300,10 @@
                                 <label class="form-label" id="languageListLabel">
                                     {% if language_filter_mode == 'whitelist' %}Allowed Languages{% else %}Excluded Languages{% endif %}
                                 </label>
-                                <div class="language-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.5rem;">
+                                <div class="language-grid">
                                     {% set common_languages = ['English', 'French', 'German', 'Hindi', 'Italian', 'Japanese', 'Korean', 'Mandarin', 'Portuguese', 'Spanish', 'Tamil', 'Telugu'] %}
                                     {% for language in common_languages %}
-                                    <label class="checkbox-label" style="display: flex; align-items: center; gap: 0.5rem;">
+                                    <label class="checkbox-label field-row">
                                         <input type="checkbox" name="language_{{ language }}" value="{{ language }}"
                                                data-language-whitelist="{% if language in language_whitelist %}true{% else %}false{% endif %}"
                                                data-language-blacklist="{% if language in language_blacklist %}true{% else %}false{% endif %}"
@@ -331,10 +331,10 @@
                         <div id="ratingFilterOptions" class="filter-options {% if rating_filter_enabled %}active{% endif %}" style="margin-top: 0.5rem;">
                             <div class="form-group">
                                 <label class="form-label">Allowed Age Ratings</label>
-                                <div class="rating-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 0.5rem;">
+                                <div class="rating-grid">
                                     {% set common_ratings = ['G', 'PG', 'PG-13', 'R', 'NC-17', 'NR'] %}
                                     {% for rating in common_ratings %}
-                                    <label class="checkbox-label" style="display: flex; align-items: center; gap: 0.5rem;">
+                                    <label class="checkbox-label field-row">
                                         <input type="checkbox" name="rating_{{ rating | replace('-', '_') }}" value="{{ rating }}"
                                                {% if rating in rating_whitelist %}checked{% endif %}>
                                         <span>{{ rating }}</span>
@@ -458,9 +458,9 @@
 
                         <div id="rootFolderMappingControls" style="display: {% if root_folder_mapping_enabled %}block{% else %}none{% endif %}; margin-top: 1.5rem;">
                             <!-- Add New Rule Widget -->
-                            <div style="background: var(--bg-secondary); padding: 1.25rem; border-radius: 8px; margin-bottom: 1.5rem; border: 1px solid var(--border-color);">
+                            <div class="settings-panel" style="margin-bottom: 1.5rem;">
                                 <h4 style="margin: 0 0 1rem 0; color: var(--text-primary); font-size: 1rem; font-weight: 600;">Add New Rule</h4>
-                                <div style="display: grid; grid-template-columns: 2fr 2fr auto; gap: 0.75rem; align-items: end;">
+                                <div class="rule-builder-grid">
                                     <div>
                                         <label class="form-label" style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 0.5rem; display: block;">Select Genres</label>
                                         <select id="newMappingGenres" multiple style="width: 100%; min-height: 42px; padding: 0.5rem; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.9rem;">
@@ -474,7 +474,7 @@
                                     </div>
                                     <div>
                                         <label class="form-label" style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 0.5rem; display: block;">Target Folder</label>
-                                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                        <div class="field-row">
                                             <select id="newMappingFolder" style="width: 100%; padding: 0.625rem; background: var(--bg-primary); color: var(--text-primary); border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.9rem;">
                                                 <option value="">Select folder...</option>
                                             </select>
@@ -491,12 +491,12 @@
                             </div>
 
                             <!-- Existing Rules List -->
-                            <div style="background: var(--bg-secondary); padding: 1.25rem; border-radius: 8px; border: 1px solid var(--border-color);">
+                            <div class="settings-panel">
                                 <h4 style="margin: 0 0 1rem 0; color: var(--text-primary); font-size: 1rem; font-weight: 600;">Active Rules</h4>
                                 <div id="mappingsList">
                                     {% if root_folder_mappings and root_folder_mappings|length > 0 %}
                                         <!-- This is temporary display, will be replaced by JavaScript -->
-                                        <div style="display: grid; grid-template-columns: 2fr auto 2fr 100px 120px; gap: 1rem; padding: 0.5rem 0.75rem; margin-bottom: 0.5rem; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); border-bottom: 1px solid var(--border-color);">
+                                        <div class="mapping-header-grid">
                                             <div title="Rules are applied from top to bottom">Genres</div>
                                             <div></div>
                                             <div>Target Folder</div>
@@ -504,12 +504,12 @@
                                             <div style="text-align: center;">Actions</div>
                                         </div>
                                         {% for m in root_folder_mappings %}
-                                        <div class="mapping-rule" style="display: grid; grid-template-columns: 2fr auto 2fr 100px 120px; gap: 1rem; align-items: center; padding: 0.75rem; margin-bottom: 0.5rem; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px;">
+                                        <div class="mapping-rule mapping-rule-grid">
                                             <div style="font-weight: 500; color: var(--text-primary);">{{ m.genres|join(', ') }}</div>
                                             <div style="color: var(--text-muted); text-align: center;">→</div>
                                             <div style="color: var(--primary-color);">{{ m.root_folder }}</div>
                                             <div>
-                                                <span style="display: inline-block; padding: 0.25rem 0.5rem; background: var(--bg-tertiary); border-radius: 4px; font-size: 0.85rem; color: var(--text-secondary); font-weight: 500;">{{ m.priority }}</span>
+                                                <span class="priority-badge">{{ m.priority }}</span>
                                             </div>
                                             <div style="text-align: center; color: var(--text-muted);">
                                                 <!-- Actions will be added by JavaScript -->
@@ -547,13 +547,13 @@
                         <div class="alert" style="margin-top: 10px; padding: 12px; background: var(--bg-info); color: var(--text-primary); border-left: 3px solid var(--primary-color); border-radius: 4px;">
                             <strong>ℹ️ Current URL Base:</strong>
                             {% if url_base %}
-                                <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 3px; color: var(--text-primary);">/{{ url_base }}/</code>
+                                <code class="inline-code">/{{ url_base }}/</code>
                                 – The app is accessible at
-                                <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 3px; color: var(--text-primary);">http://your-server/{{ url_base }}/</code>
+                                <code class="inline-code">http://your-server/{{ url_base }}/</code>
                             {% else %}
-                                <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 3px; color: var(--text-primary);">/</code>
+                                <code class="inline-code">/</code>
                                 (root) – The app is accessible at
-                                <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 3px; color: var(--text-primary);">http://your-server/</code>
+                                <code class="inline-code">http://your-server/</code>
                             {% endif %}
                         </div>
 
@@ -561,7 +561,7 @@
                             <strong>📝 How to Configure:</strong>
                             <p style="margin: 8px 0; color: var(--text-secondary);">
                                 To run Boxarr behind a reverse proxy, set the
-                                <code style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 3px; color: var(--text-primary);">BOXARR_URL_BASE</code>
+                                <code class="inline-code">BOXARR_URL_BASE</code>
                                 environment variable:
                             </p>
 
@@ -614,23 +614,9 @@
         margin-left: 0 !important;
     }
 
-    /* Advanced settings: "Add New Rule" grid → stack vertically */
+    /* Advanced settings: "Add New Rule" button → full width */
     #rootFolderMappingControls .btn-primary[onclick="addRootFolderMapping()"] {
         width: 100%;
-    }
-    #rootFolderMappingControls > div:first-child > div > div[style*="grid-template-columns"] {
-        grid-template-columns: 1fr !important;
-    }
-
-    /* Active Rules rows → stack vertically */
-    .mapping-rule {
-        grid-template-columns: 1fr !important;
-        gap: 0.5rem !important;
-    }
-
-    /* Auto-tag label indentation */
-    .form-group[style*="margin-left: 2rem"] {
-        margin-left: 0 !important;
     }
 
     /* Button row stack */
@@ -643,10 +629,6 @@
         width: 100%;
     }
 
-    /* Scheduler controls stack */
-    .scheduler-controls.active {
-        grid-template-columns: 1fr !important;
-    }
 }
 </style>
 <script src="{{ request.scope.get('root_path', '') }}/static/js/theme-manager.js?v=1"></script>

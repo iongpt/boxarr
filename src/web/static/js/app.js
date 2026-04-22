@@ -423,35 +423,53 @@ function reloadScheduler() {
             });
     }
 
-    /**
-     * Show a temporary message to the user
-     */
-    function showMessage(message, type = 'info') {
-        console.log(`[${type}] ${message}`);
-        
-        // Create toast notification
+    // Toast queue — max 3 visible at once
+    const MAX_TOASTS = 3;
+    const toastQueue = [];
+    let toastContainer = null;
+
+    function getToastContainer() {
+        if (!toastContainer) {
+            toastContainer = document.createElement('div');
+            toastContainer.className = 'toast-container';
+            toastContainer.setAttribute('role', 'alert');
+            toastContainer.setAttribute('aria-live', 'assertive');
+            toastContainer.setAttribute('aria-atomic', 'false');
+            document.body.appendChild(toastContainer);
+        }
+        return toastContainer;
+    }
+
+    function processToastQueue() {
+        const container = getToastContainer();
+        const active = container.querySelectorAll('.toast:not(.toast-exit)').length;
+        while (toastQueue.length > 0 && active < MAX_TOASTS) {
+            const { message, type } = toastQueue.shift();
+            _renderToast(message, type);
+        }
+    }
+
+    function _renderToast(message, type) {
+        const container = getToastContainer();
         const toast = document.createElement('div');
         toast.className = `toast toast-${type}`;
         toast.textContent = message;
-        toast.style.cssText = `
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            padding: 1rem 1.5rem;
-            background: ${type === 'success' ? '#48bb78' : type === 'error' ? '#f56565' : '#667eea'};
-            color: white;
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-            z-index: 10000;
-            animation: slideIn 0.3s ease;
-        `;
-        
-        document.body.appendChild(toast);
-        
-        setTimeout(() => {
-            toast.style.animation = 'slideOut 0.3s ease';
-            setTimeout(() => toast.remove(), 300);
-        }, 3000);
+        function dismiss() {
+            toast.classList.add('toast-exit');
+            setTimeout(() => { toast.remove(); processToastQueue(); }, 300);
+        }
+        container.appendChild(toast);
+        setTimeout(dismiss, 3000);
+    }
+
+    function showMessage(message, type = 'info') {
+        console.log(`[${type}] ${message}`);
+        const active = getToastContainer().querySelectorAll('.toast:not(.toast-exit)').length;
+        if (active >= MAX_TOASTS) {
+            toastQueue.push({ message, type });
+        } else {
+            _renderToast(message, type);
+        }
     }
 
     // ==========================================
@@ -1616,6 +1634,57 @@ function reloadScheduler() {
                 isModalOpen = false;
             }
         });
+
+        // Focus trap for accessible modals
+        (function () {
+            const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+            let prevFocused = null;
+            let trapHandler = null;
+            let watchedModal = null;
+
+            function getFocusable(el) {
+                return [...el.querySelectorAll(FOCUSABLE)].filter(
+                    e => getComputedStyle(e).display !== 'none' && !e.closest('[hidden]')
+                );
+            }
+
+            function trapFocus(modal) {
+                prevFocused = document.activeElement;
+                watchedModal = modal;
+                const focusable = getFocusable(modal);
+                if (focusable.length) focusable[0].focus();
+                trapHandler = function (e) {
+                    if (e.key !== 'Tab') return;
+                    const focusable = getFocusable(modal);
+                    if (!focusable.length) { e.preventDefault(); return; }
+                    const first = focusable[0], last = focusable[focusable.length - 1];
+                    if (e.shiftKey) {
+                        if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+                    } else {
+                        if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+                    }
+                };
+                modal.addEventListener('keydown', trapHandler);
+            }
+
+            function releaseFocus(modal) {
+                if (trapHandler && modal) modal.removeEventListener('keydown', trapHandler);
+                trapHandler = null;
+                watchedModal = null;
+                if (prevFocused && typeof prevFocused.focus === 'function') prevFocused.focus();
+                prevFocused = null;
+            }
+
+            document.querySelectorAll('.modal').forEach(function (modal) {
+                new MutationObserver(function () {
+                    if (modal.classList.contains('show')) {
+                        trapFocus(modal);
+                    } else if (watchedModal === modal) {
+                        releaseFocus(modal);
+                    }
+                }).observe(modal, { attributes: true, attributeFilter: ['class'] });
+            });
+        }());
     });
 
     // Cleanup on page unload

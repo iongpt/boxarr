@@ -906,10 +906,10 @@
 </div>
 
 <!-- Historical Update Modal -->
-<div id="historicalModal" class="modal">
+<div id="historicalModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="historicalModalTitle">
     <div class="modal-content">
         <div class="modal-header">
-            <h3>Update Historical Data</h3>
+            <h3 id="historicalModalTitle">Update Historical Data</h3>
             <button class="modal-close" onclick="closeHistoricalUpdate()">&times;</button>
         </div>
         
@@ -1028,7 +1028,7 @@
 </div>
 
 <!-- Historical Week Confirmation Modal -->
-<div id="historicalWeekModal" class="modal">
+<div id="historicalWeekModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="historicalWeekTitle">
     <div class="modal-content">
         <div class="modal-header">
             <h3 id="historicalWeekTitle">Fetch Historical Week Data</h3>
@@ -1070,7 +1070,7 @@
 </div>
 
 <!-- Update Progress Modal -->
-<div id="progressModal" class="modal">
+<div id="progressModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="progressTitle">
     <div class="modal-content progress-modal">
         <div class="progress-header">
             <h3 id="progressTitle">Updating Box Office Data</h3>

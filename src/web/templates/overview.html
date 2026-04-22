@@ -898,14 +898,15 @@ select.filter-input {
         
         <div class="filter-group search-box">
             <label class="filter-label">Search</label>
-            <form method="get" action="">
+            <form id="searchForm" method="get" action="">
                 <input type="hidden" name="status" value="{{ status_filter }}">
                 <input type="hidden" name="year" value="{{ year_filter or '' }}">
                 <input type="hidden" name="per_page" value="{{ per_page }}">
-                <input type="text" 
-                       name="search" 
-                       class="search-input" 
-                       placeholder="Search movie titles..." 
+                <input type="text"
+                       id="searchInput"
+                       name="search"
+                       class="search-input"
+                       placeholder="Search movie titles..."
                        value="{{ search_query }}">
             </form>
         </div>
@@ -1101,5 +1102,20 @@ function changePerPage(value) {
     params.set('page', '1');
     window.location.search = params.toString();
 }
+
+(function () {
+    const input = document.getElementById('searchInput');
+    const form = document.getElementById('searchForm');
+    if (!input || !form) return;
+    let timer;
+    input.addEventListener('input', function () {
+        clearTimeout(timer);
+        timer = setTimeout(function () {
+            const params = new URLSearchParams(new FormData(form));
+            params.set('page', '1');
+            window.location.search = params.toString();
+        }, 300);
+    });
+}());
 </script>
 {% endblock %}

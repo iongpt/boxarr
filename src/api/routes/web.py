@@ -36,6 +36,12 @@ def url_for(request: Request, path: str) -> str:
 templates.env.globals["url_for"] = url_for
 
 
+def _with_cache(response, directive: str):
+    """Attach a Cache-Control header to a TemplateResponse and return it."""
+    response.headers["Cache-Control"] = directive
+    return response
+
+
 def get_template_context(request: Request, **kwargs) -> dict:
     """Get base template context with common values."""
     # Handle both string and enum values for theme
@@ -277,30 +283,33 @@ async def movie_overview_page(request: Request):
     recent_weeks = await get_available_weeks()
     recent_weeks = recent_weeks[:5]  # Show last 5 weeks
 
-    return templates.TemplateResponse(
-        request,
-        "overview.html",
-        get_template_context(
+    return _with_cache(
+        templates.TemplateResponse(
             request,
-            movies=paginated_movies,
-            total_movies=total_movies,
-            stats=stats,
-            recent_weeks=recent_weeks,
-            # Pagination
-            current_page=page,
-            total_pages=total_pages,
-            per_page=per_page,
-            # Filters
-            status_filter=status_filter,
-            year_filter=year_filter,
-            available_years=all_years,
-            search_query=search_query,
-            # Features
-            auto_add=settings.boxarr_features_auto_add,
-            quality_upgrade=settings.boxarr_features_quality_upgrade,
-            # Ignore list
-            ignored_tmdb_ids=ignored_tmdb_ids,
+            "overview.html",
+            get_template_context(
+                request,
+                movies=paginated_movies,
+                total_movies=total_movies,
+                stats=stats,
+                recent_weeks=recent_weeks,
+                # Pagination
+                current_page=page,
+                total_pages=total_pages,
+                per_page=per_page,
+                # Filters
+                status_filter=status_filter,
+                year_filter=year_filter,
+                available_years=all_years,
+                search_query=search_query,
+                # Features
+                auto_add=settings.boxarr_features_auto_add,
+                quality_upgrade=settings.boxarr_features_quality_upgrade,
+                # Ignore list
+                ignored_tmdb_ids=ignored_tmdb_ids,
+            ),
         ),
+        "private, no-cache",
     )
 
 
@@ -432,33 +441,36 @@ async def dashboard_page(request: Request):
     if settings.boxarr_features_auto_add_ignore_rereleases:
         filter_descriptions.append("Ignore re-releases")
 
-    return templates.TemplateResponse(
-        request,
-        "dashboard.html",
-        get_template_context(
+    return _with_cache(
+        templates.TemplateResponse(
             request,
-            weeks=weeks,
-            recent_weeks=recent_weeks,
-            older_weeks=older_weeks,
-            total_weeks=total_weeks,
-            radarr_configured=bool(settings.radarr_api_key),
-            scheduler_enabled=settings.boxarr_scheduler_enabled,
-            auto_add=settings.boxarr_features_auto_add,
-            quality_upgrade=settings.boxarr_features_quality_upgrade,
-            next_update=next_update,
-            auto_add_filters_active=auto_add_filters_active,
-            filter_descriptions=filter_descriptions,
-            # Pagination data
-            current_page=page,
-            total_pages=total_pages,
-            per_page=per_page,
-            paginated_weeks=paginated_weeks,
-            available_years=available_years,
-            year_filter=year_filter,
-            total_all_weeks=len(all_weeks),
-            # Year information
-            current_year=datetime.now().year,
+            "dashboard.html",
+            get_template_context(
+                request,
+                weeks=weeks,
+                recent_weeks=recent_weeks,
+                older_weeks=older_weeks,
+                total_weeks=total_weeks,
+                radarr_configured=bool(settings.radarr_api_key),
+                scheduler_enabled=settings.boxarr_scheduler_enabled,
+                auto_add=settings.boxarr_features_auto_add,
+                quality_upgrade=settings.boxarr_features_quality_upgrade,
+                next_update=next_update,
+                auto_add_filters_active=auto_add_filters_active,
+                filter_descriptions=filter_descriptions,
+                # Pagination data
+                current_page=page,
+                total_pages=total_pages,
+                per_page=per_page,
+                paginated_weeks=paginated_weeks,
+                available_years=available_years,
+                year_filter=year_filter,
+                total_all_weeks=len(all_weeks),
+                # Year information
+                current_year=datetime.now().year,
+            ),
         ),
+        "private, no-cache",
     )
 
 
@@ -493,60 +505,63 @@ async def setup_page(request: Request):
         apscheduler_day, 2
     )  # Default to Tuesday if unknown
 
-    return templates.TemplateResponse(
-        request,
-        "setup.html",
-        get_template_context(
+    return _with_cache(
+        templates.TemplateResponse(
             request,
-            radarr_configured=bool(settings.radarr_api_key),
-            is_configured=bool(settings.radarr_api_key),
-            # Current settings for prefilling
-            radarr_url=str(settings.radarr_url),
-            radarr_api_key=settings.radarr_api_key,  # Show actual API key for editing
-            root_folder=str(settings.radarr_root_folder),
-            quality_profile_default=settings.radarr_quality_profile_default,
-            quality_profile_upgrade=settings.radarr_quality_profile_upgrade,
-            # Minimum availability controls
-            radarr_minimum_availability_enabled=settings.radarr_minimum_availability_enabled,
-            radarr_minimum_availability=settings.radarr_minimum_availability.value,
-            # Root folder mapping configuration
-            root_folder_mapping_enabled=settings.radarr_root_folder_config.enabled,
-            root_folder_mappings=[
-                {
-                    "genres": mapping.genres,
-                    "root_folder": mapping.root_folder,
-                    "priority": mapping.priority,
-                }
-                for mapping in settings.radarr_root_folder_config.mappings
-            ],
-            scheduler_enabled=settings.boxarr_scheduler_enabled,
-            scheduler_cron=settings.boxarr_scheduler_cron,
-            scheduler_day=current_day,
-            scheduler_time=current_time,
-            auto_add=settings.boxarr_features_auto_add,
-            quality_upgrade=settings.boxarr_features_quality_upgrade,
-            # Box office fetch limit
-            box_office_limit=settings.boxarr_features_box_office_limit,
-            # Auto tagging
-            auto_tag_enabled=settings.boxarr_features_auto_tag_enabled,
-            auto_tag_text=settings.boxarr_features_auto_tag_text,
-            # New auto-add advanced options
-            auto_add_limit=settings.boxarr_features_auto_add_limit,
-            genre_filter_enabled=settings.boxarr_features_auto_add_genre_filter_enabled,
-            genre_filter_mode=settings.boxarr_features_auto_add_genre_filter_mode,
-            genre_whitelist=settings.boxarr_features_auto_add_genre_whitelist,
-            genre_blacklist=settings.boxarr_features_auto_add_genre_blacklist,
-            rating_filter_enabled=settings.boxarr_features_auto_add_rating_filter_enabled,
-            rating_whitelist=settings.boxarr_features_auto_add_rating_whitelist,
-            ignore_rereleases=settings.boxarr_features_auto_add_ignore_rereleases,
-            # Language filter settings
-            language_filter_enabled=settings.boxarr_features_auto_add_language_filter_enabled,
-            language_filter_mode=settings.boxarr_features_auto_add_language_filter_mode,
-            language_whitelist=settings.boxarr_features_auto_add_language_whitelist,
-            language_blacklist=settings.boxarr_features_auto_add_language_blacklist,
-            # URL base for reverse proxy support
-            url_base=settings.boxarr_url_base,
+            "setup.html",
+            get_template_context(
+                request,
+                radarr_configured=bool(settings.radarr_api_key),
+                is_configured=bool(settings.radarr_api_key),
+                # Current settings for prefilling
+                radarr_url=str(settings.radarr_url),
+                radarr_api_key=settings.radarr_api_key,  # Show actual API key for editing
+                root_folder=str(settings.radarr_root_folder),
+                quality_profile_default=settings.radarr_quality_profile_default,
+                quality_profile_upgrade=settings.radarr_quality_profile_upgrade,
+                # Minimum availability controls
+                radarr_minimum_availability_enabled=settings.radarr_minimum_availability_enabled,
+                radarr_minimum_availability=settings.radarr_minimum_availability.value,
+                # Root folder mapping configuration
+                root_folder_mapping_enabled=settings.radarr_root_folder_config.enabled,
+                root_folder_mappings=[
+                    {
+                        "genres": mapping.genres,
+                        "root_folder": mapping.root_folder,
+                        "priority": mapping.priority,
+                    }
+                    for mapping in settings.radarr_root_folder_config.mappings
+                ],
+                scheduler_enabled=settings.boxarr_scheduler_enabled,
+                scheduler_cron=settings.boxarr_scheduler_cron,
+                scheduler_day=current_day,
+                scheduler_time=current_time,
+                auto_add=settings.boxarr_features_auto_add,
+                quality_upgrade=settings.boxarr_features_quality_upgrade,
+                # Box office fetch limit
+                box_office_limit=settings.boxarr_features_box_office_limit,
+                # Auto tagging
+                auto_tag_enabled=settings.boxarr_features_auto_tag_enabled,
+                auto_tag_text=settings.boxarr_features_auto_tag_text,
+                # New auto-add advanced options
+                auto_add_limit=settings.boxarr_features_auto_add_limit,
+                genre_filter_enabled=settings.boxarr_features_auto_add_genre_filter_enabled,
+                genre_filter_mode=settings.boxarr_features_auto_add_genre_filter_mode,
+                genre_whitelist=settings.boxarr_features_auto_add_genre_whitelist,
+                genre_blacklist=settings.boxarr_features_auto_add_genre_blacklist,
+                rating_filter_enabled=settings.boxarr_features_auto_add_rating_filter_enabled,
+                rating_whitelist=settings.boxarr_features_auto_add_rating_whitelist,
+                ignore_rereleases=settings.boxarr_features_auto_add_ignore_rereleases,
+                # Language filter settings
+                language_filter_enabled=settings.boxarr_features_auto_add_language_filter_enabled,
+                language_filter_mode=settings.boxarr_features_auto_add_language_filter_mode,
+                language_whitelist=settings.boxarr_features_auto_add_language_whitelist,
+                language_blacklist=settings.boxarr_features_auto_add_language_blacklist,
+                # URL base for reverse proxy support
+                url_base=settings.boxarr_url_base,
+            ),
         ),
+        "no-store",
     )
 
 
@@ -636,25 +651,28 @@ async def serve_weekly_page(request: Request, year: int, week: int):
     ignore_list = IgnoreList()
     ignored_tmdb_ids = list(ignore_list.get_ignored_tmdb_ids())
 
-    return templates.TemplateResponse(
-        request,
-        "weekly.html",
-        get_template_context(
+    return _with_cache(
+        templates.TemplateResponse(
             request,
-            week_data={
-                "year": year,
-                "week": week,
-                "friday": friday,
-                "sunday": sunday,
-                "movies": movies,
-                "generated_at": generated_at,
-            },
-            auto_add=settings.boxarr_features_auto_add,
-            scheduler_enabled=settings.boxarr_scheduler_enabled,
-            previous_week=f"{prev_year}W{prev_week_num:02d}" if prev_week else None,
-            next_week=f"{next_year}W{next_week_num:02d}" if next_week else None,
-            ignored_tmdb_ids=ignored_tmdb_ids,
+            "weekly.html",
+            get_template_context(
+                request,
+                week_data={
+                    "year": year,
+                    "week": week,
+                    "friday": friday,
+                    "sunday": sunday,
+                    "movies": movies,
+                    "generated_at": generated_at,
+                },
+                auto_add=settings.boxarr_features_auto_add,
+                scheduler_enabled=settings.boxarr_scheduler_enabled,
+                previous_week=f"{prev_year}W{prev_week_num:02d}" if prev_week else None,
+                next_week=f"{next_year}W{next_week_num:02d}" if next_week else None,
+                ignored_tmdb_ids=ignored_tmdb_ids,
+            ),
         ),
+        "public, max-age=3600, stale-while-revalidate=86400",
     )
 
 

@@ -92,6 +92,7 @@ class RadarrMovie:
 
 _movies_cache: Dict[str, Any] = {"ts": 0.0, "data": []}
 _profiles_cache: Dict[str, Any] = {"ts": 0.0, "data": []}
+_root_folders_cache: Dict[str, Any] = {"ts": 0.0, "data": []}
 
 
 def get_all_movies_with_optional_cache_bypass(
@@ -665,7 +666,7 @@ class RadarrService:
         result = response.json()
         return result if isinstance(result, dict) else {}
 
-    def get_root_folders(self) -> List[Dict[str, Any]]:
+    def get_root_folders(self, ignore_cache: bool = False) -> List[Dict[str, Any]]:
         """
         Get root folders configured in Radarr.
         Routes expect this method.
@@ -676,9 +677,25 @@ class RadarrService:
         Raises:
             RadarrError: If request fails
         """
+        try:
+            ttl = getattr(settings, "radarr_cache_ttl_seconds", 120)
+        except Exception:
+            ttl = 120
+
+        now = __import__("time").time()
+        if (
+            not ignore_cache
+            and _root_folders_cache["data"]
+            and (now - _root_folders_cache["ts"]) < ttl
+        ):
+            return list(_root_folders_cache["data"])
+
         response = self._make_request("GET", "/api/v3/rootFolder")
         result = response.json()
-        return result if isinstance(result, list) else []
+        folders = result if isinstance(result, list) else []
+        _root_folders_cache["data"] = folders
+        _root_folders_cache["ts"] = now
+        return folders
 
     def get_root_folder_paths(self) -> List[str]:
         """
