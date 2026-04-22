@@ -23,6 +23,37 @@ function apiUrl(endpoint) {
     return makeUrl('/api' + endpoint);
 }
 
+// ==========================================
+// ApiClient — centralised fetch wrapper
+// ==========================================
+class ApiClient {
+    constructor(basePath) {
+        this.basePath = basePath || '';
+    }
+
+    _url(endpoint) {
+        if (!endpoint.startsWith('/')) endpoint = '/' + endpoint;
+        return this.basePath + '/api' + endpoint;
+    }
+
+    async _request(method, endpoint, body, signal) {
+        const opts = { method, headers: { 'Content-Type': 'application/json' }, signal };
+        if (body !== undefined) opts.body = JSON.stringify(body);
+        const res = await fetch(this._url(endpoint), opts);
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || err.message || `HTTP ${res.status}`);
+        }
+        return res.json();
+    }
+
+    get(endpoint, signal)        { return this._request('GET',    endpoint, undefined, signal); }
+    post(endpoint, body, signal) { return this._request('POST',   endpoint, body,      signal); }
+    del(endpoint, signal)        { return this._request('DELETE', endpoint, undefined, signal); }
+}
+
+window.api = new ApiClient(window.BOXARR_BASE_PATH || '');
+
 // Helper to check if current path matches a given path (handling base path)
 function isCurrentPath(targetPath) {
     const currentPath = window.location.pathname;
@@ -1436,11 +1467,25 @@ function reloadScheduler() {
     // Initialize on DOM Load
     // ==========================================
 
+    function startConnectionPolling() {
+        clearInterval(statusCheckInterval);
+        statusCheckInterval = setInterval(checkConnection, 30000);
+    }
+
+    document.addEventListener('visibilitychange', function() {
+        if (document.hidden) {
+            clearInterval(statusCheckInterval);
+        } else {
+            startConnectionPolling();
+            checkConnection();
+        }
+    });
+
     document.addEventListener('DOMContentLoaded', function() {
         // Check connection status
         checkConnection();
-        setInterval(checkConnection, 30000);
-        
+        startConnectionPolling();
+
         // Check for updates (only once on page load)
         checkForUpdates();
         

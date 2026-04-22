@@ -754,6 +754,11 @@ select.filter-input {
 
 .page-btn {
     padding: 0.5rem 1rem;
+    min-height: 44px;
+    min-width: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     border: 1px solid var(--border-color);
     border-radius: 6px;
     background: var(--card-bg);
@@ -1032,11 +1037,11 @@ select.filter-input {
                     {% if movie.imdb_id or movie.title %}
                     <div class="external-links">
                         {% if movie.imdb_id %}
-                        <a href="https://www.imdb.com/title/{{ movie.imdb_id }}" target="_blank" class="action-btn">
+                        <a href="https://www.imdb.com/title/{{ movie.imdb_id }}" target="_blank" rel="noopener noreferrer" class="action-btn">
                             IMDb
                         </a>
                         {% endif %}
-                        <a href="https://en.wikipedia.org/wiki/{{ movie.title.replace(' ', '_') }}" target="_blank" class="action-btn">
+                        <a href="https://en.wikipedia.org/wiki/{{ movie.title.replace(' ', '_') }}" target="_blank" rel="noopener noreferrer" class="action-btn">
                             Wikipedia
                         </a>
                     </div>

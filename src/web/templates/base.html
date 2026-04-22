@@ -3,6 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#1e293b" media="(prefers-color-scheme: dark)">
     <title>{% block title %}Boxarr - Box Office Tracking for Radarr{% endblock %}</title>
     <link rel="icon" type="image/png" href="{{ request.scope.get('root_path', '') }}/static/boxar-logo.png">
     <link rel="stylesheet" href="{{ request.scope.get('root_path', '') }}/static/css/style.css?v=3">
@@ -311,7 +313,7 @@
             <div class="navbar-brand">
                 <h1><img src="{{ request.scope.get('root_path', '') }}/static/boxar-logo.png" alt="Boxarr Logo" class="navbar-logo"> Boxarr</h1>
                 <span class="version-badge">v{{ version|default('0.4.1-dev-dirty') }}</span>
-                <a href="#" id="updateNotification" class="update-notification" target="_blank">
+                <a href="#" id="updateNotification" class="update-notification" target="_blank" rel="noopener noreferrer">
                     <span class="update-icon">⬆️</span>
                     <span id="updateText">See what's changed</span>
                 </a>
@@ -351,7 +353,7 @@
 
     <footer class="footer">
         <div class="container">
-            <p>&copy; 2026 Boxarr | <a href="https://github.com/iongpt/boxarr" target="_blank">GitHub</a></p>
+            <p>&copy; 2026 Boxarr | <a href="https://github.com/iongpt/boxarr" target="_blank" rel="noopener noreferrer">GitHub</a></p>
         </div>
     </footer>
 

@@ -584,11 +584,11 @@
                     {% if movie.imdb_id or movie.title %}
                     <div class="external-links">
                         {% if movie.imdb_id %}
-                        <a href="https://www.imdb.com/title/{{ movie.imdb_id }}" target="_blank" class="action-btn">
+                        <a href="https://www.imdb.com/title/{{ movie.imdb_id }}" target="_blank" rel="noopener noreferrer" class="action-btn">
                             IMDb
                         </a>
                         {% endif %}
-                        <a href="https://en.wikipedia.org/wiki/{{ movie.title.replace(' ', '_') }}" target="_blank" class="action-btn">
+                        <a href="https://en.wikipedia.org/wiki/{{ movie.title.replace(' ', '_') }}" target="_blank" rel="noopener noreferrer" class="action-btn">
                             Wikipedia
                         </a>
                     </div>
