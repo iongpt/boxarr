@@ -7,6 +7,22 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Optional
 
+# Paths that produce high-frequency, low-value log noise when hit by automated
+# probes (Docker/orchestrator health checks, uptime monitors, load balancer
+# pings).  Uvicorn logs every HTTP request by default; without this filter the
+# access log fills with hundreds of identical health-check lines per hour,
+# drowning out meaningful events — the same reason Sonarr, Radarr, and other
+# *arr apps suppress health-endpoint access from their own log output.
+_HEALTHCHECK_PATHS = {"/api/health"}
+
+
+class _HealthCheckFilter(logging.Filter):
+    """Drop uvicorn access-log records for health-check endpoints."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        return not any(path in msg for path in _HEALTHCHECK_PATHS)
+
 
 def setup_logging(
     log_level: Optional[str] = None, data_directory: Optional[Path] = None
@@ -69,6 +85,14 @@ def setup_logging(
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     logging.getLogger("asyncio").setLevel(logging.WARNING)
+
+    # Suppress health-check requests from Uvicorn's access log.
+    # uvicorn.access emits one INFO line per HTTP request; Docker (and any
+    # orchestrator) hits /api/health every 30 s, so without this filter the
+    # log fills with ~2,880 identical lines per day before any real traffic is
+    # counted.  The filter is attached to the logger itself so it applies
+    # regardless of which handler the record is destined for.
+    logging.getLogger("uvicorn.access").addFilter(_HealthCheckFilter())
 
 
 def get_logger(name: Optional[str] = None) -> logging.Logger:
