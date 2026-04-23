@@ -293,7 +293,7 @@ These require touching Python backend code. Run `black` + `isort` + `pytest` aft
 
 ---
 
-### 3.1 — Async HTTP: Migrate `requests` → `httpx`
+### ✅ 3.1 — Async HTTP: Unblock event loop with `asyncio.to_thread()`
 - **Files:** `src/core/boxoffice.py`, `src/core/radarr.py`
 - **Problem:** `boxoffice.py` uses `requests` (synchronous) inside what are likely async FastAPI route handlers. When a scrape fires, the entire asyncio event loop blocks — no other requests can be served during that window. Same risk in `radarr.py`.
 - **Approach:**
@@ -343,7 +343,7 @@ These require touching Python backend code. Run `black` + `isort` + `pytest` aft
 
 ---
 
-### 3.3 — Bulk Radarr Movie Fetch for Status Refresh
+### ✅ 3.3 — Bulk Radarr Movie Fetch for Status Refresh
 - **Files:** `src/api/routes/movies.py`, `src/core/radarr.py`
 - **Problem:** The "Refresh Radarr Status" button on the overview page likely calls Radarr's `/api/v3/movie/{id}` endpoint once per movie. 100 movies = 100 API calls. Radarr has `/api/v3/movie` (no ID) which returns **all** movies in one call.
 - **Approach:**
@@ -372,7 +372,7 @@ These require touching Python backend code. Run `black` + `isort` + `pytest` aft
 
 ---
 
-### 3.4 — Lazy-Render Tenure Badge Popovers
+### ✅ 3.4 — Lazy-Render Tenure Badge Popovers
 - **Files:** `src/web/templates/overview.html`, `src/api/routes/movies.py` (new endpoint)
 - **Problem:** The tenure badge popover (all weeks a movie appeared) is fully server-rendered in HTML for every movie on the page. With 200 movies × 10 weeks each = 2000 hidden DOM nodes that are parsed, laid out, and held in memory even though they're invisible. Also the popover can clip off-screen because it uses hardcoded `position: absolute; top: 100%; right: 0`.
 - **Approach:**
@@ -409,7 +409,7 @@ These require touching Python backend code. Run `black` + `isort` + `pytest` aft
 
 ---
 
-### 3.5 — Static File Asset Fingerprinting
+### ✅ 3.5 — Static File Asset Fingerprinting
 - **Files:** `src/api/app.py` or `src/api/routes/web.py`, `src/web/templates/base.html`, `setup.html`
 - **Problem:** CSS/JS are served at `/static/css/style.css?v=3` — a manual query-string version that must be bumped by hand. Proxies don't always respect query string cache-busting. The correct pattern is content-hash in the filename: `style.a1b2c3d4.css`.
 - **Approach:**
@@ -887,7 +887,7 @@ These don't fit a single phase but should be addressed as files are touched.
 
 ## Summary Checklist by Priority
 
-> Last updated: 2026-04-22 — v1.7.3 on `feature/phase2-should-do` ([PR #5](https://github.com/xFlawless11x/boxarr/pull/5))
+> Last updated: 2026-04-22 — v1.7.4 on `feature/phase3-performance`
 
 ### Must-do before Phase 5 work begins
 - [x] 1.1 GZip middleware
@@ -895,8 +895,8 @@ These don't fit a single phase but should be addressed as files are touched.
 - [x] 1.3 Interval memory leak
 - [x] 2.1 Extract dashboard.js
 - [x] 2.2 ApiClient class
-- [ ] 3.1 httpx async migration ← **next priority**
-- [ ] 3.3 Bulk Radarr fetch
+- [x] 3.1 httpx async migration (asyncio.to_thread() on all blocking route calls)
+- [x] 3.3 Bulk Radarr fetch (already in place; confirmed)
 
 ### Should-do for code health
 - [x] 1.4 External link rel attributes
@@ -906,8 +906,8 @@ These don't fit a single phase but should be addressed as files are touched.
 - [x] 2.4 Search debounce (form auto-submit, 300 ms; full AbortController live search still possible as enhancement)
 - [x] 2.5 CSS variable aliases
 - [x] 3.2 TTL cache Radarr profiles + root folders
-- [ ] 3.4 Lazy tenure popovers
-- [ ] 3.5 Asset fingerprinting
+- [x] 3.4 Lazy tenure popovers
+- [x] 3.5 Asset fingerprinting
 
 ### UX polish
 - [~] 4.1 Skeleton loading states — CSS + shimmer done; template wiring (showing skeletons before JS-triggered fetch) still pending
