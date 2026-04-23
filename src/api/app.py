@@ -1,5 +1,8 @@
 """Boxarr API application."""
 
+import asyncio
+import hashlib
+from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, Request
@@ -112,6 +115,17 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
         """Initialize application on startup."""
         logger.info("Boxarr API starting up...")
 
+        # Compute content-hash fingerprints for static assets
+        static_dir = Path("src/web/static")
+        hashes: dict = {}
+        if static_dir.exists():
+            for f in static_dir.rglob("*"):
+                if f.is_file():
+                    h = hashlib.md5(f.read_bytes()).hexdigest()[:8]
+                    hashes[str(f.relative_to(static_dir)).replace("\\", "/")] = h
+        app.state.asset_hashes = hashes
+        logger.info(f"Asset fingerprints computed ({len(hashes)} files)")
+
         # Start scheduler if configured and enabled
         if scheduler and settings.boxarr_scheduler_enabled:
             scheduler.start()
@@ -134,7 +148,7 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
         if settings.radarr_api_key:
             try:
                 with RadarrService() as r:
-                    radarr_connected = r.test_connection()
+                    radarr_connected = await asyncio.to_thread(r.test_connection)
             except Exception:
                 radarr_connected = False
 

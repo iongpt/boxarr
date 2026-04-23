@@ -1,5 +1,6 @@
 """Configuration management routes."""
 
+import asyncio
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -116,19 +117,19 @@ async def test_configuration(config: TestConfigRequest):
     try:
         test_service = RadarrService(url=config.url, api_key=config.api_key)
 
-        if not test_service.test_connection():
+        if not await asyncio.to_thread(test_service.test_connection):
             return {
                 "success": False,
                 "message": "Could not connect to Radarr. Check URL and API key.",
             }
 
-        # Get profiles and folders
-        profiles = test_service.get_quality_profiles()
-        folders = test_service.get_root_folders()
+        # Get profiles and folders (blocking API calls → thread)
+        profiles = await asyncio.to_thread(test_service.get_quality_profiles)
+        folders = await asyncio.to_thread(test_service.get_root_folders)
 
         # Get Radarr version
         try:
-            status = test_service.get_system_status()
+            status = await asyncio.to_thread(test_service.get_system_status)
             version = status.get("version", "Unknown")
         except Exception:
             version = "Unknown"

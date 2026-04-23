@@ -55,6 +55,7 @@ def get_template_context(request: Request, **kwargs) -> dict:
         "request": request,
         "version": __version__,
         "theme": theme_str,
+        "asset_hashes": getattr(request.app.state, "asset_hashes", {}),
     }
     context.update(kwargs)
     return context

@@ -1685,6 +1685,43 @@ function reloadScheduler() {
                 }).observe(modal, { attributes: true, attributeFilter: ['class'] });
             });
         }());
+
+        // Lazy-load tenure popover content on first hover
+        (function () {
+            function renderTenureChips(weeks) {
+                if (!weeks || !weeks.length) return '<span style="opacity:0.6;font-size:0.75rem;">No data</span>';
+                const base = window.BOXARR_BASE_PATH || '';
+                if (weeks.length === 1) {
+                    const yr = weeks[0].slice(0, 4), wk = weeks[0].slice(4);
+                    return `<div class="tenure-single-wrap"><a href="${base}/${weeks[0]}" class="tenure-single-pill"><span class="tenure-pill-year">${yr}</span><span class="tenure-pill-week">${wk}</span></a></div>`;
+                }
+                let html = '', curYear = '';
+                weeks.forEach(function (week) {
+                    const yr = week.slice(0, 4), wk = week.slice(4);
+                    if (yr !== curYear) {
+                        if (curYear) html += '</div></div>';
+                        html += `<div class="tenure-year-group"><div class="tenure-year-label">${yr}</div><div class="tenure-chips">`;
+                        curYear = yr;
+                    }
+                    html += `<a href="${base}/${week}" class="tenure-chip">${wk}</a>`;
+                });
+                if (curYear) html += '</div></div>';
+                return html;
+            }
+
+            document.addEventListener('mouseenter', function (e) {
+                const badge = e.target.closest('.tenure-badge[data-tmdb-id]');
+                if (!badge) return;
+                const body = badge.querySelector('.tenure-popover-body');
+                if (!body || body.dataset.loaded) return;
+                body.dataset.loaded = 'true';
+                body.innerHTML = '<span style="opacity:0.5;font-size:0.75rem;">Loading…</span>';
+                const tmdbId = badge.dataset.tmdbId;
+                api.get(`/movies/${tmdbId}/weeks`)
+                    .then(function (data) { body.innerHTML = renderTenureChips(data.weeks); })
+                    .catch(function () { body.innerHTML = ''; });
+            }, true);
+        }());
     });
 
     // Cleanup on page unload

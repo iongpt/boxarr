@@ -929,33 +929,14 @@ select.filter-input {
             <div class="ignored-badge">Ignored</div>
             {% endif %}
 
-            <!-- Tenure badge: weeks this movie appeared in -->
+            <!-- Tenure badge: weeks loaded lazily on first hover -->
             {% if movie.weeks|length > 0 %}
-            <div class="tenure-badge">
+            <div class="tenure-badge" data-tmdb-id="{{ movie.tmdb_id }}">
                 <span>📅</span>
                 <span>{{ movie.weeks|length }} week{% if movie.weeks|length != 1 %}s{% endif %}</span>
                 <div class="tenure-popover">
                     <div class="tenure-popover-header">Appeared in</div>
-                    {% if movie.weeks|length == 1 %}
-                    <div class="tenure-single-wrap">
-                        <a href="{{ request.scope.get('root_path', '') }}/{{ movie.weeks[0] }}" class="tenure-single-pill">
-                            <span class="tenure-pill-year">{{ movie.weeks[0][:4] }}</span>
-                            <span class="tenure-pill-week">{{ movie.weeks[0][4:] }}</span>
-                        </a>
-                    </div>
-                    {% else %}
-                    {% set ns = namespace(cur_year='') %}
-                    {% for week in movie.weeks %}
-                    {% set yr = week[:4] %}
-                    {% if yr != ns.cur_year %}
-                    {% if ns.cur_year != '' %}</div></div>{% endif %}
-                    <div class="tenure-year-group"><div class="tenure-year-label">{{ yr }}</div><div class="tenure-chips">
-                    {% set ns.cur_year = yr %}
-                    {% endif %}
-                    <a href="{{ request.scope.get('root_path', '') }}/{{ week }}" class="tenure-chip">{{ week[4:] }}</a>
-                    {% endfor %}
-                    {% if ns.cur_year != '' %}</div></div>{% endif %}
-                    {% endif %}
+                    <div class="tenure-popover-body"></div>
                 </div>
             </div>
             {% endif %}

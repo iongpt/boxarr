@@ -7,7 +7,7 @@
     <meta name="theme-color" content="#1e293b" media="(prefers-color-scheme: dark)">
     <title>{% block title %}Boxarr - Box Office Tracking for Radarr{% endblock %}</title>
     <link rel="icon" type="image/png" href="{{ request.scope.get('root_path', '') }}/static/boxar-logo.png">
-    <link rel="stylesheet" href="{{ request.scope.get('root_path', '') }}/static/css/style.css?v=3">
+    <link rel="stylesheet" href="{{ request.scope.get('root_path', '') }}/static/css/style.css?v={{ asset_hashes.get('css/style.css', '1') }}">
     <script>
         /* Theme initialization - prevent FOUC */
         (function() {
@@ -357,8 +357,8 @@
         </div>
     </footer>
 
-    <script src="{{ request.scope.get('root_path', '') }}/static/js/theme-manager.js?v=1"></script>
-    <script src="{{ request.scope.get('root_path', '') }}/static/js/app.js?v=3"></script>
+    <script src="{{ request.scope.get('root_path', '') }}/static/js/theme-manager.js?v={{ asset_hashes.get('js/theme-manager.js', '1') }}"></script>
+    <script src="{{ request.scope.get('root_path', '') }}/static/js/app.js?v={{ asset_hashes.get('js/app.js', '1') }}"></script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

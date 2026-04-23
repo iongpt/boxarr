@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Boxarr Setup{% endblock %}</title>
     <link rel="icon" type="image/png" href="{{ request.scope.get('root_path', '') }}/static/boxar-logo.png">
-    <link rel="stylesheet" href="{{ request.scope.get('root_path', '') }}/static/css/style.css">
+    <link rel="stylesheet" href="{{ request.scope.get('root_path', '') }}/static/css/style.css?v={{ asset_hashes.get('css/style.css', '1') }}">
     <script>
         // Apply theme immediately to prevent flash
         (function() {
@@ -631,8 +631,8 @@
 
 }
 </style>
-<script src="{{ request.scope.get('root_path', '') }}/static/js/theme-manager.js?v=1"></script>
-<script src="{{ request.scope.get('root_path', '') }}/static/js/app.js?v=2"></script>
+<script src="{{ request.scope.get('root_path', '') }}/static/js/theme-manager.js?v={{ asset_hashes.get('js/theme-manager.js', '1') }}"></script>
+<script src="{{ request.scope.get('root_path', '') }}/static/js/app.js?v={{ asset_hashes.get('js/app.js', '1') }}"></script>
 <script>
 // Sync theme select with current preference
 document.addEventListener('DOMContentLoaded', function() {

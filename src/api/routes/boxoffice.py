@@ -1,5 +1,6 @@
 """Box office data routes."""
 
+import asyncio
 from datetime import datetime
 from typing import List, Optional
 
@@ -35,9 +36,9 @@ class BoxOfficeMovieResponse(BaseModel):
 async def get_current_box_office():
     """Get current week's box office with Radarr matching."""
     try:
-        # Get current week's box office
+        # Get current week's box office (blocking HTTP scrape → thread)
         boxoffice_service = BoxOfficeService()
-        movies = boxoffice_service.get_current_week_movies()
+        movies = await asyncio.to_thread(boxoffice_service.get_current_week_movies)
 
         # Match with Radarr if configured
         results = []
@@ -45,8 +46,8 @@ async def get_current_box_office():
             radarr_service = RadarrService()
             matcher = MovieMatcher()
 
-            # Get all Radarr movies and build index
-            radarr_movies = radarr_service.get_all_movies()
+            # Get all Radarr movies and build index (blocking API call → thread)
+            radarr_movies = await asyncio.to_thread(radarr_service.get_all_movies)
             matcher.build_movie_index(radarr_movies)
 
             # Match each movie
@@ -112,9 +113,11 @@ async def get_historical_box_office(year: int, week: int):
         if week < 1 or week > 53:
             raise HTTPException(status_code=400, detail="Invalid week number")
 
-        # Get historical data
+        # Get historical data (blocking HTTP scrape → thread)
         boxoffice_service = BoxOfficeService()
-        movies = boxoffice_service.fetch_weekend_box_office(year, week)
+        movies = await asyncio.to_thread(
+            boxoffice_service.fetch_weekend_box_office, year, week
+        )
 
         # Return simplified data
         return [

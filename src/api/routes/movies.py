@@ -244,6 +244,40 @@ async def refresh_stored_status_progress():
     return _refresh_state
 
 
+@router.get("/{tmdb_id}/weeks")
+async def get_movie_weeks(tmdb_id: int):
+    """Return all weekly page slugs that contain this movie."""
+    try:
+        weekly_pages_dir = Path(settings.boxarr_data_directory) / "weekly_pages"
+        if not weekly_pages_dir.exists():
+            return {"weeks": []}
+
+        def _scan():
+            found = []
+            for json_file in sorted(weekly_pages_dir.glob("*.json")):
+                if json_file.name == "current.json":
+                    continue
+                try:
+                    import json as _json
+
+                    with open(json_file) as fh:
+                        data = _json.load(fh)
+                    year = data.get("year")
+                    week = data.get("week")
+                    week_str = f"{year}W{week:02d}"
+                    if any(m.get("tmdb_id") == tmdb_id for m in data.get("movies", [])):
+                        found.append(week_str)
+                except Exception:
+                    continue
+            return sorted(found, reverse=True)
+
+        weeks = await asyncio.to_thread(_scan)
+        return {"weeks": weeks}
+    except Exception as e:
+        logger.error(f"Error getting weeks for tmdb_id {tmdb_id}: {e}")
+        return {"weeks": []}
+
+
 @router.get("/{movie_id}")
 async def get_movie_details(movie_id: int):
     """Get detailed information about a movie."""
@@ -285,8 +319,8 @@ async def get_movies_status(request: MovieStatusRequest):
             return {"statuses": {}}
 
         radarr_service = RadarrService()
-        all_movies = radarr_service.get_all_movies()
-        profiles = radarr_service.get_quality_profiles()
+        all_movies = await asyncio.to_thread(radarr_service.get_all_movies)
+        profiles = await asyncio.to_thread(radarr_service.get_quality_profiles)
         profiles_by_id = {p.id: p.name for p in profiles}
         # Determine upgrade profile id once
         upgrade_profile_id = None

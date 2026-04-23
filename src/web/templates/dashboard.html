@@ -1147,5 +1147,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ request.scope.get('root_path', '') }}/static/js/dashboard.js?v={{ version|default('1') }}"></script>
+<script src="{{ request.scope.get('root_path', '') }}/static/js/dashboard.js?v={{ asset_hashes.get('js/dashboard.js', '1') }}"></script>
 {% endblock %}
