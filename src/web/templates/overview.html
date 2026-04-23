@@ -921,7 +921,17 @@ select.filter-input {
     </div>
     
     <!-- Movies Grid -->
-    <div class="movies-grid">
+    <div class="movies-grid" id="moviesGrid">
+        {% if not movies %}
+        {% for _ in range(10) %}
+        <div class="skeleton-card">
+            <div class="skeleton-poster"></div>
+            <div class="skeleton-line"></div>
+            <div class="skeleton-line short"></div>
+            <div class="skeleton-line short"></div>
+        </div>
+        {% endfor %}
+        {% endif %}
         {% for movie in movies %}
         <div class="movie-card{% if movie.tmdb_id and movie.tmdb_id in ignored_tmdb_ids %} ignored{% endif %}" data-movie-id="{{ movie.radarr_id or '' }}" data-tmdb-id="{{ movie.tmdb_id or '' }}">
             <div class="rank-badge">#{{ movie.best_rank }}</div>

@@ -5,12 +5,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from ...core.scheduler import BoxarrScheduler
 from ...utils.config import settings
 from ...utils.logger import get_logger
+from ..limiter import limiter
+from ..models import ErrorResponse, SuccessResponse
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/api/scheduler", tags=["scheduler"])
@@ -43,7 +45,8 @@ class TriggerResponse(BaseModel):
 
 
 @router.post("/trigger", response_model=TriggerResponse)
-async def trigger_update():
+@limiter.limit("3/minute")
+async def trigger_update(request: Request):
     """Manually trigger box office update."""
     try:
         scheduler = get_scheduler()
@@ -258,10 +261,11 @@ class UpdateWeekRequest(BaseModel):
 
 
 @router.post("/update-week")
-async def update_specific_week(request: UpdateWeekRequest):  # noqa: C901
+@limiter.limit("10/minute")
+async def update_specific_week(request: Request, body: UpdateWeekRequest):  # noqa: C901
     """Update box office for a specific historical week."""
-    year = request.year
-    week = request.week
+    year = body.year
+    week = body.week
     try:
         # Validate inputs
         if year < 2000 or year > datetime.now().year:

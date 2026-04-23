@@ -96,7 +96,7 @@ class RangeProcessor {
         const progressSpinner = document.getElementById('progressSpinner');
         const cancelButton = document.getElementById('cancelButton');
 
-        modal.style.display = 'flex';
+        modal.classList.add('show');
         multiWeekProgress.style.display = 'block';
         progressSpinner.style.display = 'block';
         cancelButton.style.display = 'inline-block';
@@ -120,7 +120,7 @@ class RangeProcessor {
     }
 
     showSummary() {
-        document.getElementById('progressModal').style.display = 'none';
+        document.getElementById('progressModal').classList.remove('show');
 
         const successful = this.results.filter(r => r.success).length;
         const failed = this.results.filter(r => !r.success);
@@ -145,7 +145,7 @@ class RangeProcessor {
             document.getElementById('failedWeeks').style.display = 'none';
         }
 
-        document.getElementById('summaryModal').style.display = 'flex';
+        document.getElementById('summaryModal').classList.add('show');
     }
 
     cancel() {
@@ -346,15 +346,15 @@ function cancelRangeUpdate() {
 }
 
 function closeSummaryModal() {
-    document.getElementById('summaryModal').style.display = 'none';
+    document.getElementById('summaryModal').classList.remove('show');
 }
 
 function showHistoricalUpdate() {
-    document.getElementById('historicalModal').style.display = 'flex';
+    document.getElementById('historicalModal').classList.add('show');
 }
 
 function closeHistoricalUpdate() {
-    document.getElementById('historicalModal').style.display = 'none';
+    document.getElementById('historicalModal').classList.remove('show');
 }
 
 function updateCurrentWeek() {
@@ -422,8 +422,8 @@ function updateHistoricalWeek() {
     });
 }
 
-function closeHistoricalKeekModal() {
-    document.getElementById('historicalWeekModal').style.display = 'none';
+function closeHistoricalWeekModal() {
+    document.getElementById('historicalWeekModal').classList.remove('show');
 }
 
 function fetchHistoricalWeek() {
@@ -562,7 +562,7 @@ function showProgress(message) {
     const progressSpinner = document.getElementById('progressSpinner');
     const progressLog = document.getElementById('progressLog');
 
-    modal.style.display = 'flex';
+    modal.classList.add('show');
     progressMessage.textContent = message;
     multiWeekProgress.style.display = 'none';
     progressSpinner.style.display = 'block';
@@ -607,6 +607,6 @@ function showError(message) {
 }
 
 function closeProgressModal() {
-    document.getElementById('progressModal').style.display = 'none';
+    document.getElementById('progressModal').classList.remove('show');
     document.getElementById('progressFooter').style.display = 'none';
 }

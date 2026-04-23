@@ -6,13 +6,14 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from ... import __version__
 from ...core.radarr import RadarrService
 from ...utils.config import RootFolderConfig, RootFolderMapping, Settings, settings
 from ...utils.logger import get_logger
+from ..limiter import limiter
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/api/config", tags=["configuration"])
@@ -150,7 +151,8 @@ async def test_configuration(config: TestConfigRequest):
 
 
 @router.post("/save")
-async def save_configuration(config: SaveConfigRequest):
+@limiter.limit("10/minute")
+async def save_configuration(request: Request, config: SaveConfigRequest):
     """Save configuration to file."""
     try:
         data_directory = Path(

@@ -3,7 +3,7 @@
 import asyncio
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
@@ -16,6 +16,7 @@ from ...core.radarr import RadarrService, get_all_movies_with_optional_cache_byp
 from ...core.root_folder_manager import RootFolderManager
 from ...utils.config import settings
 from ...utils.logger import get_logger
+from ..models import ErrorResponse, SuccessResponse
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/api/movies", tags=["movies"])
@@ -441,7 +442,7 @@ async def upgrade_movie_quality(movie_id: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/add")
+@router.post("/add", response_model=Union[SuccessResponse, ErrorResponse])
 async def add_movie_to_radarr(request: AddMovieRequest):
     """Add a movie to Radarr and regenerate affected weeks."""
     try:

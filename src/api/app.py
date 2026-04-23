@@ -9,6 +9,8 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 from starlette.middleware.base import BaseHTTPMiddleware
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
@@ -17,6 +19,7 @@ from ..core.radarr import RadarrService
 from ..core.scheduler import BoxarrScheduler
 from ..utils.config import settings
 from ..utils.logger import get_logger
+from .limiter import limiter
 from .routes import (
     admin_router,
     boxoffice_router,
@@ -70,6 +73,10 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
         docs_url="/api/docs",
         redoc_url="/api/redoc",
     )
+
+    # Attach rate limiter
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
     # Add ProxyHeadersMiddleware to handle reverse proxy headers
     # Note: Remove trusted_hosts parameter for better security

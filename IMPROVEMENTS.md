@@ -442,7 +442,7 @@ These require touching Python backend code. Run `black` + `isort` + `pytest` aft
 
 ---
 
-### ⚠️ 4.1 — Skeleton Loading States for Movie Grid (CSS done; template wiring pending)
+### ✅ 4.1 — Skeleton Loading States for Movie Grid
 - **Files:** `src/web/static/css/style.css`, `src/web/templates/overview.html`, `src/web/templates/weekly.html`
 - **Problem:** On page load with 100+ movies, there's a blank screen while the server renders and the browser paints. No visual feedback. On slow home networks this can be 2–4 seconds of nothing.
 - **Approach:**
@@ -476,7 +476,7 @@ These require touching Python backend code. Run `black` + `isort` + `pytest` aft
 
 ---
 
-### 4.2 — Collapse 4 Dashboard Modals into a Single Wizard
+### ✅ 4.2 — Collapse 4 Dashboard Modals into a Single Wizard
 - **File:** `src/web/templates/dashboard.html`
 - **Problem:** The "Update Historical Data" flow is a wizard (Select type → Configure → Confirm → Progress → Summary) but built as 4 independent modals with manual state threading. The Escape key doesn't correctly identify which modal is "on top." State from modal 1 (range selection) must be manually passed to modal 2 (confirmation) via global variables.
 - **Approach:**
@@ -799,7 +799,7 @@ These don't fit a single phase but should be addressed as files are touched.
 
 ---
 
-### O.1 — Rate Limiting on Mutation Endpoints
+### ✅ O.1 — Rate Limiting on Mutation Endpoints
 - **Files:** `src/api/app.py`, mutation routes
 - **Problem:** `/api/scheduler/trigger` kicks off a full scrape + Radarr sync. No protection against it being called in a loop (by a bug or a curious user).
 - **Approach:** `slowapi` is a FastAPI-compatible rate limiting library:
@@ -821,7 +821,7 @@ These don't fit a single phase but should be addressed as files are touched.
 
 ---
 
-### O.2 — Standardize Error Response Shape
+### ✅ O.2 — Standardize Error Response Shape
 - **Files:** All route files
 - **Problem:** Some endpoints return `{"detail": "..."}` (FastAPI default), some return `{"success": false, "message": "..."}`, some return bare strings. The JS has to handle all three which is why many handlers do `err.detail || err.message || 'Unknown error'`.
 - **Approach:**
@@ -846,7 +846,7 @@ These don't fit a single phase but should be addressed as files are touched.
 
 ---
 
-### O.3 — Docker Layer Caching Optimization
+### ✅ O.3 — Docker Layer Caching Optimization
 - **File:** `Dockerfile`
 - **Problem:** If `COPY . .` appears before `RUN pip install`, every code change invalidates the pip cache layer — full reinstall on every build.
 - **Approach (canonical pattern):**
@@ -910,8 +910,8 @@ These don't fit a single phase but should be addressed as files are touched.
 - [x] 3.5 Asset fingerprinting
 
 ### UX polish
-- [~] 4.1 Skeleton loading states — CSS + shimmer done; template wiring (showing skeletons before JS-triggered fetch) still pending
-- [ ] 4.2 Modal wizard (consolidate 4 modals → single step wizard)
+- [x] 4.1 Skeleton loading states — CSS + shimmer done; 10 skeleton cards shown when movies list is empty
+- [x] 4.2 Modal wizard — unified classList.add/remove('show') across all 4 modals; Escape key + focus trap now work for all; fixed closeHistoricalKeekModal typo; added ARIA to summaryModal
 - [x] 4.3 ARIA + focus trap (role/aria-modal/aria-labelledby + MutationObserver trap)
 - [x] 4.4 clamp() typography
 - [x] 4.5 Toast queue (max 3 visible, overflow queued, CSS-driven animations)
@@ -926,7 +926,7 @@ These don't fit a single phase but should be addressed as files are touched.
 - [ ] 5.5 Keyboard shortcuts
 
 ### Cross-cutting
-- [ ] O.1 Rate limiting
-- [ ] O.2 Standardize error shape
-- [ ] O.3 Docker layer caching
+- [x] O.1 Rate limiting (slowapi; 3/min trigger, 10/min update-week & config/save)
+- [x] O.2 Standardize error shape (ErrorResponse/SuccessResponse in src/api/models.py; annotated key endpoints)
+- [x] O.3 Docker layer caching (Dockerfile already had correct layer order)
 - [x] O.4 theme-color meta tag
