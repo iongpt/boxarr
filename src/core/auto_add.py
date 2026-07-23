@@ -1,15 +1,46 @@
 """Shared auto-add logic for adding unmatched movies to Radarr."""
 
-from typing import List
+from typing import Any, Dict, List, Optional
 
 from ..utils.config import settings
 from ..utils.logger import get_logger
+from .boxoffice import BoxOfficeMovie
 from .ignore_list import IgnoreList
 from .matcher import MatchResult
 from .radarr import RadarrService
 from .root_folder_manager import RootFolderManager
 
 logger = get_logger(__name__)
+
+
+def _normalize_imdb_id(imdb_id: Optional[str]) -> Optional[str]:
+    """Normalize an IMDb id for comparison (case/whitespace insensitive)."""
+    if not imdb_id:
+        return None
+    return imdb_id.strip().lower()
+
+
+def _select_search_result(
+    search_results: List[Dict[str, Any]], box_office_movie: BoxOfficeMovie
+) -> Dict[str, Any]:
+    """
+    Select the search result matching the box-office movie's IMDb id.
+
+    When the box-office movie carries an IMDb id, prefer the result whose
+    ``imdbId`` matches it. If none matches - or no IMDb id is available -
+    fall back to the first result to preserve the previous behavior.
+    """
+    target = _normalize_imdb_id(box_office_movie.imdb_id)
+    if target:
+        for candidate in search_results:
+            if _normalize_imdb_id(candidate.get("imdbId")) == target:
+                return candidate
+        logger.warning(
+            f"No TMDB search result for '{box_office_movie.title}' matched "
+            f"IMDb id {box_office_movie.imdb_id}; falling back to top result "
+            f"'{search_results[0].get('title')}'"
+        )
+    return search_results[0]
 
 
 def auto_add_missing_movies(
@@ -74,7 +105,7 @@ def auto_add_missing_movies(
                 )
                 continue
 
-            movie_info = search_results[0]
+            movie_info = _select_search_result(search_results, result.box_office_movie)
 
             # Skip movies on the ignore list
             movie_tmdb_id = movie_info.get("tmdbId")
