@@ -205,6 +205,17 @@
                     <small class="text-muted">Number of movies to fetch from Box Office Mojo each week (1-30)</small>
                 </div>
 
+                <!-- Box Office Region -->
+                <div class="form-group" style="margin-top: 1rem;">
+                    <label for="boxOfficeRegion" class="form-label">Box Office Region</label>
+                    <select id="boxOfficeRegion" name="boxarr_features_box_office_region" class="form-select">
+                        {% for code, name in box_office_regions %}
+                        <option value="{{ code }}" {% if box_office_region == code %}selected{% endif %}>{{ name }}</option>
+                        {% endfor %}
+                    </select>
+                    <small class="text-muted">Which Box Office Mojo weekend chart to fetch (grosses are shown in the region's local currency)</small>
+                </div>
+
                 <!-- Auto-Add Advanced Options -->
                 <div id="autoAddOptions" class="auto-add-options {% if auto_add %}active{% endif %}" style="margin-left: 2rem; margin-top: 1rem; padding: 1rem; background: var(--bg-color); border-radius: 8px; border-left: 3px solid var(--primary-color);">
                     <!-- Top X Movies Limit -->

@@ -8,10 +8,100 @@ from typing import Dict, List, Optional, Tuple
 import httpx
 from bs4 import BeautifulSoup
 
+from ..utils.config import settings
 from ..utils.logger import get_logger
 from .exceptions import BoxOfficeError
 
 logger = get_logger(__name__)
+
+# Box Office Mojo international "area" codes mapped to display names.
+# The empty code selects the default US & Canada domestic chart, which is
+# fetched without an ?area parameter. All other codes append ?area=CODE.
+BOX_OFFICE_REGIONS: List[Tuple[str, str]] = [
+    ("", "Domestic (US & Canada)"),
+    ("AL", "Albania"),
+    ("AR", "Argentina"),
+    ("AU", "Australia"),
+    ("AT", "Austria"),
+    ("BH", "Bahrain"),
+    ("BD", "Bangladesh"),
+    ("BE", "Belgium"),
+    ("BO", "Bolivia"),
+    ("BA", "Bosnia and Herzegovina"),
+    ("BR", "Brazil"),
+    ("BG", "Bulgaria"),
+    ("CA", "Canada"),
+    ("CL", "Chile"),
+    ("CN", "China"),
+    ("CO", "Colombia"),
+    ("CR", "Costa Rica"),
+    ("HR", "Croatia"),
+    ("CY", "Cyprus"),
+    ("CZ", "Czech Republic"),
+    ("DK", "Denmark"),
+    ("DO", "Dominican Republic"),
+    ("EC", "Ecuador"),
+    ("EG", "Egypt"),
+    ("SV", "El Salvador"),
+    ("EE", "Estonia"),
+    ("FI", "Finland"),
+    ("FR", "France"),
+    ("DE", "Germany"),
+    ("GR", "Greece"),
+    ("GT", "Guatemala"),
+    ("HK", "Hong Kong"),
+    ("HU", "Hungary"),
+    ("IS", "Iceland"),
+    ("IN", "India"),
+    ("ID", "Indonesia"),
+    ("IQ", "Iraq"),
+    ("IL", "Israel"),
+    ("IT", "Italy"),
+    ("JP", "Japan"),
+    ("JO", "Jordan"),
+    ("KE", "Kenya"),
+    ("LV", "Latvia"),
+    ("LB", "Lebanon"),
+    ("LT", "Lithuania"),
+    ("MY", "Malaysia"),
+    ("MX", "Mexico"),
+    ("MN", "Mongolia"),
+    ("NL", "Netherlands"),
+    ("NZ", "New Zealand"),
+    ("NG", "Nigeria"),
+    ("MK", "North Macedonia"),
+    ("NO", "Norway"),
+    ("OM", "Oman"),
+    ("PK", "Pakistan"),
+    ("PA", "Panama"),
+    ("PY", "Paraguay"),
+    ("PE", "Peru"),
+    ("PH", "Philippines"),
+    ("PL", "Poland"),
+    ("PT", "Portugal"),
+    ("QA", "Qatar"),
+    ("RO", "Romania"),
+    ("SA", "Saudi Arabia"),
+    ("SG", "Singapore"),
+    ("SK", "Slovakia"),
+    ("SI", "Slovenia"),
+    ("ZA", "South Africa"),
+    ("KR", "South Korea"),
+    ("ES", "Spain"),
+    ("LK", "Sri Lanka"),
+    ("SE", "Sweden"),
+    ("CH", "Switzerland"),
+    ("TW", "Taiwan"),
+    ("TH", "Thailand"),
+    ("TT", "Trinidad & Tobago"),
+    ("TR", "Türkiye"),
+    ("UA", "Ukraine"),
+    ("AE", "United Arab Emirates"),
+    ("GB", "United Kingdom"),
+    ("UY", "Uruguay"),
+    ("VE", "Venezuela"),
+    ("VN", "Vietnam"),
+]
 
 
 @dataclass
@@ -143,6 +233,25 @@ class BoxOfficeService:
         except (ValueError, AttributeError):
             return None
 
+    def _build_weekend_url(self, year: int, week: int) -> str:
+        """
+        Build the Box Office Mojo weekend URL for the configured region.
+
+        Args:
+            year: Year
+            week: ISO week number
+
+        Returns:
+            Weekend chart URL, with ?area=CODE appended for non-domestic regions
+        """
+        url = f"{self.BASE_URL}/weekend/{year}W{week:02d}/"
+        region = (
+            getattr(settings, "boxarr_features_box_office_region", "") or ""
+        ).strip()
+        if region and region.lower() != "domestic":
+            url = f"{url}?area={region}"
+        return url
+
     def fetch_weekend_box_office(
         self,
         year: Optional[int] = None,
@@ -166,7 +275,7 @@ class BoxOfficeService:
         if year is None or week is None:
             _, _, year, week = self.get_weekend_dates()
 
-        url = f"{self.BASE_URL}/weekend/{year}W{week:02d}/"
+        url = self._build_weekend_url(year, week)
         logger.info(f"Fetching box office data from: {url}")
 
         try:
