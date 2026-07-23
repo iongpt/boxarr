@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.8.0] - 2026-07-23
+## [2.0.0] - 2026-07-23
 
 ### Added
 - **Selectable Box Office Region**: New setup dropdown to pick a Box Office Mojo region, driving an `?area=CODE` query so charts can track box office beyond US & Canada domestic (#109, #112)
@@ -16,9 +16,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Ignore Button**: Fixed single-quote escaping in the overview ignore-button `onclick` handler so movies with apostrophes in their titles can be ignored (#106, #111)
 - **Event-Loop Blocking**: Manual box office routes now offload the blocking Box Office Mojo scraper to a worker thread, so a wedged upstream (compounded by request retries) no longer stalls the asyncio event loop and hangs every request, including `/api/health`
 - **Timeout Preservation on Save**: Saving configuration from the settings UI now preserves the `boxoffice_timeout` (and Radarr request timeout) value instead of silently reverting it to the default
+- **Correct Auto-Add Match**: Auto-add now selects the Radarr lookup result by IMDb id instead of the first candidate, preventing the wrong movie from being added (#115)
+- **Year-Boundary Navigation**: Fixed previous-week navigation across the year boundary and URL-encoded the overview search links so titles with special characters resolve correctly (#116)
+- **XSS Hardening**: Escaped dynamic widget output and switched toast rendering to a safe path so untrusted values can no longer inject markup (#117)
+- **Sequel Mismatch**: The matcher no longer links a charting sequel to the original film already in the library (#118)
 
 ### Changed
 - **Health-Check Logging**: Suppressed `uvicorn.access` log lines for `/api/health` to keep logs readable under frequent health probes (#107)
+- **Config Resilience**: A corrupt `local.yaml` no longer crashes the app — the loader falls back to setup mode, backs up the unreadable file as `.broken`, and writes config atomically (#119)
+- **Weekly JSON Integrity**: Weekly page data is now written atomically and read corruption-safe, writers are serialized under a shared lock, and movies deleted from Radarr are un-linked from stored weeks (#120)
 
 ## [1.7.0] - 2026-04-05
 

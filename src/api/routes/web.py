@@ -780,10 +780,9 @@ async def get_available_weeks() -> List[WeekInfo]:
             year = metadata["year"]
             week = metadata["week"]
 
-            # Get first day of week (Monday)
-            jan1 = datetime(year, 1, 1)
-            week_start = jan1 + timedelta(weeks=week - 1)
-            week_start -= timedelta(days=week_start.weekday())
+            # Get first day of week (ISO Monday), matching serve_weekly_page
+            # and the JSON generator so the overview and week pages agree.
+            week_start = date.fromisocalendar(year, week, 1)
             week_end = week_start + timedelta(days=6)
 
             date_range = (

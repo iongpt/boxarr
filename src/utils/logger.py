@@ -2,6 +2,7 @@
 
 import logging
 import os
+import re
 import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -15,13 +16,23 @@ from typing import Optional
 # *arr apps suppress health-endpoint access from their own log output.
 _HEALTHCHECK_PATHS = {"/api/health"}
 
+# uvicorn.access lines embed the request line as ``"METHOD TARGET HTTP/x.y"``.
+# Capture the space-delimited request target so we can match the path exactly
+# rather than testing for a bare substring (which would also suppress e.g.
+# ``/api/health-report`` or ``/movies?next=/api/health``).
+_ACCESS_REQUEST_TARGET_RE = re.compile(r'"\S+\s+(?P<target>\S+)\s+HTTP/')
+
 
 class _HealthCheckFilter(logging.Filter):
     """Drop uvicorn access-log records for health-check endpoints."""
 
     def filter(self, record: logging.LogRecord) -> bool:
-        msg = record.getMessage()
-        return not any(path in msg for path in _HEALTHCHECK_PATHS)
+        match = _ACCESS_REQUEST_TARGET_RE.search(record.getMessage())
+        if match is None:
+            return True
+        # Strip any query string; match only the path component.
+        path = match.group("target").split("?", 1)[0]
+        return path not in _HEALTHCHECK_PATHS
 
 
 def setup_logging(

@@ -1,6 +1,7 @@
 """Ignore list manager for permanently skipping movies."""
 
 import json
+import os
 import tempfile
 from datetime import datetime
 from pathlib import Path
@@ -51,6 +52,8 @@ class IgnoreList:
             try:
                 with open(tmp_fd, "w") as f:
                     json.dump(entries, f, indent=2)
+                    f.flush()
+                    os.fsync(f.fileno())
                 Path(tmp_path).replace(self._file_path)
             except Exception:
                 Path(tmp_path).unlink(missing_ok=True)
