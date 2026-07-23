@@ -1,9 +1,9 @@
 """Web UI routes."""
 
 import json
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -554,6 +554,36 @@ async def setup_page(request: Request):
     )
 
 
+def _last_iso_week(year: int) -> int:
+    """Return the last ISO week number of a year (52 or 53).
+
+    Dec 28 is always in the last ISO week of its own year, whereas Dec 31 can
+    fall in week 1 of the following year (e.g. 2018-12-31), which would wrongly
+    report the last week as 1.
+    """
+    return date(year, 12, 28).isocalendar()[1]
+
+
+def _previous_week(year: int, week: int) -> Tuple[int, int]:
+    """Compute the (year, week) immediately preceding the given ISO week."""
+    prev_week_num = week - 1
+    prev_year = year
+    if prev_week_num < 1:
+        prev_year = year - 1
+        prev_week_num = _last_iso_week(prev_year)
+    return prev_year, prev_week_num
+
+
+def _next_week(year: int, week: int) -> Tuple[int, int]:
+    """Compute the (year, week) immediately following the given ISO week."""
+    next_week_num = week + 1
+    next_year = year
+    if next_week_num > _last_iso_week(year):
+        next_year = year + 1
+        next_week_num = 1
+    return next_year, next_week_num
+
+
 @router.get("/{year}W{week}", response_class=HTMLResponse)
 async def serve_weekly_page(request: Request, year: int, week: int):
     """Serve a specific week's page using template with dynamic data."""
@@ -594,13 +624,7 @@ async def serve_weekly_page(request: Request, year: int, week: int):
     next_week = None
 
     # Check for previous week
-    prev_week_num = week - 1
-    prev_year = year
-    if prev_week_num < 1:
-        prev_year = year - 1
-        # Get last week of previous year
-        last_day = date(prev_year, 12, 31)
-        prev_week_num = last_day.isocalendar()[1]
+    prev_year, prev_week_num = _previous_week(year, week)
 
     prev_json = (
         Path(settings.boxarr_data_directory)
@@ -611,13 +635,7 @@ async def serve_weekly_page(request: Request, year: int, week: int):
         prev_week = {"year": prev_year, "week": prev_week_num}
 
     # Check for next week
-    next_week_num = week + 1
-    next_year = year
-    # Check if next week is in next year
-    last_week_of_year = date(year, 12, 31).isocalendar()[1]
-    if next_week_num > last_week_of_year:
-        next_year = year + 1
-        next_week_num = 1
+    next_year, next_week_num = _next_week(year, week)
 
     next_json = (
         Path(settings.boxarr_data_directory)

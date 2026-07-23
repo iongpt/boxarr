@@ -808,15 +808,15 @@ select.filter-input {
         <div class="filter-group">
             <label class="filter-label">Status</label>
             <div class="filter-buttons">
-                <a href="?status=all&year={{ year_filter or '' }}&search={{ search_query }}&per_page={{ per_page }}" 
+                <a href="?status=all&year={{ (year_filter or '')|urlencode }}&search={{ search_query|urlencode }}&per_page={{ per_page }}" 
                    class="filter-btn {% if status_filter == 'all' %}active{% endif %}">All</a>
-                <a href="?status=downloaded&year={{ year_filter or '' }}&search={{ search_query }}&per_page={{ per_page }}" 
+                <a href="?status=downloaded&year={{ (year_filter or '')|urlencode }}&search={{ search_query|urlencode }}&per_page={{ per_page }}" 
                    class="filter-btn {% if status_filter == 'downloaded' %}active{% endif %}">Downloaded</a>
-                <a href="?status=missing&year={{ year_filter or '' }}&search={{ search_query }}&per_page={{ per_page }}" 
+                <a href="?status=missing&year={{ (year_filter or '')|urlencode }}&search={{ search_query|urlencode }}&per_page={{ per_page }}" 
                    class="filter-btn {% if status_filter == 'missing' %}active{% endif %}">Missing</a>
-                <a href="?status=not_in_radarr&year={{ year_filter or '' }}&search={{ search_query }}&per_page={{ per_page }}"
+                <a href="?status=not_in_radarr&year={{ (year_filter or '')|urlencode }}&search={{ search_query|urlencode }}&per_page={{ per_page }}"
                    class="filter-btn {% if status_filter == 'not_in_radarr' %}active{% endif %}">Not in Radarr</a>
-                <a href="?status=ignored&year={{ year_filter or '' }}&search={{ search_query }}&per_page={{ per_page }}"
+                <a href="?status=ignored&year={{ (year_filter or '')|urlencode }}&search={{ search_query|urlencode }}&per_page={{ per_page }}"
                    class="filter-btn {% if status_filter == 'ignored' %}active{% endif %}">Ignored</a>
             </div>
         </div>
@@ -1005,13 +1005,13 @@ select.filter-input {
         </div>
         <div class="pagination-controls">
             {% if current_page > 1 %}
-            <a href="?page={{ current_page - 1 }}&status={{ status_filter }}&year={{ year_filter or '' }}&search={{ search_query }}&per_page={{ per_page }}" 
+            <a href="?page={{ current_page - 1 }}&status={{ status_filter }}&year={{ (year_filter or '')|urlencode }}&search={{ search_query|urlencode }}&per_page={{ per_page }}" 
                class="page-btn">← Previous</a>
             {% endif %}
             
             {% for page_num in range(1, total_pages + 1) %}
                 {% if page_num == 1 or page_num == total_pages or (page_num >= current_page - 2 and page_num <= current_page + 2) %}
-                    <a href="?page={{ page_num }}&status={{ status_filter }}&year={{ year_filter or '' }}&search={{ search_query }}&per_page={{ per_page }}" 
+                    <a href="?page={{ page_num }}&status={{ status_filter }}&year={{ (year_filter or '')|urlencode }}&search={{ search_query|urlencode }}&per_page={{ per_page }}" 
                        class="page-btn {% if page_num == current_page %}active{% endif %}">{{ page_num }}</a>
                 {% elif page_num == current_page - 3 or page_num == current_page + 3 %}
                     <span>...</span>
@@ -1019,7 +1019,7 @@ select.filter-input {
             {% endfor %}
             
             {% if current_page < total_pages %}
-            <a href="?page={{ current_page + 1 }}&status={{ status_filter }}&year={{ year_filter or '' }}&search={{ search_query }}&per_page={{ per_page }}" 
+            <a href="?page={{ current_page + 1 }}&status={{ status_filter }}&year={{ (year_filter or '')|urlencode }}&search={{ search_query|urlencode }}&per_page={{ per_page }}" 
                class="page-btn">Next →</a>
             {% endif %}
         </div>
