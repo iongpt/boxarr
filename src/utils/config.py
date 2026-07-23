@@ -169,6 +169,13 @@ class Settings(BaseSettings):
         le=30,
         description="Number of movies to fetch from Box Office Mojo (1-30)",
     )
+    boxarr_features_box_office_region: str = Field(
+        default="",
+        description=(
+            "Box Office Mojo region 'area' code (e.g. 'NL', 'DE'). "
+            "Empty means US & Canada domestic (no ?area parameter)."
+        ),
+    )
     boxarr_features_auto_add: bool = Field(
         default=False, description="Automatically add movies to Radarr"
     )

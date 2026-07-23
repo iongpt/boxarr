@@ -11,6 +11,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from ... import __version__
+from ...core.boxoffice import BOX_OFFICE_REGIONS
 from ...core.ignore_list import IgnoreList
 from ...core.models import MovieStatus
 from ...utils.config import settings
@@ -527,6 +528,9 @@ async def setup_page(request: Request):
             quality_upgrade=settings.boxarr_features_quality_upgrade,
             # Box office fetch limit
             box_office_limit=settings.boxarr_features_box_office_limit,
+            # Box office region
+            box_office_region=settings.boxarr_features_box_office_region,
+            box_office_regions=BOX_OFFICE_REGIONS,
             # Auto tagging
             auto_tag_enabled=settings.boxarr_features_auto_tag_enabled,
             auto_tag_text=settings.boxarr_features_auto_tag_text,
