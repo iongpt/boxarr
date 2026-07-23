@@ -465,7 +465,7 @@ async def add_movie_to_radarr(request: AddMovieRequest):
 
         if already:
             # Regenerate affected weeks so UI reflects correct status immediately
-            regenerate_weeks_with_movie(req_title)
+            await asyncio.to_thread(regenerate_weeks_with_movie, req_title)
 
             return {
                 "success": True,
@@ -484,7 +484,7 @@ async def add_movie_to_radarr(request: AddMovieRequest):
 
         if result:
             # Find and regenerate weeks containing this movie
-            regenerate_weeks_with_movie(req_title)
+            await asyncio.to_thread(regenerate_weeks_with_movie, req_title)
 
             return {
                 "success": True,

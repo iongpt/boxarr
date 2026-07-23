@@ -1,5 +1,6 @@
 """Scheduler management routes."""
 
+import asyncio
 import json
 from datetime import datetime
 from pathlib import Path
@@ -280,8 +281,8 @@ async def update_specific_week(request: UpdateWeekRequest):  # noqa: C901
         # Get box office data
         boxoffice_service = BoxOfficeService()
         limit = settings.boxarr_features_box_office_limit
-        box_office_movies = boxoffice_service.fetch_weekend_box_office(
-            year, week, limit=limit
+        box_office_movies = await asyncio.to_thread(
+            boxoffice_service.fetch_weekend_box_office, year, week, limit=limit
         )
 
         if not box_office_movies:

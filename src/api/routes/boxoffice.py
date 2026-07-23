@@ -1,5 +1,6 @@
 """Box office data routes."""
 
+import asyncio
 from datetime import datetime
 from typing import List, Optional
 
@@ -37,7 +38,7 @@ async def get_current_box_office():
     try:
         # Get current week's box office
         boxoffice_service = BoxOfficeService()
-        movies = boxoffice_service.get_current_week_movies()
+        movies = await asyncio.to_thread(boxoffice_service.get_current_week_movies)
 
         # Match with Radarr if configured
         results = []
@@ -114,7 +115,9 @@ async def get_historical_box_office(year: int, week: int):
 
         # Get historical data
         boxoffice_service = BoxOfficeService()
-        movies = boxoffice_service.fetch_weekend_box_office(year, week)
+        movies = await asyncio.to_thread(
+            boxoffice_service.fetch_weekend_box_office, year, week
+        )
 
         # Return simplified data
         return [
