@@ -1,5 +1,6 @@
 """Web UI routes."""
 
+import html
 import json
 from datetime import date, datetime
 from pathlib import Path
@@ -724,18 +725,23 @@ async def get_widget(request: Request):
         # Build the base URL with correct scheme, host, and base path
         # request.base_url already includes the root_path from FastAPI
         full_url = str(request.base_url).rstrip("/") + "/"
+        full_url_attr = html.escape(full_url, quote=True)
 
-        # Simple widget HTML
-        html = f"""
+        # Simple widget HTML — escape all dynamic values to prevent stored XSS
+        # from scraped movie titles persisted into weekly JSON.
+        list_items = "".join(
+            f"<li>{html.escape(str(m['title']))}</li>" for m in widget_data.movies[:5]
+        )
+        widget_html = f"""
         <div class="boxarr-widget">
             <h3>Box Office Week {widget_data.current_week}, {widget_data.current_year}</h3>
             <ol>
-                {"".join(f'<li>{m["title"]}</li>' for m in widget_data.movies[:5])}
+                {list_items}
             </ol>
-            <a href="{full_url}">View Full List</a>
+            <a href="{full_url_attr}">View Full List</a>
         </div>
         """
-        return HTMLResponse(content=html)
+        return HTMLResponse(content=widget_html)
     except Exception as e:
         logger.error(f"Error generating widget: {e}")
         return HTMLResponse(content="<div>Error loading widget</div>")

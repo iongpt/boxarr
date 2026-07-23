@@ -248,7 +248,7 @@ function refreshSchedulerStatus() {
             // Update timezone
             const timezone = document.getElementById('debugTimezone');
             if (timezone) {
-                timezone.innerHTML = data.timezone || 'Unknown';
+                timezone.textContent = data.timezone || 'Unknown';
             }
         })
         .catch(error => {
@@ -1196,8 +1196,11 @@ function reloadScheduler() {
                         const currentValue = rootFolder.value; // Preserve current selection
                         rootFolder.innerHTML = '<option value="">Select root folder...</option>';
                         data.root_folders.forEach(folder => {
-                            const selected = folder.path === currentValue ? ' selected' : '';
-                            rootFolder.innerHTML += `<option value="${folder.path}"${selected}>${folder.path}</option>`;
+                            const option = document.createElement('option');
+                            option.value = folder.path;
+                            option.textContent = folder.path;
+                            if (folder.path === currentValue) option.selected = true;
+                            rootFolder.appendChild(option);
                         });
                     }
                 }
@@ -1210,8 +1213,11 @@ function reloadScheduler() {
                         const currentValue = defaultProfile.value; // Preserve current selection
                         defaultProfile.innerHTML = '<option value="">Select default quality...</option>';
                         data.profiles.forEach(profile => {
-                            const selected = profile.name === currentValue ? ' selected' : '';
-                            defaultProfile.innerHTML += `<option value="${profile.name}"${selected}>${profile.name}</option>`;
+                            const option = document.createElement('option');
+                            option.value = profile.name;
+                            option.textContent = profile.name;
+                            if (profile.name === currentValue) option.selected = true;
+                            defaultProfile.appendChild(option);
                         });
                     }
                     
@@ -1219,8 +1225,11 @@ function reloadScheduler() {
                         const currentValue = upgradeProfile.value; // Preserve current selection
                         upgradeProfile.innerHTML = '<option value="">Select upgrade quality...</option>';
                         data.profiles.forEach(profile => {
-                            const selected = profile.name === currentValue ? ' selected' : '';
-                            upgradeProfile.innerHTML += `<option value="${profile.name}"${selected}>${profile.name}</option>`;
+                            const option = document.createElement('option');
+                            option.value = profile.name;
+                            option.textContent = profile.name;
+                            if (profile.name === currentValue) option.selected = true;
+                            upgradeProfile.appendChild(option);
                         });
                     }
                 }
@@ -1234,7 +1243,10 @@ function reloadScheduler() {
                 if (saveBtn) saveBtn.disabled = true;
                 
                 if (testResults) {
-                    testResults.innerHTML = `<div class="error-message">✗ ${data.error || 'Connection failed'}</div>`;
+                    const errorDiv = document.createElement('div');
+                    errorDiv.className = 'error-message';
+                    errorDiv.textContent = `✗ ${data.error || 'Connection failed'}`;
+                    testResults.replaceChildren(errorDiv);
                     testResults.classList.add('error');
                 }
             }
@@ -1243,7 +1255,10 @@ function reloadScheduler() {
             if (testButton) testButton.textContent = 'Test Connection';
             if (testSpinner) testSpinner.style.display = 'none';
             if (testResults) {
-                testResults.innerHTML = `<div class="error-message">✗ Connection error: ${error.message}</div>`;
+                const errorDiv = document.createElement('div');
+                errorDiv.className = 'error-message';
+                errorDiv.textContent = `✗ Connection error: ${error.message}`;
+                testResults.replaceChildren(errorDiv);
                 testResults.classList.add('error');
             }
         });
