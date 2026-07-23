@@ -1,6 +1,7 @@
 """Box Office Mojo scraper for fetching weekly box office data."""
 
 import re
+import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
@@ -127,6 +128,8 @@ class BoxOfficeService:
 
     BASE_URL = "https://www.boxofficemojo.com"
     USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    MAX_FETCH_ATTEMPTS = 3
+    RETRY_BACKOFF_SECONDS = (2, 4)
 
     def __init__(self, http_client: Optional[httpx.Client] = None):
         """
@@ -136,7 +139,9 @@ class BoxOfficeService:
             http_client: Optional HTTP client for testing
         """
         self.client = http_client or httpx.Client(
-            headers={"User-Agent": self.USER_AGENT}, timeout=30.0, follow_redirects=True
+            headers={"User-Agent": self.USER_AGENT},
+            timeout=getattr(settings, "boxoffice_timeout", 120.0),
+            follow_redirects=True,
         )
 
     def __enter__(self):
@@ -278,13 +283,28 @@ class BoxOfficeService:
         url = self._build_weekend_url(year, week)
         logger.info(f"Fetching box office data from: {url}")
 
+        response = None
+        for attempt in range(1, self.MAX_FETCH_ATTEMPTS + 1):
+            try:
+                response = self.client.get(url)
+                break
+            except (httpx.TimeoutException, httpx.TransportError) as e:
+                if attempt >= self.MAX_FETCH_ATTEMPTS:
+                    logger.error(f"Failed to fetch box office data: {e}")
+                    raise BoxOfficeError(
+                        "Failed to fetch box office data after "
+                        f"{self.MAX_FETCH_ATTEMPTS} attempts: {e}. Consider raising "
+                        "the boxoffice_timeout setting if this persists."
+                    ) from e
+                logger.warning(
+                    f"Box office fetch attempt {attempt}/{self.MAX_FETCH_ATTEMPTS} "
+                    f"failed ({e}), retrying"
+                )
+                time.sleep(self.RETRY_BACKOFF_SECONDS[attempt - 1])
+
         try:
-            response = self.client.get(url)
             response.raise_for_status()
         except httpx.HTTPError as e:
-            logger.error(f"Failed to fetch box office data: {e}")
-            raise BoxOfficeError(f"Failed to fetch box office data: {e}") from e
-        except Exception as e:
             logger.error(f"Failed to fetch box office data: {e}")
             raise BoxOfficeError(f"Failed to fetch box office data: {e}") from e
 

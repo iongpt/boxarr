@@ -7,6 +7,7 @@ import httpx
 import pytest
 
 from src.core.boxoffice import BoxOfficeError, BoxOfficeService
+from src.utils.config import settings
 
 
 class TestGetWeekendDates:
@@ -267,7 +268,8 @@ class TestBoxOfficeHTMLParsing:
         assert movies[1].title == "Top Gun: Maverick"
         assert movies[2].title == "Black Panther: Wakanda Forever"
 
-    def test_network_failure_handling(self):
+    @patch("src.core.boxoffice.time.sleep")
+    def test_network_failure_handling(self, mock_sleep):
         """Test handling when Box Office Mojo is not accessible."""
         with patch.object(self.service.client, "get") as mock_get:
             mock_get.side_effect = httpx.ConnectError("Connection timeout")
@@ -335,3 +337,68 @@ class TestBoxOfficeHTMLParsing:
         assert len(movies) == 2
         assert movies[0].release_url == "/release/rl1234567890/"
         assert movies[1].release_url == "/release/rl9876543210/"
+
+
+class TestBoxOfficeTimeoutAndRetries:
+    """Test configurable timeout and retry-with-backoff on transport failures."""
+
+    # Minimal table whose title href is not a /release/ link, so no enrichment
+    # GETs are triggered during fetch_weekend_box_office.
+    SUCCESS_HTML = """
+    <html><body>
+        <table class="a-bordered">
+            <tr><th>Rank</th><th>LW</th><th>Movie</th><th>Weekend</th></tr>
+            <tr>
+                <td>1</td>
+                <td>-</td>
+                <td><a href="/title/tt1/">Test Movie</a></td>
+                <td>$100,000</td>
+            </tr>
+        </table>
+    </body></html>
+    """
+
+    @patch("src.core.boxoffice.httpx.Client")
+    def test_client_created_with_configured_timeout(self, mock_client_cls):
+        """The HTTP client should use the configured boxoffice_timeout."""
+        BoxOfficeService()
+
+        _, kwargs = mock_client_cls.call_args
+        assert kwargs["timeout"] == settings.boxoffice_timeout
+        assert kwargs["timeout"] == 120.0
+
+    @patch("src.core.boxoffice.time.sleep")
+    def test_transient_timeout_then_success(self, mock_sleep):
+        """A single timeout should be retried and then succeed."""
+        success = Mock()
+        success.text = self.SUCCESS_HTML
+        success.raise_for_status = Mock()
+
+        mock_client = MagicMock()
+        mock_client.get.side_effect = [
+            httpx.TimeoutException("slow"),
+            success,
+        ]
+
+        service = BoxOfficeService(http_client=mock_client)
+        movies = service.fetch_weekend_box_office(2024, 48)
+
+        assert len(movies) == 1
+        assert movies[0].title == "Test Movie"
+        assert mock_client.get.call_count == 2
+        mock_sleep.assert_called_once_with(2)
+
+    @patch("src.core.boxoffice.time.sleep")
+    def test_three_consecutive_timeouts_raise(self, mock_sleep):
+        """Three consecutive timeouts should raise BoxOfficeError."""
+        mock_client = MagicMock()
+        mock_client.get.side_effect = httpx.TimeoutException("slow")
+
+        service = BoxOfficeService(http_client=mock_client)
+
+        with pytest.raises(BoxOfficeError) as exc_info:
+            service.fetch_weekend_box_office(2024, 48)
+
+        assert "boxoffice_timeout" in str(exc_info.value)
+        assert mock_client.get.call_count == 3
+        assert mock_sleep.call_count == 2
