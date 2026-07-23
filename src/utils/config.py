@@ -1,13 +1,19 @@
 """Configuration management for Boxarr using pydantic-settings."""
 
 import os
+import shutil
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 import yaml
-from pydantic import BaseModel, Field, HttpUrl, validator
+from pydantic import BaseModel, Field, HttpUrl, ValidationError, validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from .logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class ThemeEnum(str, Enum):
@@ -348,6 +354,26 @@ class Settings(BaseSettings):
                 env_set.add(field_name)
         return env_set
 
+    @staticmethod
+    def _backup_broken_config(config_path: Path) -> None:
+        """Copy an unreadable config file aside so user data survives.
+
+        The copy preserves the original so a later ``save_configuration`` that
+        overwrites ``local.yaml`` does not destroy the user's settings. When a
+        ``.broken`` backup already exists, a timestamp suffix keeps each one.
+        """
+        backup = config_path.with_suffix(config_path.suffix + ".broken")
+        if backup.exists():
+            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+            backup = config_path.with_suffix(
+                config_path.suffix + f".broken.{timestamp}"
+            )
+        try:
+            shutil.copy2(config_path, backup)
+            logger.error("Backed up unreadable config to %s", backup)
+        except OSError as exc:
+            logger.error("Could not back up unreadable config %s: %s", config_path, exc)
+
     def load_from_yaml(
         self,
         config_path: Path,
@@ -363,12 +389,43 @@ class Settings(BaseSettings):
         protected = env_protected_fields or set()
 
         def _safe_setattr(field: str, value: Any) -> None:
-            if field not in protected:
-                setattr(self, field, value)
+            if field in protected:
+                return
+            try:
+                self.__pydantic_validator__.validate_assignment(self, field, value)
+            except ValidationError as exc:
+                logger.warning(
+                    "Ignoring invalid value for '%s' in %s (using default): %s",
+                    field,
+                    config_path,
+                    exc,
+                )
 
         if config_path.exists():
-            with open(config_path) as f:
-                config_data = yaml.safe_load(f) or {}
+            try:
+                with open(config_path) as f:
+                    config_data = yaml.safe_load(f) or {}
+            except yaml.YAMLError as exc:
+                logger.error(
+                    "!!! Could not parse configuration file %s: %s. "
+                    "Backing up the unreadable file and starting with defaults "
+                    "(setup mode).",
+                    config_path,
+                    exc,
+                )
+                self._backup_broken_config(config_path)
+                return
+
+            if not isinstance(config_data, dict):
+                logger.error(
+                    "!!! Configuration file %s did not contain a mapping "
+                    "(got %s). Backing it up and starting with defaults "
+                    "(setup mode).",
+                    config_path,
+                    type(config_data).__name__,
+                )
+                self._backup_broken_config(config_path)
+                return
 
             # Process configuration sections
             for section, values in config_data.items():
