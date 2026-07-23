@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] - 2026-07-23
+
+### Added
+- **Selectable Box Office Region**: New setup dropdown to pick a Box Office Mojo region, driving an `?area=CODE` query so charts can track box office beyond US & Canada domestic (#109, #112)
+- **Configurable Box Office Timeout**: New `boxoffice_timeout` setting (default 120s, range 5-600) plus a 3-attempt retry with backoff for more resilient Box Office Mojo requests (#110, #113)
+- **UI Polish**: Async refresh button with a progress endpoint, a week tenure badge, and a recent-weeks grid on the overview page (#105)
+
+### Fixed
+- **Ignore Button**: Fixed single-quote escaping in the overview ignore-button `onclick` handler so movies with apostrophes in their titles can be ignored (#106, #111)
+- **Event-Loop Blocking**: Manual box office routes now offload the blocking Box Office Mojo scraper to a worker thread, so a wedged upstream (compounded by request retries) no longer stalls the asyncio event loop and hangs every request, including `/api/health`
+- **Timeout Preservation on Save**: Saving configuration from the settings UI now preserves the `boxoffice_timeout` (and Radarr request timeout) value instead of silently reverting it to the default
+
+### Changed
+- **Health-Check Logging**: Suppressed `uvicorn.access` log lines for `/api/health` to keep logs readable under frequent health probes (#107)
+
 ## [1.7.0] - 2026-04-05
 
 ### Added

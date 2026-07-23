@@ -129,6 +129,16 @@ environment:
 
 **[View reverse proxy setup guide →](https://github.com/iongpt/boxarr/wiki/Configuration-Guide#reverse-proxy-configuration)**
 
+### Box Office Region & Timeout
+
+By default Boxarr tracks the US & Canada domestic chart. Set a Box Office Mojo `area` code to follow a different region, and tune the scraper timeout for slow connections.
+
+```yaml
+environment:
+  - BOXARR_FEATURES_BOX_OFFICE_REGION=NL  # BOM area code (e.g. NL, DE, GB); empty = US & Canada domestic
+  - BOXOFFICE_TIMEOUT=120                 # Box Office Mojo request timeout in seconds (default 120, range 5-600)
+```
+
 ### API Access
 
 Boxarr provides a REST API for integration and automation.
