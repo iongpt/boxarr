@@ -30,6 +30,16 @@ function isCurrentPath(targetPath) {
     return currentPath === expectedPath;
 }
 
+// Escape admin/user-supplied text before interpolating into innerHTML templates.
+function escapeHtml(value) {
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 // Helper to get path without base
 function getPathWithoutBase() {
     const currentPath = window.location.pathname;
@@ -965,13 +975,13 @@ function reloadScheduler() {
             return `
             <div class="mapping-rule" style="display: grid; grid-template-columns: 2fr auto 2fr 100px 120px; gap: 1rem; align-items: center; padding: 0.75rem; margin-bottom: 0.5rem; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; transition: background 0.2s;">
                 <div style="font-weight: 500; color: var(--text-primary);">
-                    ${mapping.genres.join(', ')}
+                    ${escapeHtml(mapping.genres.join(', '))}
                 </div>
                 <div style="color: var(--text-muted); text-align: center;">
                     →
                 </div>
                 <div style="display: flex; align-items: center; color: var(--primary-color);">
-                    <span>${mapping.root_folder}</span>
+                    <span>${escapeHtml(mapping.root_folder)}</span>
                     ${warningIcon}
                 </div>
                 <div>

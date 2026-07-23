@@ -547,53 +547,67 @@ async def add_movie_to_radarr(request: AddMovieRequest):
 
 def regenerate_weeks_with_movie(movie_title: str):
     """Find and regenerate all weeks containing a specific movie."""
-    weekly_pages_dir = Path(settings.boxarr_data_directory) / "weekly_pages"
-    radarr_service = RadarrService()
-    generator = WeeklyDataGenerator(radarr_service)
+    if not WEEKLY_WRITE_LOCK.acquire(blocking=False):
+        logger.info(
+            "Another weekly update is in progress; skipping regeneration after "
+            f"adding {movie_title} (weekly pages will catch up on the next refresh)"
+        )
+        return
+    try:
+        weekly_pages_dir = Path(settings.boxarr_data_directory) / "weekly_pages"
+        radarr_service = RadarrService()
+        generator = WeeklyDataGenerator(radarr_service)
 
-    # Get updated Radarr library
-    # Always bypass cache so recently added movies are visible to the matcher
-    radarr_movies = get_all_movies_with_optional_cache_bypass(
-        radarr_service, ignore_cache=True
-    )
+        # Get updated Radarr library
+        # Always bypass cache so recently added movies are visible to the matcher
+        radarr_movies = get_all_movies_with_optional_cache_bypass(
+            radarr_service, ignore_cache=True
+        )
 
-    # Search all metadata files
-    for json_file in weekly_pages_dir.glob("*.json"):
-        try:
-            with open(json_file) as f:
-                metadata = json.load(f)
+        # Search all metadata files
+        for json_file in weekly_pages_dir.glob("*.json"):
+            try:
+                with open(json_file) as f:
+                    metadata = json.load(f)
 
-            # Check if this week contains the movie
-            movie_found = False
-            for movie in metadata.get("movies", []):
-                if movie_title.lower() in movie.get("title", "").lower():
-                    movie_found = True
-                    break
+                # Check if this week contains the movie
+                movie_found = False
+                for movie in metadata.get("movies", []):
+                    if movie_title.lower() in movie.get("title", "").lower():
+                        movie_found = True
+                        break
 
-            if movie_found:
-                # Regenerate this week's page
-                year = metadata["year"]
-                week = metadata["week"]
-                logger.info(
-                    f"Regenerating week {year}W{week:02d} after adding {movie_title}"
-                )
+                if movie_found:
+                    # Regenerate this week's page
+                    year = metadata["year"]
+                    week = metadata["week"]
+                    logger.info(
+                        f"Regenerating week {year}W{week:02d} after adding "
+                        f"{movie_title}"
+                    )
 
-                # The generator will re-match with updated Radarr data
-                from ...core.boxoffice import BoxOfficeService
-                from ...core.matcher import MovieMatcher
+                    # The generator will re-match with updated Radarr data
+                    from ...core.boxoffice import BoxOfficeService
+                    from ...core.matcher import MovieMatcher
 
-                boxoffice_service = BoxOfficeService()
-                matcher = MovieMatcher()
+                    boxoffice_service = BoxOfficeService()
+                    matcher = MovieMatcher()
 
-                # Get week's data
-                box_office_movies = boxoffice_service.fetch_weekend_box_office(
-                    year, week
-                )
-                matcher.build_movie_index(radarr_movies)
-                match_results = matcher.match_movies(box_office_movies, radarr_movies)
+                    # Get week's data
+                    box_office_movies = boxoffice_service.fetch_weekend_box_office(
+                        year, week
+                    )
+                    matcher.build_movie_index(radarr_movies)
+                    match_results = matcher.match_movies(
+                        box_office_movies, radarr_movies
+                    )
 
-                # Generate updated data file
-                generator.generate_weekly_data(match_results, year, week, radarr_movies)
-        except Exception as e:
-            logger.error(f"Error processing {json_file}: {e}")
-            continue
+                    # Generate updated data file
+                    generator.generate_weekly_data(
+                        match_results, year, week, radarr_movies
+                    )
+            except Exception as e:
+                logger.error(f"Error processing {json_file}: {e}")
+                continue
+    finally:
+        WEEKLY_WRITE_LOCK.release()

@@ -332,6 +332,8 @@ async def save_configuration(config: SaveConfigRequest):
         try:
             with open(tmp_fd, "w") as f:
                 yaml.dump(config_data, f, default_flow_style=False)
+                f.flush()
+                os.fsync(f.fileno())
             os.replace(tmp_path, config_path)
         except Exception:
             Path(tmp_path).unlink(missing_ok=True)
