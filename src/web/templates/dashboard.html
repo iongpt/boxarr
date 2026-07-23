@@ -1785,10 +1785,13 @@ function showSuccess(message) {
     const progressFooter = document.getElementById('progressFooter');
     const progressSpinner = document.getElementById('progressSpinner');
     
-    progressMessage.innerHTML = `<span style="color: var(--success-color);">✅ ${message}</span>`;
+    const span = document.createElement('span');
+    span.style.color = 'var(--success-color)';
+    span.textContent = `✅ ${message}`;
+    progressMessage.replaceChildren(span);
     progressSpinner.style.display = 'none';
     progressFooter.style.display = 'block';
-    
+
     // Also add to log
     addToProgressLog(message, 'success');
 }
@@ -1799,10 +1802,13 @@ function showError(message) {
     const progressFooter = document.getElementById('progressFooter');
     const progressSpinner = document.getElementById('progressSpinner');
     
-    progressMessage.innerHTML = `<span style="color: var(--error-color);">❌ ${message}</span>`;
+    const span = document.createElement('span');
+    span.style.color = 'var(--error-color)';
+    span.textContent = `❌ ${message}`;
+    progressMessage.replaceChildren(span);
     progressSpinner.style.display = 'none';
     progressFooter.style.display = 'block';
-    
+
     // Also add to log
     addToProgressLog(message, 'error');
 }
