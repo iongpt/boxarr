@@ -24,6 +24,13 @@ def atomic_write_json(path: Union[str, Path], data: Any, **json_kwargs: Any) -> 
     try:
         with open(tmp_fd, "w") as handle:
             json.dump(data, handle, **json_kwargs)
+            handle.flush()
+            os.fsync(handle.fileno())
+        # mkstemp creates the temp file 0600; relax to the standard 0644
+        # (honouring the process umask) so replaced files keep readable perms.
+        umask = os.umask(0)
+        os.umask(umask)
+        os.chmod(tmp_path, 0o666 & ~umask)
         os.replace(tmp_path, target)
     except BaseException:
         tmp_path.unlink(missing_ok=True)
