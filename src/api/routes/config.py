@@ -55,6 +55,9 @@ class SaveConfigRequest(BaseModel):
     boxarr_features_box_office_limit: int = 10
     # Box office region (BOM area code; "" means US & Canada domestic)
     boxarr_features_box_office_region: str = ""
+    # HTTP request timeouts (seconds); None carries over the current value on save
+    boxoffice_timeout: Optional[float] = Field(default=None, ge=5, le=600)
+    radarr_timeout: Optional[float] = Field(default=None, ge=5, le=600)
     # New auto-add advanced options
     boxarr_features_auto_add_limit: int = 10
     boxarr_features_auto_add_genre_filter_enabled: bool = False
@@ -207,6 +210,14 @@ async def save_configuration(config: SaveConfigRequest):
                 config.radarr_quality_profile_upgrade
             )
 
+        # Preserve request timeout: use posted value, else carry over current
+        # effective value so an omitting save doesn't wipe it back to the default.
+        radarr_config["timeout"] = (
+            config.radarr_timeout
+            if config.radarr_timeout is not None
+            else getattr(settings, "radarr_timeout", 120.0)
+        )
+
         # Add root folder config if provided
         # Semantics (order-first):
         # - If field present: respect posted 'enabled'. For mappings:
@@ -301,6 +312,13 @@ async def save_configuration(config: SaveConfigRequest):
                     "theme": config.boxarr_ui_theme,
                 },
             },
+            # Box office scraper timeout: preserve posted value, else carry over
+            # the current effective value so a save omitting it keeps the setting.
+            "boxoffice_timeout": (
+                config.boxoffice_timeout
+                if config.boxoffice_timeout is not None
+                else getattr(settings, "boxoffice_timeout", 120.0)
+            ),
         }
 
         # Save to local.yaml
