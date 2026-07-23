@@ -205,6 +205,84 @@ class MovieMatcher:
 
         return base.strip()
 
+    def _sequel_marker(self, title: str) -> Optional[int]:
+        """
+        Extract an explicit trailing sequel marker as an integer.
+
+        Recognizes a trailing arabic number, a trailing Roman numeral, or a
+        trailing "Part N" (arabic, Roman, or number word). Returns None when
+        the title carries no such marker.
+
+        Args:
+            title: Movie title
+
+        Returns:
+            Sequel number or None
+        """
+        stripped = re.sub(r"\s*\(\d{4}\)\s*$", "", title).strip()
+
+        part_match = re.search(r"\bpart\s+(\w+)$", stripped, flags=re.IGNORECASE)
+        if part_match:
+            token = part_match.group(1)
+            if token.isdigit():
+                return int(token)
+            if token.upper() in self.ROMAN_NUMERALS:
+                return self.ROMAN_NUMERALS[token.upper()]
+            if token.lower() in self.WORD_TO_NUMBER:
+                return int(self.WORD_TO_NUMBER[token.lower()])
+            return None
+
+        num_match = re.search(r"\s+(\d+)$", stripped)
+        if num_match:
+            return int(num_match.group(1))
+
+        words = stripped.split()
+        if len(words) >= 2 and words[-1].upper() in self.ROMAN_NUMERALS:
+            return self.ROMAN_NUMERALS[words[-1].upper()]
+
+        return None
+
+    def _base_match_blocked(self, query_title: str, candidate: RadarrMovie) -> bool:
+        """
+        Decide whether a base-title/fuzzy match must be refused.
+
+        A query carrying an explicit sequel marker (e.g. "Gladiator II",
+        "Sonic the Hedgehog 3") must not collapse, via the digit/numeral
+        stripped base title, onto a library entry that lacks an equivalent
+        marker. Equivalence across marker forms is preserved ("Gladiator II"
+        still matches "Gladiator 2"), and a release-year match within one year
+        corroborates that the two titles are the same film.
+
+        Only the query-has-marker direction is guarded: a plain query is left
+        free to match a numbered library entry, since trailing numbers often
+        belong to the brand ("The Fantastic 4", "Ocean's 11") rather than a
+        sequel.
+
+        Args:
+            query_title: Box office title being matched
+            candidate: Candidate Radarr movie
+
+        Returns:
+            True if the match must be refused
+        """
+        query_marker = self._sequel_marker(query_title)
+        if query_marker is None:
+            return False
+
+        candidate_marker = self._sequel_marker(candidate.title)
+        if candidate_marker == query_marker:
+            return False
+
+        query_year = self.extract_year(query_title)
+        if (
+            query_year is not None
+            and candidate.year is not None
+            and abs(candidate.year - query_year) <= 1
+        ):
+            return False
+
+        return True
+
     def extract_year(self, title: str) -> Optional[int]:
         """
         Extract year from title if present.
@@ -385,7 +463,9 @@ class MovieMatcher:
         # Try base title
         base_title = self.get_base_title(title)
         if base_title.lower() in self._movie_cache:
-            return self._movie_cache[base_title.lower()]
+            candidate = self._movie_cache[base_title.lower()]
+            if not self._base_match_blocked(title, candidate):
+                return candidate
 
         # Try converting numbers to words and vice versa
         # This handles cases like "The Fantastic Four" vs "The Fantastic 4"
@@ -428,6 +508,11 @@ class MovieMatcher:
         normalized_title = self.normalize_title(title)
 
         for movie in radarr_movies:
+            # Skip candidates the query's sequel marker rules out, so a
+            # digit/numeral stripped base score cannot resurrect a wrong film.
+            if self._base_match_blocked(title, movie):
+                continue
+
             # Calculate various similarity scores
             exact_score = self.calculate_similarity(title, movie.title)
             normalized_score = self.calculate_similarity(
