@@ -1,10 +1,12 @@
 """Helpers for refreshing stored weekly movie data from Radarr."""
 
 import json
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from ..utils.atomic import atomic_write_json
 from ..utils.config import settings
 from ..utils.logger import get_logger
 from .models import MovieStatus
@@ -15,6 +17,28 @@ from .radarr import (
 )
 
 logger = get_logger(__name__)
+
+# Process-wide guard serializing every path that rewrites weekly_pages/*.json:
+# the scheduled cron update, the manual /api/scheduler/trigger, the button
+# refresh background job, and /update-week. Callers acquire it around their
+# whole mutation; the writers it protects never re-acquire it, so it cannot
+# deadlock. A second caller that cannot acquire it fails fast.
+WEEKLY_WRITE_LOCK = threading.Lock()
+
+# Fields reset when a stored movie's Radarr link no longer resolves (the movie
+# was deleted in Radarr). Display metadata (title, tmdb_id, year, poster, …) is
+# intentionally left untouched.
+_UNLINKED_FIELDS: Dict[str, Any] = {
+    "radarr_id": None,
+    "radarr_title": None,
+    "status": "Not in Radarr",
+    "status_color": "#718096",
+    "status_icon": "➕",
+    "quality_profile_id": None,
+    "quality_profile_name": None,
+    "has_file": False,
+    "can_upgrade_quality": False,
+}
 
 
 def _truncate_overview(overview: Optional[str]) -> Optional[str]:
@@ -142,6 +166,18 @@ def refresh_weekly_data_from_radarr(
                 radarr_movie = movies_by_tmdb_id.get(stored_tmdb_id)
 
             if not radarr_movie:
+                if existing_radarr_id:
+                    # Was linked to Radarr but no longer resolves (deleted in
+                    # Radarr): reset to the not-in-Radarr shape, keeping the
+                    # display metadata, and count it as a change.
+                    changed = False
+                    for key, value in _UNLINKED_FIELDS.items():
+                        if stored_movie.get(key) != value:
+                            stored_movie[key] = value
+                            changed = True
+                    if changed:
+                        movies_refreshed += 1
+                        file_updated = True
                 continue
 
             was_unmatched = not existing_radarr_id
@@ -166,8 +202,7 @@ def refresh_weekly_data_from_radarr(
                 1 for movie in data.get("movies", []) if movie.get("radarr_id")
             )
             data["status_refreshed_at"] = datetime.now().isoformat()
-            with open(json_file, "w") as f:
-                json.dump(data, f, indent=2, default=str)
+            atomic_write_json(json_file, data, indent=2, default=str)
             weeks_updated += 1
 
         if progress_callback:

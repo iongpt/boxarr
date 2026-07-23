@@ -11,6 +11,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from ...core.radarr import RadarrService
+from ...utils.atomic import atomic_write_json
 from ...utils.config import settings
 from ...utils.logger import get_logger
 
@@ -291,8 +292,7 @@ async def repair_missing_metadata(request: RepairRequest):
 
                     if updated:
                         # Save the updated file
-                        with open(json_file, "w") as f:
-                            json.dump(data, f, indent=2, default=str)
+                        atomic_write_json(json_file, data, indent=2, default=str)
                         updated_weeks += 1
                         logger.info(f"Updated week file: {week_key}")
 

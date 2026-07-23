@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from ...core.ignore_list import IgnoreList
 from ...core.json_generator import WeeklyDataGenerator
-from ...core.library_sync import refresh_weekly_data_from_radarr
+from ...core.library_sync import WEEKLY_WRITE_LOCK, refresh_weekly_data_from_radarr
 from ...core.models import MovieStatus
 from ...core.radarr import RadarrService, get_all_movies_with_optional_cache_bypass
 from ...core.root_folder_manager import RootFolderManager
@@ -187,6 +187,16 @@ async def unignore_movie(tmdb_id: int):
 
 def _run_refresh_job() -> None:
     """Synchronous worker that runs in a thread and updates _refresh_state."""
+    if not WEEKLY_WRITE_LOCK.acquire(blocking=False):
+        logger.warning("Another weekly update is in progress; skipping refresh")
+        _refresh_state.update(
+            {
+                "running": False,
+                "complete": False,
+                "error": "Another weekly update is in progress",
+            }
+        )
+        return
     try:
 
         def _progress(scanned: int, total: int, updated: int, refreshed: int) -> None:
@@ -213,6 +223,8 @@ def _run_refresh_job() -> None:
     except Exception as exc:
         logger.error(f"Error in background refresh job: {exc}")
         _refresh_state.update({"running": False, "complete": False, "error": str(exc)})
+    finally:
+        WEEKLY_WRITE_LOCK.release()
 
 
 @router.post("/refresh-stored-status")

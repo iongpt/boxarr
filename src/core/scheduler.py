@@ -13,13 +13,14 @@ from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+from ..utils.atomic import atomic_write_json
 from ..utils.config import settings
 from ..utils.logger import get_logger
 from .auto_add import auto_add_missing_movies
 from .boxoffice import BoxOfficeService
 from .exceptions import SchedulerError
 from .json_generator import WeeklyDataGenerator
-from .library_sync import refresh_weekly_data_from_radarr
+from .library_sync import WEEKLY_WRITE_LOCK, refresh_weekly_data_from_radarr
 from .matcher import MatchResult, MovieMatcher
 from .models import MovieStatus
 from .radarr import RadarrService, get_all_movies_with_optional_cache_bypass
@@ -148,6 +149,15 @@ class BoxarrScheduler:
             logger.info("Starting scheduled box office update for previous week")
         start_time = datetime.now()
 
+        # Serialize against other weekly-JSON mutators (manual trigger, button
+        # refresh, /update-week). A concurrent caller fails fast rather than
+        # racing writes to the same file.
+        if not WEEKLY_WRITE_LOCK.acquire(blocking=False):
+            logger.warning(
+                "Another weekly update is already in progress; skipping this run"
+            )
+            raise SchedulerError("Another weekly update is already in progress")
+
         try:
             # Initialize services if needed
             if not self.boxoffice_service:
@@ -271,6 +281,8 @@ class BoxarrScheduler:
         except Exception as e:
             logger.error(f"Box office update failed: {e}")
             raise SchedulerError(f"Update failed: {e}") from e
+        finally:
+            WEEKLY_WRITE_LOCK.release()
 
     async def _run_in_executor(self, func: Callable, *args) -> Any:
         """Run blocking function in executor."""
@@ -370,13 +382,11 @@ class BoxarrScheduler:
 
             # Save to file
             history_file = history_dir / filename
-            with open(history_file, "w") as f:
-                json.dump(results, f, indent=2, default=str)
+            atomic_write_json(history_file, results, indent=2, default=str)
 
             # Also save as latest
             latest_file = history_dir / f"{year}W{week:02d}_latest.json"
-            with open(latest_file, "w") as f:
-                json.dump(results, f, indent=2, default=str)
+            atomic_write_json(latest_file, results, indent=2, default=str)
 
             logger.debug(f"Saved history to {history_file}")
 
