@@ -3,7 +3,7 @@
 A malformed or wrong-typed ``local.yaml`` must never crash startup. The loader
 should back up the unreadable file and boot with defaults (setup mode), and it
 should skip individual values that fail validation rather than aborting.
-Related: hardening for v1.8.0.
+Related: hardening for v2.0.0.
 """
 
 import os
