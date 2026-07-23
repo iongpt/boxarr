@@ -321,11 +321,21 @@ async def save_configuration(config: SaveConfigRequest):
             ),
         }
 
-        # Save to local.yaml
+        # Save to local.yaml atomically (temp file + os.replace) so an
+        # interrupted write cannot truncate local.yaml and brick startup.
+        import tempfile
+
         import yaml
 
-        with open(config_path, "w") as f:
-            yaml.dump(config_data, f, default_flow_style=False)
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_fd, tmp_path = tempfile.mkstemp(dir=config_path.parent, suffix=".tmp")
+        try:
+            with open(tmp_fd, "w") as f:
+                yaml.dump(config_data, f, default_flow_style=False)
+            os.replace(tmp_path, config_path)
+        except Exception:
+            Path(tmp_path).unlink(missing_ok=True)
+            raise
 
         logger.info("Configuration saved successfully")
 
