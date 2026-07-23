@@ -1,10 +1,10 @@
 """JSON data generator for weekly box office pages."""
 
-import json
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from ..utils.atomic import atomic_write_json
 from ..utils.config import settings
 from ..utils.logger import get_logger
 from .matcher import MatchResult
@@ -231,8 +231,7 @@ class WeeklyDataGenerator:
 
         # Save JSON file
         metadata_path = self.output_dir / f"{year}W{week:02d}.json"
-        with open(metadata_path, "w") as f:
-            json.dump(metadata, f, indent=2)
+        atomic_write_json(metadata_path, metadata, indent=2)
 
         logger.info(f"Generated weekly data: {metadata_path}")
         return metadata_path

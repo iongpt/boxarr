@@ -602,9 +602,15 @@ async def serve_weekly_page(request: Request, year: int, week: int):
     if not json_file.exists():
         raise HTTPException(status_code=404, detail="Week not found")
 
-    # Load week data
-    with open(json_file) as f:
-        metadata = json.load(f)
+    # Load week data — a truncated/corrupt file degrades to a 404 instead of a 500
+    try:
+        with open(json_file) as f:
+            metadata = json.load(f)
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.error(f"Could not read weekly data for {year}W{week:02d}: {exc}")
+        raise HTTPException(
+            status_code=404, detail="Week data is unavailable or corrupted"
+        )
 
     movies = metadata.get("movies", [])
 
@@ -821,27 +827,32 @@ async def get_widget_data() -> WidgetData:
     """Get current week widget data."""
     weekly_pages_dir = Path(settings.boxarr_data_directory) / "weekly_pages"
 
-    # Find most recent week
+    # Find most recent week, skipping any unreadable/corrupt files
     json_files = sorted(weekly_pages_dir.glob("*.json"), reverse=True)
-    if not json_files:
-        return WidgetData(
-            current_week=0,
-            current_year=datetime.now().year,
-            movies=[],
-        )
-
-    with open(json_files[0]) as f:
-        metadata = json.load(f)
+    for json_file in json_files:
+        if json_file.name == "current.json":
+            continue
+        try:
+            with open(json_file) as f:
+                metadata = json.load(f)
+            return WidgetData(
+                current_week=metadata["week"],
+                current_year=metadata["year"],
+                movies=[
+                    {
+                        "rank": m.get("rank"),
+                        "title": m.get("title"),
+                        "gross": m.get("weekend_gross"),
+                    }
+                    for m in metadata.get("movies", [])[:10]
+                ],
+            )
+        except (json.JSONDecodeError, OSError, KeyError) as exc:
+            logger.warning(f"Skipping unreadable widget data file {json_file}: {exc}")
+            continue
 
     return WidgetData(
-        current_week=metadata["week"],
-        current_year=metadata["year"],
-        movies=[
-            {
-                "rank": m.get("rank"),
-                "title": m.get("title"),
-                "gross": m.get("weekend_gross"),
-            }
-            for m in metadata.get("movies", [])[:10]
-        ],
+        current_week=0,
+        current_year=datetime.now().year,
+        movies=[],
     )

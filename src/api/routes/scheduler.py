@@ -9,6 +9,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from ...core.library_sync import WEEKLY_WRITE_LOCK
 from ...core.scheduler import BoxarrScheduler
 from ...utils.config import settings
 from ...utils.logger import get_logger
@@ -270,6 +271,34 @@ async def update_specific_week(request: UpdateWeekRequest):  # noqa: C901
         if week < 1 or week > 53:
             raise HTTPException(status_code=400, detail="Invalid week number")
 
+        # Offload the blocking scrape + file write to a worker thread so the
+        # event loop stays responsive (#114). The weekly-JSON write lock is
+        # acquired inside that worker (never held across an await) to serialize
+        # against the other weekly-JSON mutators (#120).
+        return await asyncio.to_thread(_update_specific_week, year, week)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating week: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def _update_specific_week(year: int, week: int) -> dict:  # noqa: C901
+    """Fetch, match and persist box office data for one week.
+
+    Runs in a worker thread (via ``asyncio.to_thread`` from the async endpoint),
+    so the process-wide weekly-JSON write lock is acquired here in the worker
+    thread rather than across an await. Fails fast if another weekly-JSON
+    mutator already holds the lock instead of racing writes to the same file.
+    """
+    # Serialize against other weekly-JSON mutators; fail fast if one is
+    # already running rather than racing writes to the same file.
+    if not WEEKLY_WRITE_LOCK.acquire(blocking=False):
+        return {
+            "success": False,
+            "message": "Another update is in progress, please retry shortly",
+        }
+    try:
         from ...core.boxoffice import BoxOfficeService
         from ...core.json_generator import WeeklyDataGenerator
         from ...core.matcher import MovieMatcher
@@ -281,8 +310,8 @@ async def update_specific_week(request: UpdateWeekRequest):  # noqa: C901
         # Get box office data
         boxoffice_service = BoxOfficeService()
         limit = settings.boxarr_features_box_office_limit
-        box_office_movies = await asyncio.to_thread(
-            boxoffice_service.fetch_weekend_box_office, year, week, limit=limit
+        box_office_movies = boxoffice_service.fetch_weekend_box_office(
+            year, week, limit=limit
         )
 
         if not box_office_movies:
@@ -349,8 +378,5 @@ async def update_specific_week(request: UpdateWeekRequest):  # noqa: C901
             "movies_found": len(box_office_movies),
             "movies_added": added_count,
         }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error updating week: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        WEEKLY_WRITE_LOCK.release()
