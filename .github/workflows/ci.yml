@@ -11,6 +11,7 @@ on:
     paths-ignore:
       - '**.md'
       - 'docs/**'
+  workflow_call:
 
 env:
   PYTHON_VERSION: '3.11'

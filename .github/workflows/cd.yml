@@ -13,9 +13,16 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  run-ci:
+    name: Run CI (manual dispatch only)
+    if: github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/ci.yml
+
   build-and-push:
     name: Build and Push Docker Images
     runs-on: ubuntu-latest
+    needs: run-ci
+    if: always() && (needs.run-ci.result == 'success' || needs.run-ci.result == 'skipped')
     permissions:
       contents: read
       packages: write

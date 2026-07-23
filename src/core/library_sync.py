@@ -76,6 +76,7 @@ def refresh_weekly_data_from_radarr(
     radarr_service: Optional[RadarrService] = None,
     data_directory: Optional[Path] = None,
     ignore_cache: bool = False,
+    progress_callback=None,
 ) -> Dict[str, int]:
     """Refresh stored weekly JSON files with current Radarr status/details."""
     weekly_pages_dir = (
@@ -110,10 +111,15 @@ def refresh_weekly_data_from_radarr(
     movies_refreshed = 0
     movies_linked = 0
 
-    for json_file in sorted(weekly_pages_dir.glob("*.json")):
-        if json_file.name == "current.json":
-            continue
+    all_files = [
+        f for f in sorted(weekly_pages_dir.glob("*.json")) if f.name != "current.json"
+    ]
+    total_weeks = len(all_files)
 
+    if progress_callback:
+        progress_callback(0, total_weeks, 0, 0)
+
+    for json_file in all_files:
         weeks_scanned += 1
 
         try:
@@ -163,6 +169,11 @@ def refresh_weekly_data_from_radarr(
             with open(json_file, "w") as f:
                 json.dump(data, f, indent=2, default=str)
             weeks_updated += 1
+
+        if progress_callback:
+            progress_callback(
+                weeks_scanned, total_weeks, weeks_updated, movies_refreshed
+            )
 
     return {
         "weeks_scanned": weeks_scanned,
