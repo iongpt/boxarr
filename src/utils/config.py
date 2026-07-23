@@ -176,6 +176,12 @@ class Settings(BaseSettings):
             "Empty means US & Canada domestic (no ?area parameter)."
         ),
     )
+    boxoffice_timeout: float = Field(
+        default=120.0,
+        ge=5,
+        le=600,
+        description="HTTP timeout in seconds for Box Office Mojo requests",
+    )
     boxarr_features_auto_add: bool = Field(
         default=False, description="Automatically add movies to Radarr"
     )
