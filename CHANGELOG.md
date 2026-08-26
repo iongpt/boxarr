@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-08-26
+
+### Added
+- **Full Radarr Language Vocabulary**: The language filter now offers every language Radarr can report (~57, live-fetched from your Radarr with a bundled fallback) instead of a hardcoded 12-item list, in a searchable picker with per-region suggestions. Legacy entries like "Mandarin" are aliased to Radarr's actual names ("Chinese") so they finally match, and a whitelist that can never match anything now logs a warning instead of silently blocking every auto-add (#123, #127)
+- **Minimum Weekend Gross Threshold**: Optional auto-add filter — set a minimum weekend gross (USD) and only movies at or above it are auto-added. Unknown gross fails open, and below-threshold movies keep their manual Add button on the weekly page (#124, #128)
+- **Hide Ignored Movies**: Opt-in UI setting that removes ignored movies from weekly and overview lists entirely, with a "Show N ignored" reveal on weekly pages; the Overview "Ignored" tab always shows them so un-ignoring stays possible (#125, #129)
+
+### Fixed
+- **Box Office Mojo Column Parsing**: The chart parser read the per-theater Average as Total Gross and the theater Change as the theater count. Columns are now resolved by header name (colspan-aware, tolerant of layout changes) with a conservative positional fallback; previously stored weeks keep their old values until regenerated (#126)
+- **Filter Lists No Longer Lost on Save**: Saving the setup page in blacklist mode no longer wipes the whitelist (and vice versa) for languages and genres, switching modes no longer loses in-session selections, and hand-edited config values without a rendered checkbox survive saves; the setup page also no longer loads an outdated app.js (#123, #127)
+- **Setup Save Robustness**: An invalid value left in a collapsed filter section can no longer silently block saving, out-of-range thresholds (including `Infinity`) are rejected cleanly instead of breaking the setup page, and save failures now show the real error message instead of "Unknown error" (#130)
+- **Overview Stat Coherence**: All six stat cards stay arithmetically consistent when ignoring/un-ignoring movies without a reload, and the Ignored tab shows the true total when hiding is enabled (#129, #130)
+
+### Changed
+- **Language matching is normalized**: comparisons are alias-aware and case-insensitive, so a whitelist containing "Mandarin" now auto-adds Chinese-language films it previously (wrongly) excluded — review your whitelist if you relied on that entry doing nothing
+- **Regional grosses are labeled USD**: Box Office Mojo reports every regional chart in US dollars; the setup hint claiming local currency was wrong and has been corrected (#126)
+
 ## [2.0.0] - 2026-07-23
 
 ### Added
