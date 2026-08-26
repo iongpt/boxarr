@@ -34,6 +34,9 @@ boxarr:
   # UI configuration
   ui:
     theme: "purple"
+    # Remove ignored movies from the weekly and overview lists instead of
+    # dimming them. They stay listed under Overview -> Ignored.
+    hide_ignored: false
     cards_per_row:
       mobile: 1
       tablet: 3

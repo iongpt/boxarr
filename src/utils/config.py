@@ -201,6 +201,13 @@ class Settings(BaseSettings):
     boxarr_ui_show_descriptions: bool = Field(
         default=True, description="Show movie descriptions in UI"
     )
+    boxarr_ui_hide_ignored: bool = Field(
+        default=False,
+        description=(
+            "Completely hide ignored movies from the weekly and overview lists "
+            "instead of dimming them (they stay reachable under Overview > Ignored)"
+        ),
+    )
 
     # Feature Flags
     boxarr_features_box_office_limit: int = Field(

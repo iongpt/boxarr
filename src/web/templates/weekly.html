@@ -308,6 +308,12 @@
     opacity: 0.7;
 }
 
+/* "Hide ignored movies" setting: the card stays in the DOM so the
+   "Show N ignored" toggle can reveal it without a round-trip. */
+.movie-card.ignored-hidden {
+    display: none;
+}
+
 .ignored-badge {
     position: absolute;
     top: 10px;
@@ -369,7 +375,59 @@
 
 {% block scripts %}
 <script>
-    window.IGNORED_TMDB_IDS = new Set({{ ignored_tmdb_ids | tojson }});
+    window.IGNORED_TMDB_IDS = new Set({{ ignored_tmdb_ids | list | tojson }});
+    window.HIDE_IGNORED = {{ hide_ignored | tojson }};
+
+    // Ignored movies are rendered but hidden, so revealing them is a class
+    // toggle rather than a reload - you can un-ignore where you ignored.
+    let ignoredRevealed = false;
+
+    function ignoredCards() {
+        return Array.from(document.querySelectorAll('.movie-card.ignored'));
+    }
+
+    // Keeps the header counts on the cards that are actually on screen, which
+    // is the basis the server rendered them with while ignored movies are
+    // hidden - and still matches the grid once the reveal shows them again.
+    // Callers apply/remove "ignored-hidden" before calling this.
+    function refreshSummaryCounts() {
+        const visible = Array.from(document.querySelectorAll('.movie-card'))
+            .filter(card => !card.classList.contains('ignored-hidden'));
+        const counts = {
+            summaryTotal: visible.length,
+            summaryInRadarr: visible.filter(card => card.dataset.movieId).length,
+            summaryDownloaded: visible.filter(card => card.querySelector('.status-badge.downloaded')).length,
+            summaryMissing: visible.filter(card => !card.dataset.movieId).length,
+        };
+        Object.entries(counts).forEach(([id, value]) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = value;
+        });
+    }
+
+    // Called by app.js after every ignore/un-ignore, and by the toggle itself.
+    window.onIgnoredVisibilityChange = function () {
+        if (!window.HIDE_IGNORED) return;
+
+        const cards = ignoredCards();
+        cards.forEach(card => card.classList.toggle('ignored-hidden', !ignoredRevealed));
+        refreshSummaryCounts();
+
+        const btn = document.getElementById('revealIgnoredBtn');
+        if (!btn) return;
+        if (cards.length === 0) {
+            ignoredRevealed = false;
+            btn.style.display = 'none';
+            return;
+        }
+        btn.style.display = '';
+        btn.textContent = `${ignoredRevealed ? '🙈 Hide' : '👁️ Show'} ${cards.length} ignored`;
+    };
+
+    window.toggleIgnoredReveal = function () {
+        ignoredRevealed = !ignoredRevealed;
+        window.onIgnoredVisibilityChange();
+    };
 
     async function regenerateWeek(year, week) {
         if (!confirm(`Regenerate data for ${year}W${String(week).padStart(2, '0')}? This will re-fetch box office data and re-match with Radarr.`)) {
@@ -436,22 +494,22 @@
             {% endif %}
         </div>
         
-        <!-- Summary Stats -->
+        <!-- Summary Stats (computed server-side; excludes hidden ignored movies) -->
         <div class="summary">
             <div class="summary-item">
-                <span class="summary-value">{{ week_data.movies|length }}</span>
+                <span class="summary-value" id="summaryTotal">{{ summary.total }}</span>
                 <span class="summary-label">Total Movies</span>
             </div>
             <div class="summary-item">
-                <span class="summary-value">{{ week_data.movies|selectattr('radarr_id')|list|length }}</span>
+                <span class="summary-value" id="summaryInRadarr">{{ summary.in_radarr }}</span>
                 <span class="summary-label">In Radarr</span>
             </div>
             <div class="summary-item">
-                <span class="summary-value">{{ week_data.movies|selectattr('has_file', 'equalto', true)|list|length }}</span>
+                <span class="summary-value" id="summaryDownloaded">{{ summary.downloaded }}</span>
                 <span class="summary-label">Downloaded</span>
             </div>
             <div class="summary-item">
-                <span class="summary-value">{{ week_data.movies|rejectattr('radarr_id')|list|length }}</span>
+                <span class="summary-value" id="summaryMissing">{{ summary.missing }}</span>
                 <span class="summary-label">Missing</span>
             </div>
         </div>
@@ -471,15 +529,26 @@
             <button class="nav-btn" id="regenerate-btn" onclick="regenerateWeek({{ week_data.year }}, {{ week_data.week }})">
                 🔄 Regenerate
             </button>
+
+            {% if hide_ignored %}
+            <!-- Reveal control: only rendered when ignored movies are hidden,
+                 and kept in the DOM (display:none) while this week has none so
+                 ignoring a movie can surface it without a reload. -->
+            <button class="nav-btn" id="revealIgnoredBtn" onclick="toggleIgnoredReveal()"
+                    {% if hidden_count == 0 %}style="display:none"{% endif %}>
+                👁️ Show {{ hidden_count }} ignored
+            </button>
+            {% endif %}
         </div>
     </div>
     
     <!-- Movies Grid -->
     <div class="movies-grid">
         {% for movie in week_data.movies %}
-        <div class="movie-card{% if movie.tmdb_id and movie.tmdb_id in ignored_tmdb_ids %} ignored{% endif %}" data-movie-id="{{ movie.radarr_id or '' }}" data-tmdb-id="{{ movie.tmdb_id or '' }}">
+        {% set is_ignored = movie.tmdb_id and movie.tmdb_id in ignored_tmdb_ids %}
+        <div class="movie-card{% if is_ignored %} ignored{% if hide_ignored %} ignored-hidden{% endif %}{% endif %}" data-movie-id="{{ movie.radarr_id or '' }}" data-tmdb-id="{{ movie.tmdb_id or '' }}">
             <div class="rank-badge">#{{ movie.rank }}</div>
-            {% if movie.tmdb_id and movie.tmdb_id in ignored_tmdb_ids %}
+            {% if is_ignored %}
             <div class="ignored-badge">Ignored</div>
             {% endif %}
 
@@ -535,7 +604,6 @@
                 
                 <!-- Actions -->
                 <div class="movie-actions">
-                    {% set is_ignored = movie.tmdb_id and movie.tmdb_id in ignored_tmdb_ids %}
                     {% if not movie.radarr_id %}
                     <button class="action-btn add-to-radarr" {% if is_ignored %}style="display:none"{% endif %} onclick='addToRadarr({{ movie.title|tojson }}, {{ movie.year or "null" }}, this)'>
                         Add to Radarr
