@@ -261,7 +261,10 @@
                                 <label class="form-label" id="genreListLabel">
                                     {% if genre_filter_mode == 'whitelist' %}Allowed Genres{% else %}Excluded Genres{% endif %}
                                 </label>
-                                <div class="genre-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.5rem;">
+                                <div id="genreOptions" class="genre-grid"
+                                     data-configured-whitelist='{{ genre_whitelist | tojson }}'
+                                     data-configured-blacklist='{{ genre_blacklist | tojson }}'
+                                     style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.5rem;">
                                     {% set common_genres = ['Action', 'Adventure', 'Animation', 'Comedy', 'Crime', 'Documentary', 
                                                            'Drama', 'Family', 'Fantasy', 'History', 'Horror', 'Music', 
                                                            'Mystery', 'Romance', 'Science Fiction', 'TV Movie', 'Thriller', 'War', 'Western'] %}
@@ -311,11 +314,25 @@
                                 <label class="form-label" id="languageListLabel">
                                     {% if language_filter_mode == 'whitelist' %}Allowed Languages{% else %}Excluded Languages{% endif %}
                                 </label>
-                                <div class="language-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.5rem;">
-                                    {% set common_languages = ['English', 'French', 'German', 'Hindi', 'Italian', 'Japanese', 'Korean', 'Mandarin', 'Portuguese', 'Spanish', 'Tamil', 'Telugu'] %}
-                                    {% for language in common_languages %}
-                                    <label class="checkbox-label" style="display: flex; align-items: center; gap: 0.5rem;">
-                                        <input type="checkbox" name="language_{{ language }}" value="{{ language }}"
+                                <div id="languageSuggestions" data-region-name="{{ box_office_region_name }}"
+                                     data-region-languages='{{ language_region_suggestions | tojson }}'
+                                     style="display: {% if language_suggested %}flex{% else %}none{% endif %}; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-bottom: 0.5rem;">
+                                    <span class="text-muted" id="languageSuggestionsLabel" style="font-size: 0.8rem;">{% if language_filter_mode == 'blacklist' %}Local languages for {{ box_office_region_name }}{% else %}Suggested for {{ box_office_region_name }}{% endif %}:</span>
+                                    {% for language in language_suggested %}
+                                    <button type="button" class="btn btn-sm" data-suggested-language="{{ language }}"
+                                            style="padding: 0.25rem 0.625rem; background: var(--bg-secondary); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 999px; font-size: 0.8rem; cursor: pointer;">+ {{ language }}</button>
+                                    {% endfor %}
+                                </div>
+                                <input type="search" id="languageSearch" class="form-input" autocomplete="off"
+                                       placeholder="Search languages..." aria-label="Search languages"
+                                       style="margin-bottom: 0.5rem;">
+                                <div id="languageOptions" class="language-grid"
+                                     data-configured-whitelist='{{ language_whitelist | tojson }}'
+                                     data-configured-blacklist='{{ language_blacklist | tojson }}'
+                                     style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.5rem; max-height: 240px; overflow-y: auto; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: 6px;">
+                                    {% for language in language_options %}
+                                    <label class="checkbox-label language-option" data-language-name="{{ language }}" style="display: flex; align-items: center; gap: 0.5rem;">
+                                        <input type="checkbox" name="language_{{ language | replace(' ', '_') }}" value="{{ language }}"
                                                data-language-whitelist="{% if language in language_whitelist %}true{% else %}false{% endif %}"
                                                data-language-blacklist="{% if language in language_blacklist %}true{% else %}false{% endif %}"
                                                {% if (language_filter_mode == 'whitelist' and language in language_whitelist) or (language_filter_mode == 'blacklist' and language in language_blacklist) %}checked{% endif %}>
@@ -323,7 +340,7 @@
                                     </label>
                                     {% endfor %}
                                 </div>
-                                <small class="text-muted">Based on TMDB original language data</small>
+                                <small class="text-muted">Language names come from Radarr - a movie's original language must match one of them exactly</small>
                             </div>
                         </div>
                     </div>
@@ -615,7 +632,7 @@
     </div>
 
 <script src="{{ request.scope.get('root_path', '') }}/static/js/theme-manager.js?v=1"></script>
-<script src="{{ request.scope.get('root_path', '') }}/static/js/app.js?v=2"></script>
+<script src="{{ request.scope.get('root_path', '') }}/static/js/app.js?v=4"></script>
 <script>
 // Sync theme select with current preference
 document.addEventListener('DOMContentLoaded', function() {

@@ -15,6 +15,40 @@ from .logger import get_logger
 
 logger = get_logger(__name__)
 
+# auto_add_options keys holding language names, migrated through the alias
+# table on load so a legacy value like "Mandarin" matches Radarr's "Chinese".
+_LANGUAGE_LIST_KEYS = ("language_whitelist", "language_blacklist")
+
+
+def _canonicalize_languages(value: Any) -> Any:
+    """Map configured language names onto the names Radarr reports.
+
+    Unknown names pass through untouched. Values set via environment variables
+    never reach this path (``load_from_yaml`` skips env-protected fields); the
+    auto-add filter normalizes those at match time instead.
+    """
+    # Imported lazily: src.core.__init__ imports this module, so a top-level
+    # import here would be circular.
+    from ..core.languages import canonical_language
+
+    if not isinstance(value, list):
+        return value
+    # Aliases collapse several names onto one target ("Mandarin" and
+    # "Cantonese" both become "Chinese"), so de-duplicate - order preserved -
+    # or the UI and the skip logs would report the same language three times.
+    seen: set = set()
+    canonical: List[Any] = []
+    for item in value:
+        name = canonical_language(item) if isinstance(item, str) else item
+        try:
+            if name in seen:
+                continue
+            seen.add(name)
+        except TypeError:  # unhashable value from a hand-edited config
+            pass
+        canonical.append(name)
+    return canonical
+
 
 class ThemeEnum(str, Enum):
     """Available UI themes."""
@@ -480,6 +514,10 @@ class Settings(BaseSettings):
                                         attr_name = (
                                             f"boxarr_features_auto_add_{opt_key}"
                                         )
+                                        if opt_key in _LANGUAGE_LIST_KEYS:
+                                            opt_value = _canonicalize_languages(
+                                                opt_value
+                                            )
                                         if hasattr(self, attr_name):
                                             _safe_setattr(attr_name, opt_value)
                                 else:

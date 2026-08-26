@@ -14,6 +14,12 @@ from pydantic import BaseModel
 from ... import __version__
 from ...core.boxoffice import BOX_OFFICE_REGIONS
 from ...core.ignore_list import IgnoreList
+from ...core.languages import (
+    RADARR_LANGUAGES,
+    REGION_DEFAULT_LANGUAGES,
+    merge_language_options,
+    suggested_languages,
+)
 from ...core.models import MovieStatus
 from ...utils.config import settings
 from ...utils.logger import get_logger
@@ -495,6 +501,34 @@ async def setup_page(request: Request):
         apscheduler_day, 2
     )  # Default to Tuesday if unknown
 
+    # Language picker options. Radarr is not queried here so a slow or
+    # unreachable instance cannot stall the setup page: the bundled vocabulary
+    # renders immediately and the client merges the live list from
+    # /api/config/languages (or the connection test) once it arrives.
+    # Configured values are included so a hand-edited name still renders, and
+    # the selections for the active mode are pinned first - the picker keeps
+    # them at the top, and this makes it true before any JS runs.
+    language_whitelist = settings.boxarr_features_auto_add_language_whitelist
+    language_blacklist = settings.boxarr_features_auto_add_language_blacklist
+    language_mode = settings.boxarr_features_auto_add_language_filter_mode
+    all_languages = merge_language_options(
+        RADARR_LANGUAGES, language_whitelist, language_blacklist
+    )
+    # Selections are matched case-insensitively: a hand-edited "norwegian" is
+    # merged into the option spelled "Norwegian" and must still render ticked,
+    # or the save would drop it.
+    whitelist_keys = {name.casefold() for name in language_whitelist}
+    blacklist_keys = {name.casefold() for name in language_blacklist}
+    whitelist_selected = {n for n in all_languages if n.casefold() in whitelist_keys}
+    blacklist_selected = {n for n in all_languages if n.casefold() in blacklist_keys}
+    selected = (
+        blacklist_selected if language_mode == "blacklist" else whitelist_selected
+    )
+    language_options = [n for n in all_languages if n in selected] + [
+        n for n in all_languages if n not in selected
+    ]
+    box_office_region = settings.boxarr_features_box_office_region
+
     return templates.TemplateResponse(
         request,
         "setup.html",
@@ -530,8 +564,11 @@ async def setup_page(request: Request):
             # Box office fetch limit
             box_office_limit=settings.boxarr_features_box_office_limit,
             # Box office region
-            box_office_region=settings.boxarr_features_box_office_region,
+            box_office_region=box_office_region,
             box_office_regions=BOX_OFFICE_REGIONS,
+            box_office_region_name=dict(BOX_OFFICE_REGIONS).get(
+                box_office_region, box_office_region
+            ),
             # Auto tagging
             auto_tag_enabled=settings.boxarr_features_auto_tag_enabled,
             auto_tag_text=settings.boxarr_features_auto_tag_text,
@@ -546,9 +583,17 @@ async def setup_page(request: Request):
             ignore_rereleases=settings.boxarr_features_auto_add_ignore_rereleases,
             # Language filter settings
             language_filter_enabled=settings.boxarr_features_auto_add_language_filter_enabled,
-            language_filter_mode=settings.boxarr_features_auto_add_language_filter_mode,
-            language_whitelist=settings.boxarr_features_auto_add_language_whitelist,
-            language_blacklist=settings.boxarr_features_auto_add_language_blacklist,
+            language_filter_mode=language_mode,
+            # Sorted lists, not sets: the picker serializes these to JSON so the
+            # client can seed its selection state from the configured values.
+            language_whitelist=sorted(whitelist_selected),
+            language_blacklist=sorted(blacklist_selected),
+            language_options=language_options,
+            language_suggested=suggested_languages(box_office_region),
+            # The whole map, so the chips can follow the region dropdown
+            # in-session instead of being pinned to the persisted region -
+            # which during first-run setup is nobody's actual choice.
+            language_region_suggestions=REGION_DEFAULT_LANGUAGES,
             # URL base for reverse proxy support
             url_base=settings.boxarr_url_base,
         ),

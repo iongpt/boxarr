@@ -129,23 +129,248 @@ function toggleLanguageFilter() {
     }
 }
 
+// ==========================================
+// Auto-add filter selections (genre / language)
+// ==========================================
+// Whitelist and blacklist share one set of checkboxes, so the list for the
+// mode that is not on screen exists only here. The server-rendered data-*
+// attributes are never rewritten, so reading them back on a mode flip or a
+// save would discard in-session edits - and posting [] for the hidden mode
+// wiped it outright. State is the single source of truth for both lists.
+const filterSelections = {
+    genre: { whitelist: new Set(), blacklist: new Set() },
+    language: { whitelist: new Set(), blacklist: new Set() }
+};
+
+function filterModeFor(kind) {
+    const selected = document.querySelector(`input[name="boxarr_features_auto_add_${kind}_filter_mode"]:checked`);
+    const mode = selected ? selected.value : (kind === 'genre' ? 'blacklist' : 'whitelist');
+    return mode === 'whitelist' ? 'whitelist' : 'blacklist';
+}
+
+function filterCheckboxes(kind) {
+    return document.querySelectorAll(`[name^="${kind}_"]`);
+}
+
+function registerFilterCheckbox(kind, checkbox) {
+    const state = filterSelections[kind];
+    if (checkbox.dataset[kind + 'Whitelist'] === 'true') state.whitelist.add(checkbox.value);
+    if (checkbox.dataset[kind + 'Blacklist'] === 'true') state.blacklist.add(checkbox.value);
+
+    checkbox.addEventListener('change', () => {
+        const list = state[filterModeFor(kind)];
+        if (checkbox.checked) {
+            list.add(checkbox.value);
+        } else {
+            list.delete(checkbox.value);
+        }
+    });
+}
+
+function configuredFilterValues(kind, mode) {
+    // The option grid carries the raw configured lists as JSON. Seeding from
+    // those - not only from the per-checkbox data-* attributes - is what keeps
+    // a value with no checkbox to toggle (a hand-edited local.yaml genre
+    // outside the rendered vocabulary) alive through a save.
+    const container = document.getElementById(kind + 'Options');
+    if (!container) return [];
+    const raw = container.dataset[mode === 'whitelist' ? 'configuredWhitelist' : 'configuredBlacklist'];
+    if (!raw) return [];
+    try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed.filter(v => typeof v === 'string' && v) : [];
+    } catch (_) {
+        return [];
+    }
+}
+
+function initFilterSelections(kind) {
+    const state = { whitelist: new Set(), blacklist: new Set() };
+    configuredFilterValues(kind, 'whitelist').forEach(value => state.whitelist.add(value));
+    configuredFilterValues(kind, 'blacklist').forEach(value => state.blacklist.add(value));
+    filterSelections[kind] = state;
+    filterCheckboxes(kind).forEach(checkbox => registerFilterCheckbox(kind, checkbox));
+}
+
+function applyFilterSelections(kind) {
+    // Re-check the boxes from state for the mode now on screen.
+    const selected = filterSelections[kind][filterModeFor(kind)];
+    filterCheckboxes(kind).forEach(checkbox => {
+        checkbox.checked = selected.has(checkbox.value);
+    });
+}
+
+function collectFilterLists(kind, mode) {
+    const state = filterSelections[kind];
+    const active = mode === 'whitelist' ? 'whitelist' : 'blacklist';
+    const rendered = new Set();
+    const selected = new Set();
+
+    filterCheckboxes(kind).forEach(checkbox => {
+        rendered.add(checkbox.value);
+        if (checkbox.checked) selected.add(checkbox.value);
+    });
+
+    // Keep configured values that have no checkbox to toggle (a hand-edited
+    // local.yaml entry) instead of dropping them on save.
+    state[active].forEach(value => {
+        if (!rendered.has(value)) selected.add(value);
+    });
+    state[active] = selected;
+
+    return {
+        whitelist: Array.from(state.whitelist),
+        blacklist: Array.from(state.blacklist)
+    };
+}
+
+// ==========================================
+// Language picker (searchable option list)
+// ==========================================
+
+function languageOptionRows() {
+    const container = document.getElementById('languageOptions');
+    return container ? Array.from(container.querySelectorAll('.language-option')) : [];
+}
+
+function isLanguageRowChecked(row) {
+    const checkbox = row.querySelector('input[type="checkbox"]');
+    return !!(checkbox && checkbox.checked);
+}
+
+function filterLanguageOptions() {
+    const search = document.getElementById('languageSearch');
+    const term = search ? search.value.trim().toLowerCase() : '';
+    languageOptionRows().forEach(row => {
+        const name = (row.dataset.languageName || '').toLowerCase();
+        // Selected languages are never filtered out of view, so a search can
+        // never hide - or appear to drop - a current selection.
+        const visible = !term || name.includes(term) || isLanguageRowChecked(row);
+        row.style.display = visible ? 'flex' : 'none';
+    });
+}
+
+function pinSelectedLanguages() {
+    const container = document.getElementById('languageOptions');
+    if (!container) return;
+    const byName = (a, b) => (a.dataset.languageName || '').localeCompare(b.dataset.languageName || '');
+    const rows = languageOptionRows();
+    const selected = rows.filter(isLanguageRowChecked).sort(byName);
+    const rest = rows.filter(row => !isLanguageRowChecked(row)).sort(byName);
+    selected.concat(rest).forEach(row => container.appendChild(row));
+}
+
+function addLanguageOption(name) {
+    const container = document.getElementById('languageOptions');
+    if (!container || !name) return null;
+
+    const existing = languageOptionRows().find(row => row.dataset.languageName === name);
+    if (existing) return existing.querySelector('input[type="checkbox"]');
+
+    const row = document.createElement('label');
+    row.className = 'checkbox-label language-option';
+    row.dataset.languageName = name;
+    row.style.display = 'flex';
+    row.style.alignItems = 'center';
+    row.style.gap = '0.5rem';
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.name = 'language_' + name.replace(/ /g, '_');
+    checkbox.value = name;
+    checkbox.dataset.languageWhitelist = filterSelections.language.whitelist.has(name) ? 'true' : 'false';
+    checkbox.dataset.languageBlacklist = filterSelections.language.blacklist.has(name) ? 'true' : 'false';
+    checkbox.checked = filterSelections.language[filterModeFor('language')].has(name);
+
+    const text = document.createElement('span');
+    text.textContent = name;
+
+    row.appendChild(checkbox);
+    row.appendChild(text);
+    container.appendChild(row);
+    registerFilterCheckbox('language', checkbox);
+    return checkbox;
+}
+
+// Merge a language list from Radarr (the connection test or /config/languages)
+// into the server-rendered options without disturbing current selections.
+function mergeLanguageOptions(names) {
+    if (!Array.isArray(names) || !names.length) return;
+    if (!document.getElementById('languageOptions')) return;
+
+    const known = new Set(languageOptionRows().map(row => (row.dataset.languageName || '').toLowerCase()));
+    names.forEach(name => {
+        if (typeof name !== 'string' || !name || known.has(name.toLowerCase())) return;
+        known.add(name.toLowerCase());
+        addLanguageOption(name);
+    });
+    pinSelectedLanguages();
+    filterLanguageOptions();
+}
+
+// Rebuild the region suggestion chips from the currently selected region and
+// filter mode. The server paints them once from the *persisted* region, which
+// during first-run setup is not the region the user just picked.
+function renderLanguageSuggestions() {
+    const container = document.getElementById('languageSuggestions');
+    if (!container) return;
+
+    let map = {};
+    try {
+        map = JSON.parse(container.dataset.regionLanguages || '{}') || {};
+    } catch (_) { /* keep the server-rendered chips */ return; }
+
+    const select = document.getElementById('boxOfficeRegion');
+    const region = select ? select.value : '';
+    const regionName = select && select.selectedOptions.length
+        ? select.selectedOptions[0].textContent.trim()
+        : (container.dataset.regionName || '');
+    const suggested = Array.isArray(map[region]) ? map[region] : [];
+
+    const label = document.getElementById('languageSuggestionsLabel');
+    if (label) {
+        // In blacklist mode "+ Norwegian" under "Suggested for Norway" reads
+        // as an allow action while it actually excludes the language.
+        const prefix = filterModeFor('language') === 'whitelist'
+            ? 'Suggested for'
+            : 'Local languages for';
+        label.textContent = `${prefix} ${regionName}:`;
+    }
+
+    container.querySelectorAll('[data-suggested-language]').forEach(b => b.remove());
+    suggested.forEach(name => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'btn btn-sm';
+        button.dataset.suggestedLanguage = name;
+        button.style.cssText = 'padding: 0.25rem 0.625rem; background: var(--bg-secondary); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: 999px; font-size: 0.8rem; cursor: pointer;';
+        button.textContent = '+ ' + name;
+        container.appendChild(button);
+    });
+    container.style.display = suggested.length ? 'flex' : 'none';
+}
+
+function addSuggestedLanguage(name) {
+    const checkbox = addLanguageOption(name);
+    if (!checkbox) return;
+    if (!checkbox.checked) {
+        checkbox.checked = true;
+        checkbox.dispatchEvent(new Event('change'));
+    }
+    pinSelectedLanguages();
+    filterLanguageOptions();
+}
+
 function updateLanguageMode() {
     const mode = document.querySelector('input[name="boxarr_features_auto_add_language_filter_mode"]:checked');
     const label = document.getElementById('languageListLabel');
-    const languageCheckboxes = document.querySelectorAll('[name^="language_"]');
 
     if (mode && label) {
-        if (mode.value === 'whitelist') {
-            label.textContent = 'Allowed Languages';
-            languageCheckboxes.forEach(checkbox => {
-                checkbox.checked = checkbox.dataset.languageWhitelist === 'true';
-            });
-        } else {
-            label.textContent = 'Excluded Languages';
-            languageCheckboxes.forEach(checkbox => {
-                checkbox.checked = checkbox.dataset.languageBlacklist === 'true';
-            });
-        }
+        label.textContent = mode.value === 'whitelist' ? 'Allowed Languages' : 'Excluded Languages';
+        applyFilterSelections('language');
+        pinSelectedLanguages();
+        filterLanguageOptions();
+        renderLanguageSuggestions();
     }
 }
 
@@ -173,22 +398,11 @@ function toggleMinimumAvailability() {
 function updateGenreMode() {
     const mode = document.querySelector('input[name="boxarr_features_auto_add_genre_filter_mode"]:checked');
     const label = document.getElementById('genreListLabel');
-    const genreCheckboxes = document.querySelectorAll('[name^="genre_"]');
-    
+
     if (mode && label) {
-        if (mode.value === 'whitelist') {
-            label.textContent = 'Allowed Genres';
-            // Clear all and set from whitelist data
-            genreCheckboxes.forEach(checkbox => {
-                checkbox.checked = checkbox.dataset.genreWhitelist === 'true';
-            });
-        } else {
-            label.textContent = 'Excluded Genres';
-            // Clear all and set from blacklist data
-            genreCheckboxes.forEach(checkbox => {
-                checkbox.checked = checkbox.dataset.genreBlacklist === 'true';
-            });
-        }
+        label.textContent = mode.value === 'whitelist' ? 'Allowed Genres' : 'Excluded Genres';
+        // Re-check from state, not the stale server-rendered attributes.
+        applyFilterSelections('genre');
     }
 }
 
@@ -1244,6 +1458,11 @@ function reloadScheduler() {
                     }
                 }
                 
+                // Merge the tested instance's language vocabulary into the
+                // picker - during first-run setup nothing is persisted yet, so
+                // this is the only live source it has.
+                mergeLanguageOptions(data.languages);
+
                 // Show quality section
                 const qualitySection = document.getElementById('qualitySection');
                 if (qualitySection) qualitySection.classList.add('show');
@@ -1320,21 +1539,11 @@ function reloadScheduler() {
         config.boxarr_features_auto_add_rating_filter_enabled = document.getElementById('ratingFilterEnabled')?.checked || false;
         config.boxarr_features_auto_add_ignore_rereleases = document.getElementById('ignoreRereleasesEnabled')?.checked || false;
         
-        // Collect genre checkboxes based on mode
-        const genreMode = config.boxarr_features_auto_add_genre_filter_mode;
-        const genreWhitelist = [];
-        const genreBlacklist = [];
-        document.querySelectorAll('[name^="genre_"]').forEach(checkbox => {
-            if (checkbox.checked) {
-                if (genreMode === 'whitelist') {
-                    genreWhitelist.push(checkbox.value);
-                } else {
-                    genreBlacklist.push(checkbox.value);
-                }
-            }
-        });
-        config.boxarr_features_auto_add_genre_whitelist = genreWhitelist;
-        config.boxarr_features_auto_add_genre_blacklist = genreBlacklist;
+        // Collect genre checkboxes: the visible mode's list comes from the
+        // checkboxes, the hidden one from state so saving can't wipe it.
+        const genreLists = collectFilterLists('genre', config.boxarr_features_auto_add_genre_filter_mode);
+        config.boxarr_features_auto_add_genre_whitelist = genreLists.whitelist;
+        config.boxarr_features_auto_add_genre_blacklist = genreLists.blacklist;
         
         // Collect rating checkboxes
         const ratingWhitelist = [];
@@ -1349,21 +1558,11 @@ function reloadScheduler() {
         config.boxarr_features_auto_add_language_filter_enabled = document.getElementById('languageFilterEnabled')?.checked || false;
         config.boxarr_features_auto_add_language_filter_mode = document.querySelector('input[name="boxarr_features_auto_add_language_filter_mode"]:checked')?.value || 'whitelist';
 
-        // Collect language checkboxes based on mode
-        const languageMode = config.boxarr_features_auto_add_language_filter_mode;
-        const languageWhitelist = [];
-        const languageBlacklist = [];
-        document.querySelectorAll('[name^="language_"]').forEach(checkbox => {
-            if (checkbox.checked) {
-                if (languageMode === 'whitelist') {
-                    languageWhitelist.push(checkbox.value);
-                } else {
-                    languageBlacklist.push(checkbox.value);
-                }
-            }
-        });
-        config.boxarr_features_auto_add_language_whitelist = languageWhitelist;
-        config.boxarr_features_auto_add_language_blacklist = languageBlacklist;
+        // Same for languages: both lists are always posted, so the mode that
+        // is not on screen keeps its selections.
+        const languageLists = collectFilterLists('language', config.boxarr_features_auto_add_language_filter_mode);
+        config.boxarr_features_auto_add_language_whitelist = languageLists.whitelist;
+        config.boxarr_features_auto_add_language_blacklist = languageLists.blacklist;
 
         // Handle other form fields
         for (let [key, value] of formData.entries()) {
@@ -1557,6 +1756,42 @@ function reloadScheduler() {
                     // New setup - disable save button until tested
                     saveBtn.disabled = true;
                 }
+            }
+
+            // Auto-add filter pickers: seed genre/language state from the
+            // server-rendered attributes, then wire the language search and
+            // the region suggestion chips.
+            initFilterSelections('genre');
+            initFilterSelections('language');
+
+            const languageSearch = document.getElementById('languageSearch');
+            if (languageSearch) {
+                languageSearch.addEventListener('input', filterLanguageOptions);
+                languageSearch.addEventListener('keydown', function(e) {
+                    // Enter in the search box would implicitly submit the form,
+                    // saving the whole configuration mid-search.
+                    if (e.key === 'Enter') e.preventDefault();
+                });
+            }
+
+            const languageSuggestions = document.getElementById('languageSuggestions');
+            if (languageSuggestions) {
+                languageSuggestions.addEventListener('click', function(e) {
+                    const button = e.target.closest('[data-suggested-language]');
+                    if (button) addSuggestedLanguage(button.dataset.suggestedLanguage);
+                });
+                const regionSelect = document.getElementById('boxOfficeRegion');
+                if (regionSelect) {
+                    regionSelect.addEventListener('change', renderLanguageSuggestions);
+                }
+            }
+
+            // Top up the bundled vocabulary with this Radarr's own languages.
+            if (document.getElementById('languageOptions')) {
+                fetch(apiUrl('/config/languages'))
+                    .then(r => r.json())
+                    .then(data => mergeLanguageOptions(data?.languages))
+                    .catch(() => { /* bundled list is already rendered */ });
             }
 
             // Initialize minimum availability toggle state and handler
