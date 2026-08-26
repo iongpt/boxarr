@@ -78,6 +78,39 @@ def _language_allowed(original_language: Optional[str], config: Any) -> bool:
     return movie_language not in {normalize_language(name) for name in blacklist}
 
 
+def _gross_allowed(weekend_gross: Optional[float], config: Any) -> bool:
+    """
+    Decide whether a movie's weekend gross passes the minimum-gross filter.
+
+    The threshold is compared against the *weekend* gross - the figure the
+    chart is ranked by - in US dollars, which is what Box Office Mojo reports
+    for every regional chart.
+
+    An unknown gross fails **open**: ``weekend_gross`` is None essentially only
+    when the chart could not be parsed at all (the fallback parser builds
+    movies with no financials), so failing closed would silently switch every
+    auto-add off at exactly the moment scraping is already degraded.
+
+    Args:
+        weekend_gross: Weekend gross in USD, or None when it is unknown
+        config: Settings object carrying the minimum-gross options
+
+    Returns:
+        True when the movie may be added, False when it must be skipped
+    """
+    if not config.boxarr_features_auto_add_min_gross_enabled:
+        return True
+
+    threshold = config.boxarr_features_auto_add_min_gross or 0
+    if threshold <= 0:
+        return True
+
+    if weekend_gross is None:
+        return True
+
+    return bool(weekend_gross >= threshold)
+
+
 def _warn_on_unmatchable_language_whitelist(
     config: Any, radarr_service: Any = None
 ) -> None:
@@ -181,6 +214,28 @@ def auto_add_missing_movies(
 
     for result in unmatched:
         try:
+            # Minimum weekend gross filter. _gross_allowed owns the whole
+            # policy - disabled, a 0 threshold and an unknown gross all pass -
+            # so the loop only logs. It runs before the TMDB lookup below, so a
+            # movie under the threshold costs no Radarr request at all.
+            weekend_gross = result.box_office_movie.weekend_gross
+            if not _gross_allowed(weekend_gross, settings):
+                logger.info(
+                    f"Skipping '{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
+                    f"weekend gross ${weekend_gross:,.0f} below minimum "
+                    f"${settings.boxarr_features_auto_add_min_gross:,.0f}"
+                )
+                continue
+            if (
+                weekend_gross is None
+                and settings.boxarr_features_auto_add_min_gross_enabled
+                and settings.boxarr_features_auto_add_min_gross > 0
+            ):
+                logger.info(
+                    f"'{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
+                    f"unknown weekend gross - adding anyway"
+                )
+
             # Search for movie in Radarr database (TMDB)
             search_results = radarr_service.search_movie(result.box_office_movie.title)
 

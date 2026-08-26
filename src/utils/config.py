@@ -286,6 +286,17 @@ class Settings(BaseSettings):
         default_factory=list,
         description="Languages to exclude (blacklist mode)",
     )
+    boxarr_features_auto_add_min_gross_enabled: bool = Field(
+        default=False, description="Enable minimum box office gross filtering"
+    )
+    boxarr_features_auto_add_min_gross: float = Field(
+        default=0.0,
+        ge=0,
+        description=(
+            "Minimum weekend gross in USD required to auto-add a movie "
+            "(Box Office Mojo reports every regional chart in USD)"
+        ),
+    )
 
     # Data Configuration
     boxarr_data_history_retention_days: int = Field(
