@@ -57,6 +57,9 @@ def get_template_context(request: Request, **kwargs) -> dict:
         "request": request,
         "version": __version__,
         "theme": theme_str,
+        # Instance-wide "hide ignored movies" preference. Injected here so every
+        # page (weekly, overview, setup) reads the same value from one place.
+        "hide_ignored": settings.boxarr_ui_hide_ignored,
     }
     context.update(kwargs)
     return context
@@ -191,10 +194,17 @@ async def movie_overview_page(request: Request):
     # Load ignore list (needed for filtering and stats)
     ignore_list = IgnoreList()
     ignored_tmdb_ids_set = ignore_list.get_ignored_tmdb_ids()
-    ignored_tmdb_ids = list(ignored_tmdb_ids_set)
 
     # Apply filters
     filtered_movies = all_movies
+
+    # "Hide ignored movies" drops them from every view except the Ignored one,
+    # which stays unfiltered on purpose: it is the only place to un-ignore.
+    hide_ignored = settings.boxarr_ui_hide_ignored
+    if hide_ignored and status_filter != "ignored":
+        filtered_movies = [
+            m for m in filtered_movies if m.get("tmdb_id") not in ignored_tmdb_ids_set
+        ]
 
     # Status filter — ignored movies are excluded from all other status views
     if status_filter == "downloaded":
@@ -251,9 +261,16 @@ async def movie_overview_page(request: Request):
 
     # Avoid per-request full-library status refresh; client will update via AJAX
 
-    # Count statistics — ignored movies are excluded from all other buckets
+    # Count statistics — ignored movies are excluded from all other buckets.
+    # "Total" counts them too unless they are hidden, in which case it has to
+    # match what the grid shows; the Ignored card always keeps the real count
+    # so the un-ignore escape hatch stays labelled correctly.
     stats = {
-        "total": len(all_movies),
+        "total": (
+            sum(1 for m in all_movies if m.get("tmdb_id") not in ignored_tmdb_ids_set)
+            if hide_ignored
+            else len(all_movies)
+        ),
         "in_radarr": sum(
             1
             for m in all_movies
@@ -306,8 +323,9 @@ async def movie_overview_page(request: Request):
             # Features
             auto_add=settings.boxarr_features_auto_add,
             quality_upgrade=settings.boxarr_features_quality_upgrade,
-            # Ignore list
-            ignored_tmdb_ids=ignored_tmdb_ids,
+            # Ignore list — a set so the per-card membership tests in the
+            # template stay O(1) instead of scanning a list per movie
+            ignored_tmdb_ids=ignored_tmdb_ids_set,
         ),
     )
 
@@ -724,7 +742,28 @@ async def serve_weekly_page(request: Request, year: int, week: int):
 
     # Load ignore list
     ignore_list = IgnoreList()
-    ignored_tmdb_ids = list(ignore_list.get_ignored_tmdb_ids())
+    ignored_tmdb_ids = ignore_list.get_ignored_tmdb_ids()
+
+    # Header counts. Ignored movies still render (hidden) so they can be
+    # revealed client-side, but once they are hidden the summary has to count
+    # only what is on screen — otherwise the page claims 10 movies above 8 cards.
+    hide_ignored = settings.boxarr_ui_hide_ignored
+    hidden_count = (
+        sum(1 for m in movies if m.get("tmdb_id") in ignored_tmdb_ids)
+        if hide_ignored
+        else 0
+    )
+    counted = (
+        [m for m in movies if m.get("tmdb_id") not in ignored_tmdb_ids]
+        if hide_ignored
+        else movies
+    )
+    summary = {
+        "total": len(counted),
+        "in_radarr": sum(1 for m in counted if m.get("radarr_id")),
+        "downloaded": sum(1 for m in counted if m.get("has_file")),
+        "missing": sum(1 for m in counted if not m.get("radarr_id")),
+    }
 
     return templates.TemplateResponse(
         request,
@@ -744,6 +783,8 @@ async def serve_weekly_page(request: Request, year: int, week: int):
             previous_week=f"{prev_year}W{prev_week_num:02d}" if prev_week else None,
             next_week=f"{next_year}W{next_week_num:02d}" if next_week else None,
             ignored_tmdb_ids=ignored_tmdb_ids,
+            summary=summary,
+            hidden_count=hidden_count,
         ),
     )
 

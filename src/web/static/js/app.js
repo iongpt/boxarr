@@ -1034,6 +1034,13 @@ function reloadScheduler() {
                     }
                 });
             }
+
+            // Repainting the badges can change what a page counts as
+            // downloaded or missing, so let it re-derive those numbers now -
+            // otherwise they would only catch up on an unrelated ignore click.
+            if (typeof window.onIgnoredVisibilityChange === 'function') {
+                window.onIgnoredVisibilityChange();
+            }
         })
         .catch(error => {
             console.error('Error updating statuses:', error);
@@ -1540,7 +1547,10 @@ function reloadScheduler() {
         config.boxarr_features_auto_tag_enabled = document.getElementById('autoTagEnabled')?.checked || false;
         const autoTagInput = document.getElementById('autoTagText');
         config.boxarr_features_auto_tag_text = (autoTagInput && autoTagInput.value) ? autoTagInput.value : 'boxarr';
-        
+        // UI settings. Must be posted even when unchecked: the server carries an
+        // omitted value over, so a missing false could never turn hiding back off.
+        config.boxarr_ui_hide_ignored = document.getElementById('hideIgnored')?.checked || false;
+
         // Box office fetch limit
         config.boxarr_features_box_office_limit = parseInt(document.getElementById('boxOfficeLimit')?.value || '10');
         // Box office region
@@ -2005,7 +2015,7 @@ function reloadScheduler() {
             if (isCurrentlyIgnored) {
                 // Unignoring
                 window.IGNORED_TMDB_IDS.delete(tmdbId);
-                card.classList.remove('ignored');
+                card.classList.remove('ignored', 'ignored-hidden');
                 const badge = card.querySelector('.ignored-badge');
                 if (badge) badge.remove();
                 // Show ignore btn + action buttons, hide unignore btn
@@ -2017,6 +2027,12 @@ function reloadScheduler() {
                 // Ignoring
                 window.IGNORED_TMDB_IDS.add(tmdbId);
                 card.classList.add('ignored');
+                // With "hide ignored movies" on, the card leaves the grid right
+                // away instead of lingering dimmed until the next page load.
+                // Pages that deliberately list ignored movies leave the flag off.
+                if (window.HIDE_IGNORED) {
+                    card.classList.add('ignored-hidden');
+                }
                 if (!card.querySelector('.ignored-badge')) {
                     const badge = document.createElement('div');
                     badge.className = 'ignored-badge';
@@ -2028,6 +2044,12 @@ function reloadScheduler() {
                 if (unignoreBtn) unignoreBtn.style.display = '';
                 if (addBtn) addBtn.style.display = 'none';
                 if (upgradeBtn) upgradeBtn.style.display = 'none';
+            }
+
+            // Let the page re-sync anything derived from the ignore list
+            // (the weekly page's reveal toggle and header counts).
+            if (typeof window.onIgnoredVisibilityChange === 'function') {
+                window.onIgnoredVisibilityChange();
             }
         } catch (err) {
             buttonEl.textContent = origText;

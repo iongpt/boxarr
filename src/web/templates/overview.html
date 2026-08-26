@@ -642,6 +642,12 @@ select.filter-input {
     opacity: 0.7;
 }
 
+/* "Hide ignored movies" setting: server-side filtering keeps ignored movies
+   out of the initial render, this drops a card the user just ignored. */
+.movie-card.ignored-hidden {
+    display: none;
+}
+
 .ignored-badge {
     position: absolute;
     top: 10px;
@@ -733,7 +739,41 @@ select.filter-input {
 
 {% block scripts %}
 <script>
-    window.IGNORED_TMDB_IDS = new Set({{ ignored_tmdb_ids | tojson }});
+    window.IGNORED_TMDB_IDS = new Set({{ ignored_tmdb_ids | list | tojson }});
+    // Never on the Ignored view: that list exists to show ignored movies, so a
+    // card must not vanish the moment you look at it there.
+    window.HIDE_IGNORED = {{ (hide_ignored and status_filter != 'ignored') | tojson }};
+
+    // Ignoring a movie pulls its card out of the grid client-side, so the
+    // server-rendered numbers around it have to follow. The render always
+    // starts with nothing hidden, so the hidden cards ARE the delta since
+    // load - deriving from them keeps this idempotent and undo-safe.
+    (function () {
+        const rendered = {
+            showing: {{ movies | length }},
+            total: {{ total_movies }},
+            statTotal: {{ stats.total }},
+            statIgnored: {{ stats.ignored }},
+        };
+
+        window.onIgnoredVisibilityChange = function () {
+            if (!window.HIDE_IGNORED) return;
+
+            const hidden = document.querySelectorAll('.movie-card.ignored-hidden').length;
+            const counts = {
+                showingCount: Math.max(0, rendered.showing - hidden),
+                totalMovieCount: Math.max(0, rendered.total - hidden),
+                statTotal: Math.max(0, rendered.statTotal - hidden),
+                // The Ignored card doubles as the label of the escape hatch,
+                // so it has to grow as movies disappear from this view.
+                statIgnored: rendered.statIgnored + hidden,
+            };
+            Object.entries(counts).forEach(([id, value]) => {
+                const el = document.getElementById(id);
+                if (el) el.textContent = value;
+            });
+        };
+    })();
 </script>
 {% endblock %}
 
@@ -758,7 +798,7 @@ select.filter-input {
         <!-- Statistics -->
         <div class="stats-grid">
             <div class="stat-card">
-                <span class="stat-value">{{ stats.total }}</span>
+                <span class="stat-value" id="statTotal">{{ stats.total }}</span>
                 <span class="stat-label">Total Movies</span>
             </div>
             <div class="stat-card">
@@ -778,7 +818,7 @@ select.filter-input {
                 <span class="stat-label">Not in Radarr</span>
             </div>
             <div class="stat-card">
-                <span class="stat-value">{{ stats.ignored }}</span>
+                <span class="stat-value" id="statIgnored">{{ stats.ignored }}</span>
                 <span class="stat-label">Ignored</span>
             </div>
         </div>
@@ -858,7 +898,7 @@ select.filter-input {
     
     <!-- Results Info -->
     <div style="text-align: center; color: var(--text-secondary); margin: 1rem 0;">
-        Showing {{ movies|length }} of {{ total_movies }} movies
+        Showing <span id="showingCount">{{ movies|length }}</span> of <span id="totalMovieCount">{{ total_movies }}</span> movies
         {% if search_query %}
         matching "{{ search_query }}"
         {% endif %}
@@ -867,9 +907,10 @@ select.filter-input {
     <!-- Movies Grid -->
     <div class="movies-grid">
         {% for movie in movies %}
-        <div class="movie-card{% if movie.tmdb_id and movie.tmdb_id in ignored_tmdb_ids %} ignored{% endif %}" data-movie-id="{{ movie.radarr_id or '' }}" data-tmdb-id="{{ movie.tmdb_id or '' }}">
+        {% set is_ignored = movie.tmdb_id and movie.tmdb_id in ignored_tmdb_ids %}
+        <div class="movie-card{% if is_ignored %} ignored{% endif %}" data-movie-id="{{ movie.radarr_id or '' }}" data-tmdb-id="{{ movie.tmdb_id or '' }}">
             <div class="rank-badge">#{{ movie.best_rank }}</div>
-            {% if movie.tmdb_id and movie.tmdb_id in ignored_tmdb_ids %}
+            {% if is_ignored %}
             <div class="ignored-badge">Ignored</div>
             {% endif %}
 
@@ -959,7 +1000,6 @@ select.filter-input {
                 
                 <!-- Actions -->
                 <div class="movie-actions">
-                    {% set is_ignored = movie.tmdb_id and movie.tmdb_id in ignored_tmdb_ids %}
                     {% if not movie.radarr_id %}
                     <button class="action-btn add-to-radarr" {% if is_ignored %}style="display:none"{% endif %} onclick='addToRadarr({{ movie.title|tojson }}, {{ movie.year or "null" }}, this)'>
                         Add to Radarr

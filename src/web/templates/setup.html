@@ -490,6 +490,18 @@
                     </select>
                     <small class="text-muted">Choose your preferred theme or let it follow your system settings</small>
                 </div>
+                <div class="form-group">
+                    <!-- No name attribute on purpose: saveConfiguration() reads this
+                         checkbox explicitly, and an unchecked box must post false. -->
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="hideIgnored" class="checkbox-input"
+                               {% if hide_ignored %}checked{% endif %}>
+                        <div>
+                            <label for="hideIgnored" class="checkbox-label main">Hide ignored movies</label>
+                            <div class="checkbox-label description">Remove ignored movies from the weekly and overview lists instead of dimming them. They stay reachable under Overview → Ignored, and each weekly page offers a "Show N ignored" toggle.</div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- Advanced Settings (collapsible, default closed). Add margin-top and place right above buttons. -->
@@ -663,7 +675,7 @@
     </div>
 
 <script src="{{ request.scope.get('root_path', '') }}/static/js/theme-manager.js?v=1"></script>
-<script src="{{ request.scope.get('root_path', '') }}/static/js/app.js?v=5"></script>
+<script src="{{ request.scope.get('root_path', '') }}/static/js/app.js?v=6"></script>
 <script>
 // Sync theme select with current preference
 document.addEventListener('DOMContentLoaded', function() {

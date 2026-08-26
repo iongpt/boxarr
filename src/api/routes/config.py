@@ -87,6 +87,8 @@ class SaveConfigRequest(BaseModel):
     boxarr_features_auto_tag_text: str = "boxarr"
     # UI theme setting
     boxarr_ui_theme: str = "light"
+    # Hide ignored movies from list views; None carries over the current value
+    boxarr_ui_hide_ignored: Optional[bool] = None
 
 
 @router.get("/root-folders")
@@ -381,6 +383,15 @@ async def save_configuration(config: SaveConfigRequest):
                 },
                 "ui": {
                     "theme": config.boxarr_ui_theme,
+                    # An omitted flag carries the stored value over so a client
+                    # that never learned about this setting cannot reset it.
+                    # The setup page therefore has to post an explicit false to
+                    # turn it back off - an omitted field can only keep it on.
+                    "hide_ignored": (
+                        config.boxarr_ui_hide_ignored
+                        if config.boxarr_ui_hide_ignored is not None
+                        else getattr(settings, "boxarr_ui_hide_ignored", False)
+                    ),
                 },
             },
             # Box office scraper timeout: preserve posted value, else carry over
