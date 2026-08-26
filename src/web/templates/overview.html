@@ -753,17 +753,47 @@ select.filter-input {
             showing: {{ movies | length }},
             total: {{ total_movies }},
             statTotal: {{ stats.total }},
+            statInRadarr: {{ stats.in_radarr }},
+            statDownloaded: {{ stats.downloaded }},
+            statMissing: {{ stats.missing }},
+            statNotInRadarr: {{ stats.not_in_radarr }},
             statIgnored: {{ stats.ignored }},
         };
 
         window.onIgnoredVisibilityChange = function () {
             if (!window.HIDE_IGNORED) return;
 
-            const hidden = document.querySelectorAll('.movie-card.ignored-hidden').length;
+            // The server leaves ignored movies out of every bucket, not just
+            // out of Total, so each hidden card has to come out of its own
+            // bucket too - moving only some of them leaves the row claiming
+            // In Radarr + Not in Radarr more than Total. The card carries what
+            // it was counted in: a Radarr id, and the bucket the server put it
+            // in. Not the status badge - it is painted from has_file rather
+            // than from the stored status (so a "Pending" movie wears the
+            // Missing badge while counting in no bucket at all), and
+            // updateMovieStatuses() repaints it from live Radarr while these
+            // baselines stay on the rendered snapshot.
+            const hiddenCards = document.querySelectorAll('.movie-card.ignored-hidden');
+            const hidden = hiddenCards.length;
+            const delta = { inRadarr: 0, downloaded: 0, missing: 0, notInRadarr: 0 };
+            hiddenCards.forEach(card => {
+                if (card.dataset.movieId) {
+                    delta.inRadarr += 1;
+                } else {
+                    delta.notInRadarr += 1;
+                }
+                if (card.dataset.statBucket === 'downloaded') delta.downloaded += 1;
+                else if (card.dataset.statBucket === 'missing') delta.missing += 1;
+            });
+
             const counts = {
                 showingCount: Math.max(0, rendered.showing - hidden),
                 totalMovieCount: Math.max(0, rendered.total - hidden),
                 statTotal: Math.max(0, rendered.statTotal - hidden),
+                statInRadarr: Math.max(0, rendered.statInRadarr - delta.inRadarr),
+                statDownloaded: Math.max(0, rendered.statDownloaded - delta.downloaded),
+                statMissing: Math.max(0, rendered.statMissing - delta.missing),
+                statNotInRadarr: Math.max(0, rendered.statNotInRadarr - delta.notInRadarr),
                 // The Ignored card doubles as the label of the escape hatch,
                 // so it has to grow as movies disappear from this view.
                 statIgnored: rendered.statIgnored + hidden,
@@ -802,19 +832,19 @@ select.filter-input {
                 <span class="stat-label">Total Movies</span>
             </div>
             <div class="stat-card">
-                <span class="stat-value">{{ stats.in_radarr }}</span>
+                <span class="stat-value" id="statInRadarr">{{ stats.in_radarr }}</span>
                 <span class="stat-label">In Radarr</span>
             </div>
             <div class="stat-card">
-                <span class="stat-value">{{ stats.downloaded }}</span>
+                <span class="stat-value" id="statDownloaded">{{ stats.downloaded }}</span>
                 <span class="stat-label">Downloaded</span>
             </div>
             <div class="stat-card">
-                <span class="stat-value">{{ stats.missing }}</span>
+                <span class="stat-value" id="statMissing">{{ stats.missing }}</span>
                 <span class="stat-label">Missing</span>
             </div>
             <div class="stat-card">
-                <span class="stat-value">{{ stats.not_in_radarr }}</span>
+                <span class="stat-value" id="statNotInRadarr">{{ stats.not_in_radarr }}</span>
                 <span class="stat-label">Not in Radarr</span>
             </div>
             <div class="stat-card">
@@ -908,7 +938,14 @@ select.filter-input {
     <div class="movies-grid">
         {% for movie in movies %}
         {% set is_ignored = movie.tmdb_id and movie.tmdb_id in ignored_tmdb_ids %}
-        <div class="movie-card{% if is_ignored %} ignored{% endif %}" data-movie-id="{{ movie.radarr_id or '' }}" data-tmdb-id="{{ movie.tmdb_id or '' }}">
+        {# data-stat-bucket mirrors the server's own buckets (see the stats dict
+           in the overview route), which key off the stored status string. The
+           status badge below is derived differently - has_file, then
+           "In Cinemas", then everything else - and updateMovieStatuses()
+           repaints it from live Radarr after load, so it is not a safe stand-in
+           for the bucket a counter was rendered from. #}
+        <div class="movie-card{% if is_ignored %} ignored{% endif %}" data-movie-id="{{ movie.radarr_id or '' }}" data-tmdb-id="{{ movie.tmdb_id or '' }}"
+             data-stat-bucket="{% if movie.status == 'Downloaded' %}downloaded{% elif movie.status == 'Missing' %}missing{% endif %}">
             <div class="rank-badge">#{{ movie.best_rank }}</div>
             {% if is_ignored %}
             <div class="ignored-badge">Ignored</div>

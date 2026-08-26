@@ -1,9 +1,13 @@
 """Boxarr API application."""
 
-from typing import Optional
+import math
+from typing import Optional, Union
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
@@ -22,6 +26,11 @@ from .routes import (
 )
 
 logger = get_logger(__name__)
+
+
+def _json_safe_float(value: float) -> Union[float, str]:
+    """Render a non-finite float as text - JSON has no literal for one."""
+    return value if math.isfinite(value) else repr(value)
 
 
 def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
@@ -62,6 +71,27 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
 
     # Mount static files
     app.mount("/static", StaticFiles(directory="src/web/static"), name="static")
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(
+        request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        """Return FastAPI's 422 body, minus the values JSON cannot carry.
+
+        A request can hold a non-finite number (`1e400` is valid JSON and
+        parses to inf), and the default handler echoes the offending input
+        back in the error - but Starlette renders responses with
+        allow_nan=False, so serializing that echo raised and the rejection
+        came back as a 500. Only the echoed value changes shape here.
+        """
+        return JSONResponse(
+            status_code=422,
+            content={
+                "detail": jsonable_encoder(
+                    exc.errors(), custom_encoder={float: _json_safe_float}
+                )
+            },
+        )
 
     # Include routers
     app.include_router(admin_router)

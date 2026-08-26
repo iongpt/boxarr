@@ -15,7 +15,13 @@ from ...core.languages import (
     suggested_languages,
 )
 from ...core.radarr import RadarrService
-from ...utils.config import RootFolderConfig, RootFolderMapping, Settings, settings
+from ...utils.config import (
+    MIN_GROSS_MAX,
+    RootFolderConfig,
+    RootFolderMapping,
+    Settings,
+    settings,
+)
 from ...utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -81,7 +87,11 @@ class SaveConfigRequest(BaseModel):
     boxarr_features_auto_add_language_blacklist: List[str] = Field(default_factory=list)
     # Minimum weekend gross (USD); None carries over the current value on save
     boxarr_features_auto_add_min_gross_enabled: bool = False
-    boxarr_features_auto_add_min_gross: Optional[float] = Field(default=None, ge=0)
+    # Bounded like the Settings field: `ge=0` alone lets `inf` (1e400 is valid
+    # JSON) through, and a persisted infinity breaks the setup page for good.
+    boxarr_features_auto_add_min_gross: Optional[float] = Field(
+        default=None, ge=0, le=MIN_GROSS_MAX
+    )
     # Auto-tagging settings
     boxarr_features_auto_tag_enabled: bool = True
     boxarr_features_auto_tag_text: str = "boxarr"
@@ -212,6 +222,18 @@ def test_configuration(config: TestConfigRequest):
     except Exception as e:
         logger.error(f"Error testing configuration: {e}")
         return {"success": False, "message": str(e)}
+
+
+def _whole_dollars(value: float) -> int:
+    """Round a minimum-gross threshold to whole dollars.
+
+    ``step="any"`` on the setup input is what keeps small-market thresholds
+    typable, so a fraction can be posted. Box Office Mojo reports whole
+    dollars, so a fraction buys nothing and costs plenty: the setup page would
+    redisplay a truncated number, and the skip log would compare two amounts
+    that print identically ("gross $1,200,000 below minimum $1,200,000").
+    """
+    return int(round(min(max(float(value), 0.0), MIN_GROSS_MAX)))
 
 
 @router.post("/save")
@@ -372,7 +394,7 @@ async def save_configuration(config: SaveConfigRequest):
                         # instead of resetting to 0. The enabled flag above is
                         # a plain bool like every other filter flag, so a save
                         # that omits it still falls back to its default (off).
-                        "min_gross": (
+                        "min_gross": _whole_dollars(
                             config.boxarr_features_auto_add_min_gross
                             if config.boxarr_features_auto_add_min_gross is not None
                             else getattr(

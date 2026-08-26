@@ -405,12 +405,21 @@
                                 <label for="minGrossValue" class="form-label">Minimum Weekend Gross (USD)</label>
                                 <!-- step="any": with min="0" any coarse step would make every
                                      non-multiple a stepMismatch, and saveConfiguration() aborts
-                                     the whole save on form.checkValidity() - silently so, since a
-                                     collapsed .filter-options is display:none and cannot show the
-                                     browser's validation bubble. Small-market thresholds like the
-                                     $56,000 below must stay typable. -->
+                                     the whole save on form.checkValidity(). Small-market
+                                     thresholds like the $56,000 below must stay typable.
+                                     disabled while the section is collapsed (both toggles have a
+                                     say - see syncMinGrossDisabled): a display:none control is
+                                     still validated, so an invalid value left behind here would
+                                     block every save with no bubble to show for it.
+                                     The value is pre-formatted server-side rather than piped
+                                     through `| int`, which truncates a fractional threshold
+                                     silently and raises OverflowError on a legacy infinite one.
+                                     max mirrors the server's own bound (MIN_GROSS_MAX) so a
+                                     fat-fingered amount is caught by a bubble here instead of
+                                     coming back as a 422 that discards every other edit. -->
                                 <input type="number" id="minGrossValue" name="boxarr_features_auto_add_min_gross" class="form-input"
-                                       value="{{ min_gross | int }}" min="0" step="any" placeholder="0">
+                                       value="{{ min_gross_display }}" min="0" max="{{ min_gross_max }}" step="any" placeholder="0"
+                                       {% if not (auto_add and min_gross_enabled) %}disabled{% endif %}>
                                 <small class="text-muted">
                                     The amount is the movie's <strong>weekend</strong> gross in <strong>US dollars</strong> - Box Office Mojo reports every regional chart in USD, so no conversion is applied.
                                     A sensible value depends heavily on the selected region: small markets gross orders of magnitude less than the US &amp; Canada chart (the top Indian release of a recent weekend took about $56,000).
@@ -675,7 +684,7 @@
     </div>
 
 <script src="{{ request.scope.get('root_path', '') }}/static/js/theme-manager.js?v=1"></script>
-<script src="{{ request.scope.get('root_path', '') }}/static/js/app.js?v=6"></script>
+<script src="{{ request.scope.get('root_path', '') }}/static/js/app.js?v=7"></script>
 <script>
 // Sync theme select with current preference
 document.addEventListener('DOMContentLoaded', function() {

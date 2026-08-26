@@ -51,11 +51,19 @@ WEEK_MOVIES = [
 ]
 
 
-def _seed(tmp_path: Path, hide_ignored: bool, ignored: bool = True) -> None:
+def _seed(
+    tmp_path: Path, hide_ignored: bool, ignored: bool = True, movies=None
+) -> None:
     weekly_pages = tmp_path / "weekly_pages"
     weekly_pages.mkdir(parents=True, exist_ok=True)
     (weekly_pages / "2024W10.json").write_text(
-        json.dumps({"year": 2024, "week": 10, "movies": WEEK_MOVIES})
+        json.dumps(
+            {
+                "year": 2024,
+                "week": 10,
+                "movies": WEEK_MOVIES if movies is None else movies,
+            }
+        )
     )
 
     if ignored:
@@ -267,6 +275,93 @@ class TestOverviewPage:
         assert soup.find(id="statTotal").get_text(strip=True) == "2"
         assert soup.find(id="statIgnored").get_text(strip=True) == "1"
         assert "window.onIgnoredVisibilityChange = function" in soup.decode()
+
+    def test_every_stat_card_is_reachable_by_id(self, tmp_path, monkeypatch) -> None:
+        """Ignoring a card moves Total, so the buckets have to move with it.
+
+        Only Total and Ignored used to carry an id, so after one ignore the
+        row claimed In Radarr + Not in Radarr more than Total - and the four
+        stale buckets jumped to their real values on the next reload.
+        """
+        soup = _page(tmp_path, monkeypatch, "/overview", hide_ignored=True)
+
+        assert soup.find(id="statInRadarr").get_text(strip=True) == "2"
+        assert soup.find(id="statDownloaded").get_text(strip=True) == "1"
+        assert soup.find(id="statMissing").get_text(strip=True) == "1"
+        assert soup.find(id="statNotInRadarr").get_text(strip=True) == "0"
+        assert all(
+            span.has_attr("id") for span in soup.find_all("span", class_="stat-value")
+        )
+
+    def test_recount_covers_every_counter_on_the_row(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """The hidden card carries its own buckets: a Radarr id and a bucket.
+
+        Pinned to the expression that moves each counter rather than to the
+        counter's name: six of the eight names also appear in the baseline
+        object the hook subtracts from, so a name-only assertion stays green
+        with the update for that counter deleted.
+        """
+        page = _page(tmp_path, monkeypatch, "/overview", hide_ignored=True).decode()
+
+        for update in (
+            "showingCount: Math.max(0, rendered.showing - hidden)",
+            "totalMovieCount: Math.max(0, rendered.total - hidden)",
+            "statTotal: Math.max(0, rendered.statTotal - hidden)",
+            "statInRadarr: Math.max(0, rendered.statInRadarr - delta.inRadarr)",
+            "statDownloaded: Math.max(0, rendered.statDownloaded - delta.downloaded)",
+            "statMissing: Math.max(0, rendered.statMissing - delta.missing)",
+            "statNotInRadarr: Math.max(0, rendered.statNotInRadarr - delta.notInRadarr)",
+            "statIgnored: rendered.statIgnored + hidden",
+        ):
+            assert update in page, update
+        assert "card.dataset.movieId" in page
+        assert "card.dataset.statBucket === 'downloaded'" in page
+        assert "card.dataset.statBucket === 'missing'" in page
+
+    def test_each_card_carries_the_bucket_it_was_counted_in(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """The status badge is not that bucket, so it cannot stand in for it.
+
+        The badge is painted from has_file, then "In Cinemas", then everything
+        else - so a "Pending" movie (announced, or released but not yet
+        available) wears the Missing badge while the server counted it in no
+        bucket at all. updateMovieStatuses() also repaints every badge from
+        live Radarr after load, while the counters stay on the rendered
+        snapshot. Either way a badge-derived delta takes Missing below what the
+        grid is still showing, and it snaps back on the next reload.
+        """
+        pending = dict(
+            WEEK_MOVIES[2],
+            rank=4,
+            title="Pending Movie",
+            tmdb_id=4,
+            radarr_id=44,
+            status="Pending",
+        )
+        soup = _page(
+            tmp_path,
+            monkeypatch,
+            "/overview",
+            hide_ignored=True,
+            movies=WEEK_MOVIES + [pending],
+        )
+
+        assert soup.find(id="statMissing").get_text(strip=True) == "1"
+        assert _card(soup, 1)["data-stat-bucket"] == "downloaded"
+        assert _card(soup, 3)["data-stat-bucket"] == "missing"
+        assert "missing" in _card(soup, 4).find(class_="status-badge")["class"]
+        assert _card(soup, 4)["data-stat-bucket"] == ""
+
+    def test_ignored_tab_reports_the_real_total(self, tmp_path, monkeypatch) -> None:
+        """Nothing is hidden on the escape hatch, so nothing may be deducted."""
+        soup = _page(
+            tmp_path, monkeypatch, "/overview?status=ignored", hide_ignored=True
+        )
+
+        assert soup.find(id="statTotal").get_text(strip=True) == "3"
 
     def test_ignored_stat_card_keeps_the_real_count(
         self, tmp_path, monkeypatch

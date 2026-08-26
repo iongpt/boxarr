@@ -19,6 +19,25 @@ logger = get_logger(__name__)
 # table on load so a legacy value like "Mandarin" matches Radarr's "Chinese".
 _LANGUAGE_LIST_KEYS = ("language_whitelist", "language_blacklist")
 
+# Upper bound for the minimum weekend-gross threshold. A trillion dollars is
+# far beyond any weekend chart, and bounding the field is what keeps `inf` -
+# valid JSON as 1e400, and a legal YAML scalar as `.inf` - out of the config:
+# it passes `ge=0`, is happily persisted, and then breaks every renderer that
+# has to turn the threshold into an integer.
+MIN_GROSS_MAX = 1e12
+
+
+def format_min_gross(value: float) -> str:
+    """Format a minimum-gross threshold as a dollar amount, without the sign.
+
+    Grosses are whole dollars and so is every threshold Boxarr saves, so the
+    usual output matches the gross printed beside it. A hand-edited fractional
+    value keeps its cents instead of being rounded away - "$1,200,000 below
+    minimum $1,200,000" reads as a broken comparison rather than a rounded one,
+    and the dashboard chip must not contradict the log about the same number.
+    """
+    return f"{value:,.0f}" if float(value).is_integer() else f"{value:,.2f}"
+
 
 def _canonicalize_languages(value: Any) -> Any:
     """Map configured language names onto the names Radarr reports.
@@ -299,6 +318,7 @@ class Settings(BaseSettings):
     boxarr_features_auto_add_min_gross: float = Field(
         default=0.0,
         ge=0,
+        le=MIN_GROSS_MAX,
         description=(
             "Minimum weekend gross in USD required to auto-add a movie "
             "(Box Office Mojo reports every regional chart in USD)"
