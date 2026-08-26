@@ -388,6 +388,37 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- Minimum Weekend Gross -->
+                    <div class="filter-section" style="margin-top: 1.5rem;">
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="minGrossEnabled" name="boxarr_features_auto_add_min_gross_enabled"
+                                   class="checkbox-input" {% if min_gross_enabled %}checked{% endif %} onchange="toggleMinGross()">
+                            <div>
+                                <label for="minGrossEnabled" class="checkbox-label main">Enable Minimum Gross Filter</label>
+                                <div class="checkbox-label description">Only add movies that grossed at least a given amount</div>
+                            </div>
+                        </div>
+
+                        <div id="minGrossOptions" class="filter-options {% if min_gross_enabled %}active{% endif %}" style="margin-top: 0.5rem;">
+                            <div class="form-group">
+                                <label for="minGrossValue" class="form-label">Minimum Weekend Gross (USD)</label>
+                                <!-- step="any": with min="0" any coarse step would make every
+                                     non-multiple a stepMismatch, and saveConfiguration() aborts
+                                     the whole save on form.checkValidity() - silently so, since a
+                                     collapsed .filter-options is display:none and cannot show the
+                                     browser's validation bubble. Small-market thresholds like the
+                                     $56,000 below must stay typable. -->
+                                <input type="number" id="minGrossValue" name="boxarr_features_auto_add_min_gross" class="form-input"
+                                       value="{{ min_gross | int }}" min="0" step="any" placeholder="0">
+                                <small class="text-muted">
+                                    The amount is the movie's <strong>weekend</strong> gross in <strong>US dollars</strong> - Box Office Mojo reports every regional chart in USD, so no conversion is applied.
+                                    A sensible value depends heavily on the selected region: small markets gross orders of magnitude less than the US &amp; Canada chart (the top Indian release of a recent weekend took about $56,000).
+                                    Regenerating an older week compares that week's historical grosses against today's threshold. Movies below it still appear on the weekly page and can be added by hand.
+                                </small>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 
                 <div class="checkbox-group" style="margin-top: 1.5rem;">
@@ -632,7 +663,7 @@
     </div>
 
 <script src="{{ request.scope.get('root_path', '') }}/static/js/theme-manager.js?v=1"></script>
-<script src="{{ request.scope.get('root_path', '') }}/static/js/app.js?v=4"></script>
+<script src="{{ request.scope.get('root_path', '') }}/static/js/app.js?v=5"></script>
 <script>
 // Sync theme select with current preference
 document.addEventListener('DOMContentLoaded', function() {

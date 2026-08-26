@@ -129,6 +129,19 @@ function toggleLanguageFilter() {
     }
 }
 
+function toggleMinGross() {
+    const checkbox = document.getElementById('minGrossEnabled');
+    const options = document.getElementById('minGrossOptions');
+
+    if (checkbox && options) {
+        if (checkbox.checked) {
+            options.classList.add('active');
+        } else {
+            options.classList.remove('active');
+        }
+    }
+}
+
 // ==========================================
 // Auto-add filter selections (genre / language)
 // ==========================================
@@ -1538,7 +1551,11 @@ function reloadScheduler() {
         config.boxarr_features_auto_add_genre_filter_mode = document.querySelector('input[name="boxarr_features_auto_add_genre_filter_mode"]:checked')?.value || 'blacklist';
         config.boxarr_features_auto_add_rating_filter_enabled = document.getElementById('ratingFilterEnabled')?.checked || false;
         config.boxarr_features_auto_add_ignore_rereleases = document.getElementById('ignoreRereleasesEnabled')?.checked || false;
-        
+        // Minimum weekend gross (USD). Read explicitly: the FormData sweep
+        // below skips every boxarr_features_* key, so nothing double-writes it.
+        config.boxarr_features_auto_add_min_gross_enabled = document.getElementById('minGrossEnabled')?.checked || false;
+        config.boxarr_features_auto_add_min_gross = parseFloat(document.getElementById('minGrossValue')?.value || '0') || 0;
+
         // Collect genre checkboxes: the visible mode's list comes from the
         // checkboxes, the hidden one from state so saving can't wipe it.
         const genreLists = collectFilterLists('genre', config.boxarr_features_auto_add_genre_filter_mode);

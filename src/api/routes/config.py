@@ -79,6 +79,9 @@ class SaveConfigRequest(BaseModel):
         default_factory=lambda: ["English"]
     )
     boxarr_features_auto_add_language_blacklist: List[str] = Field(default_factory=list)
+    # Minimum weekend gross (USD); None carries over the current value on save
+    boxarr_features_auto_add_min_gross_enabled: bool = False
+    boxarr_features_auto_add_min_gross: Optional[float] = Field(default=None, ge=0)
     # Auto-tagging settings
     boxarr_features_auto_tag_enabled: bool = True
     boxarr_features_auto_tag_text: str = "boxarr"
@@ -362,6 +365,18 @@ async def save_configuration(config: SaveConfigRequest):
                         "language_filter_mode": config.boxarr_features_auto_add_language_filter_mode,
                         "language_whitelist": config.boxarr_features_auto_add_language_whitelist,
                         "language_blacklist": config.boxarr_features_auto_add_language_blacklist,
+                        "min_gross_enabled": config.boxarr_features_auto_add_min_gross_enabled,
+                        # An omitted threshold carries the stored value over
+                        # instead of resetting to 0. The enabled flag above is
+                        # a plain bool like every other filter flag, so a save
+                        # that omits it still falls back to its default (off).
+                        "min_gross": (
+                            config.boxarr_features_auto_add_min_gross
+                            if config.boxarr_features_auto_add_min_gross is not None
+                            else getattr(
+                                settings, "boxarr_features_auto_add_min_gross", 0.0
+                            )
+                        ),
                     },
                 },
                 "ui": {

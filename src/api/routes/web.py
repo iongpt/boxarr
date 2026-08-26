@@ -393,6 +393,12 @@ async def dashboard_page(request: Request):
         or settings.boxarr_features_auto_add_rating_filter_enabled
         or settings.boxarr_features_auto_add_language_filter_enabled
         or settings.boxarr_features_auto_add_ignore_rereleases
+        # Guarded exactly like the description below: enabled with a 0
+        # threshold filters nothing, so it must not claim a filter is active.
+        or (
+            settings.boxarr_features_auto_add_min_gross_enabled
+            and settings.boxarr_features_auto_add_min_gross > 0
+        )
     )
 
     # Build filter description
@@ -439,6 +445,13 @@ async def dashboard_page(request: Request):
             )
     if settings.boxarr_features_auto_add_ignore_rereleases:
         filter_descriptions.append("Ignore re-releases")
+    if (
+        settings.boxarr_features_auto_add_min_gross_enabled
+        and settings.boxarr_features_auto_add_min_gross > 0
+    ):
+        filter_descriptions.append(
+            f"Min weekend gross ${settings.boxarr_features_auto_add_min_gross:,.0f}"
+        )
 
     return templates.TemplateResponse(
         request,
@@ -594,6 +607,9 @@ async def setup_page(request: Request):
             # in-session instead of being pinned to the persisted region -
             # which during first-run setup is nobody's actual choice.
             language_region_suggestions=REGION_DEFAULT_LANGUAGES,
+            # Minimum weekend gross filter (USD)
+            min_gross_enabled=settings.boxarr_features_auto_add_min_gross_enabled,
+            min_gross=settings.boxarr_features_auto_add_min_gross,
             # URL base for reverse proxy support
             url_base=settings.boxarr_url_base,
         ),
