@@ -2,7 +2,7 @@
 
 from typing import Any, Dict, Iterable, List, Optional
 
-from ..utils.config import settings
+from ..utils.config import format_min_gross, settings
 from ..utils.logger import get_logger
 from .boxoffice import BoxOfficeMovie
 from .ignore_list import IgnoreList
@@ -223,7 +223,7 @@ def auto_add_missing_movies(
                 logger.info(
                     f"Skipping '{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
                     f"weekend gross ${weekend_gross:,.0f} below minimum "
-                    f"${settings.boxarr_features_auto_add_min_gross:,.0f}"
+                    f"${format_min_gross(settings.boxarr_features_auto_add_min_gross)}"
                 )
                 continue
             if (
@@ -231,9 +231,12 @@ def auto_add_missing_movies(
                 and settings.boxarr_features_auto_add_min_gross_enabled
                 and settings.boxarr_features_auto_add_min_gross > 0
             ):
+                # Scoped to this gate on purpose: six more gates below can
+                # still drop the movie, so "adding anyway" would be denied by
+                # the very next line of the log often enough to mislead.
                 logger.info(
                     f"'{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
-                    f"unknown weekend gross - adding anyway"
+                    f"unknown weekend gross - minimum-gross filter not applied"
                 )
 
             # Search for movie in Radarr database (TMDB)

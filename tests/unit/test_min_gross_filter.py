@@ -7,6 +7,8 @@ single currency for every region. These tests call the production predicate
 filter that stops being wired into the loop fails here.
 """
 
+import json
+
 import pytest
 import yaml
 from fastapi.testclient import TestClient
@@ -49,6 +51,19 @@ class TestMinGrossDefaults:
         """A negative threshold is meaningless and is refused by the schema."""
         with pytest.raises(Exception):
             Settings(radarr_api_key="test", boxarr_features_auto_add_min_gross=-1000.0)
+
+    def test_infinite_threshold_rejected(self):
+        """`ge=0` alone lets inf through, and inf poisons every renderer."""
+        with pytest.raises(Exception):
+            Settings(
+                radarr_api_key="test",
+                boxarr_features_auto_add_min_gross=float("inf"),
+            )
+
+    def test_absurd_threshold_rejected(self):
+        """No weekend chart approaches a trillion dollars."""
+        with pytest.raises(Exception):
+            Settings(radarr_api_key="test", boxarr_features_auto_add_min_gross=1e13)
 
 
 class TestGrossAllowed:
@@ -187,14 +202,24 @@ class TestMinGrossInAutoAddLoop:
         assert len(service.searched) == 3
 
     def test_unknown_gross_is_added_and_logged(self, auto_add_env, caplog):
+        """The note stays scoped to this gate.
+
+        Six more gates (TMDB lookup, ignore list, re-release, genre, rating,
+        language) run after it and can still skip the movie, so a line
+        claiming it was added would be contradicted by the next one.
+        """
         with caplog.at_level("INFO"):
             added, _ = auto_add_env(_settings())
         assert "Mystery Release" in added
-        assert any(
-            "Mystery Release" in record.message
-            and "unknown weekend gross" in record.message
+        notes = [
+            record.message
             for record in caplog.records
-        )
+            if "Mystery Release" in record.message
+            and "unknown weekend gross" in record.message
+        ]
+        assert notes, "the unfiltered movie must be logged"
+        assert "minimum-gross filter not applied" in notes[0]
+        assert "adding anyway" not in notes[0]
 
     def test_unknown_gross_is_not_logged_when_the_filter_is_off(
         self, auto_add_env, caplog
@@ -217,6 +242,25 @@ class TestMinGrossInAutoAddLoop:
         assert skips, "the skipped movie must be logged"
         assert "$500,000" in skips[0]
         assert "$2,000,000" in skips[0]
+
+    def test_fractional_threshold_keeps_its_cents_in_the_log(
+        self, auto_add_env, caplog
+    ):
+        """Saves round to whole dollars; a hand-edited config need not.
+
+        Rounding both sides of the comparison to whole dollars printed
+        "gross $1,200,000 below minimum $1,200,000", which reads as a bug in
+        the comparison rather than a rounded threshold.
+        """
+        with caplog.at_level("INFO"):
+            auto_add_env(
+                _settings(boxarr_features_auto_add_min_gross=1_200_000.4),
+                chart=[(1, "Just Under", 1_200_000.0)],
+            )
+        skips = [r.message for r in caplog.records if "Just Under" in r.message]
+
+        assert skips, "the skipped movie must be logged"
+        assert "gross $1,200,000 below minimum $1,200,000.40" in skips[0]
 
     def test_limit_is_applied_before_the_gross_gate(self, auto_add_env):
         """'Maximum Movies to Add' keeps meaning 'the top X by rank'.
@@ -259,6 +303,28 @@ class TestMinGrossYamlRoundTrip:
 
         assert s.boxarr_features_auto_add_min_gross_enabled is True
         assert s.boxarr_features_auto_add_min_gross == 2_500_000
+
+    def test_infinite_yaml_value_falls_back_to_the_default(self, tmp_path):
+        """`.inf` is a legal YAML float, and the loader must not boot on it.
+
+        The generic auto_add_options loader skips values that fail validation
+        (keeping the default) instead of raising, so an out-of-range threshold
+        costs the setting, not the app.
+        """
+        config_path = tmp_path / "local.yaml"
+        config_path.write_text(
+            "boxarr:\n"
+            "  features:\n"
+            "    auto_add_options:\n"
+            "      min_gross_enabled: true\n"
+            "      min_gross: .inf\n"
+        )
+
+        s = Settings(radarr_api_key="test")
+        s.load_from_yaml(config_path)
+
+        assert s.boxarr_features_auto_add_min_gross == 0.0
+        assert s.boxarr_features_auto_add_min_gross_enabled is True
 
 
 class _FakeRadarrConnection:
@@ -362,6 +428,31 @@ class TestMinGrossSaveHandler:
         assert options["min_gross"] == 0
         assert options["min_gross_enabled"] is False
 
+    def test_a_save_that_omits_an_unusable_threshold_still_lands(
+        self, tmp_path, monkeypatch
+    ):
+        """What the setup page posts when the collapsed input holds junk.
+
+        Collapsing the section disables the input, which exempts it from the
+        form's own validation but leaves the value in place - so the page omits
+        the key rather than posting a leftover the field bound would refuse.
+        Posting it would 422 the request and discard every unrelated edit made
+        on the page, which is the silent-abort bug moved to the server.
+        """
+        _seed(tmp_path, min_gross_enabled=True, min_gross=2_000_000)
+        client = _client(tmp_path, monkeypatch)
+
+        payload = _base_payload()  # No threshold, as the page would post it.
+        payload["boxarr_features_auto_add_min_gross_enabled"] = False
+        payload["boxarr_ui_theme"] = "dark"  # the unrelated edit that must land
+
+        resp = client.post("/api/config/save", json=payload)
+        assert resp.status_code == 200
+
+        assert _saved_options(tmp_path)["min_gross"] == 2_000_000
+        with open(tmp_path / "local.yaml") as f:
+            assert yaml.safe_load(f)["boxarr"]["ui"]["theme"] == "dark"
+
     def test_negative_threshold_is_rejected(self, tmp_path, monkeypatch):
         client = _client(tmp_path, monkeypatch)
 
@@ -370,3 +461,42 @@ class TestMinGrossSaveHandler:
 
         resp = client.post("/api/config/save", json=payload)
         assert resp.status_code == 422
+
+    def test_infinite_threshold_is_rejected(self, tmp_path, monkeypatch):
+        """`1e400` is valid JSON that parses to inf, and inf passes `ge=0`.
+
+        Persisting it wrote `min_gross: .inf`, after which the setup page -
+        the only UI able to set the value back - returned 500 forever.
+        """
+        client = _client(tmp_path, monkeypatch)
+
+        payload = _base_payload()
+        payload["boxarr_features_auto_add_min_gross"] = 1e400
+
+        resp = client.post(
+            "/api/config/save",
+            content=json.dumps(payload),
+            headers={"Content-Type": "application/json"},
+        )
+        assert resp.status_code == 422
+        assert not (tmp_path / "local.yaml").exists()
+
+    def test_fractional_threshold_is_rounded_to_whole_dollars(
+        self, tmp_path, monkeypatch
+    ):
+        """step="any" lets a fraction through; nothing downstream wants one.
+
+        The setup page redisplays the stored number and the skip log prints it
+        beside a whole-dollar gross, so a fraction can only be truncated on
+        render or make two different amounts print identically.
+        """
+        client = _client(tmp_path, monkeypatch)
+
+        payload = _base_payload()
+        payload["boxarr_features_auto_add_min_gross_enabled"] = True
+        payload["boxarr_features_auto_add_min_gross"] = 1_200_000.4
+
+        resp = client.post("/api/config/save", json=payload)
+        assert resp.status_code == 200
+
+        assert _saved_options(tmp_path)["min_gross"] == 1_200_000

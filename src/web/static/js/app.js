@@ -80,7 +80,7 @@ function toggleSchedulerDebug() {
 function toggleAutoAddOptions() {
     const checkbox = document.getElementById('autoAdd');
     const options = document.getElementById('autoAddOptions');
-    
+
     if (checkbox && options) {
         if (checkbox.checked) {
             options.classList.add('active');
@@ -88,6 +88,8 @@ function toggleAutoAddOptions() {
             options.classList.remove('active');
         }
     }
+    // #minGrossValue lives inside #autoAddOptions, so this collapses it too.
+    syncMinGrossDisabled();
 }
 
 function toggleGenreFilter() {
@@ -140,6 +142,23 @@ function toggleMinGross() {
             options.classList.remove('active');
         }
     }
+    syncMinGrossDisabled();
+}
+
+// Keep the threshold input disabled whenever its section is collapsed, the
+// way #autoTagText and #minimumAvailability do it. A display:none control is
+// still validated - only a disabled one is exempt - so an invalid leftover
+// value (e.g. "-5") in the hidden field would keep failing
+// form.checkValidity() with no bubble to anchor, silently killing every save.
+// The input sits inside BOTH #autoAddOptions and #minGrossOptions, so both
+// checkboxes have a say; re-enabling auto-add must not enable it blindly.
+function syncMinGrossDisabled() {
+    const input = document.getElementById('minGrossValue');
+    if (!input) return;
+
+    const autoAdd = document.getElementById('autoAdd');
+    const minGrossEnabled = document.getElementById('minGrossEnabled');
+    input.disabled = !(autoAdd?.checked && minGrossEnabled?.checked);
 }
 
 // ==========================================
@@ -1035,9 +1054,10 @@ function reloadScheduler() {
                 });
             }
 
-            // Repainting the badges can change what a page counts as
-            // downloaded or missing, so let it re-derive those numbers now -
-            // otherwise they would only catch up on an unrelated ignore click.
+            // Re-derive the counters once the grid has settled. The hook counts
+            // the cards hidden since load, from the bucket the server stamped
+            // on each one, so this repaint cannot move a number by itself - it
+            // only keeps the row consistent with a grid that just changed.
             if (typeof window.onIgnoredVisibilityChange === 'function') {
                 window.onIgnoredVisibilityChange();
             }
@@ -1525,7 +1545,15 @@ function reloadScheduler() {
         
         const form = document.getElementById('setupForm');
         if (!form.checkValidity()) {
+            // reportValidity() cannot anchor its bubble on a control that is
+            // not rendered, so say it out loud too: an abort the user cannot
+            // see reads as a dead Save button. Announced rather than shown
+            // directly, because checkValidity() above has already fired
+            // `invalid` at every offending control - and the listener on that
+            // event, which is the only one a browser-cancelled submit reaches,
+            // has said it once already.
             form.reportValidity();
+            announceInvalidField();
             return;
         }
         
@@ -1562,9 +1590,21 @@ function reloadScheduler() {
         config.boxarr_features_auto_add_rating_filter_enabled = document.getElementById('ratingFilterEnabled')?.checked || false;
         config.boxarr_features_auto_add_ignore_rereleases = document.getElementById('ignoreRereleasesEnabled')?.checked || false;
         // Minimum weekend gross (USD). Read explicitly: the FormData sweep
-        // below skips every boxarr_features_* key, so nothing double-writes it.
+        // below skips every boxarr_features_* key, and FormData drops the
+        // input entirely while its section is collapsed (it is disabled then),
+        // so this read is the only writer. A disabled-and-empty field posts 0.
+        // Only a valid amount is posted. Disabling the input exempts it from
+        // form.checkValidity() but does NOT clear it, so a leftover the server
+        // would reject (a negative amount, or one above its bound) is still
+        // sitting in .value - posting it turns the whole save into a 422 and
+        // discards every other edit, with the offending control collapsed out
+        // of sight. Omitting the key instead lands on the server's carry-over
+        // branch, which keeps the stored threshold.
         config.boxarr_features_auto_add_min_gross_enabled = document.getElementById('minGrossEnabled')?.checked || false;
-        config.boxarr_features_auto_add_min_gross = parseFloat(document.getElementById('minGrossValue')?.value || '0') || 0;
+        const minGrossInput = document.getElementById('minGrossValue');
+        if (!minGrossInput || minGrossInput.validity.valid) {
+            config.boxarr_features_auto_add_min_gross = parseFloat(minGrossInput?.value || '0') || 0;
+        }
 
         // Collect genre checkboxes: the visible mode's list comes from the
         // checkboxes, the hidden one from state so saving can't wipe it.
@@ -1655,7 +1695,7 @@ function reloadScheduler() {
                     window.location.href = makeUrl('/dashboard');
                 }, 1500);
             } else {
-                showMessage('Failed to save: ' + (data.error || 'Unknown error'), 'error');
+                showMessage('Failed to save: ' + describeSaveFailure(data), 'error');
             }
         })
         .catch(error => {
@@ -1675,6 +1715,33 @@ function reloadScheduler() {
     // Setup Page Helper Functions
     // ==========================================
     
+    // One notice per validation pass: `invalid` fires once per offending
+    // control, and toasts are stacked at a fixed position, so three invalid
+    // fields would print the same sentence on top of itself three times.
+    let invalidFieldAnnounced = false;
+    function announceInvalidField() {
+        if (invalidFieldAnnounced) return;
+        invalidFieldAnnounced = true;
+        setTimeout(() => { invalidFieldAnnounced = false; }, 0);
+        showMessage('Please correct the invalid field before saving', 'error');
+    }
+
+    // The save endpoint reports a refusal in `message` and FastAPI reports a
+    // rejected payload in `detail`; neither is `error`, so every failure used
+    // to reach the user as the unhelpful "Unknown error".
+    function describeSaveFailure(data) {
+        if (!data) return 'Unknown error';
+        if (data.error) return data.error;
+        if (data.message) return data.message;
+        if (typeof data.detail === 'string') return data.detail;
+        if (Array.isArray(data.detail) && data.detail.length) {
+            return data.detail
+                .map(d => `${(d.loc || []).slice(-1)[0] || 'field'}: ${d.msg}`)
+                .join('; ');
+        }
+        return 'Unknown error';
+    }
+
     function resetConnectionTest() {
         connectionTested = false;
         const saveBtn = document.getElementById('saveBtn');
@@ -1758,6 +1825,14 @@ function reloadScheduler() {
                     e.preventDefault();
                     saveConfiguration();
                 });
+                // The browser validates the form BEFORE it fires `submit`, and
+                // cancels the submit when something is invalid - so the guard
+                // inside saveConfiguration() never runs on that path, and a
+                // control the bubble cannot be anchored on (one that is not
+                // rendered) leaves nothing behind but a console line. `invalid`
+                // does fire there, so that is where the notice belongs. It does
+                // not bubble, hence the capture phase.
+                setupForm.addEventListener('invalid', announceInvalidField, true);
             }
             
             // Add listeners to reset connection test when credentials change

@@ -2,6 +2,7 @@
 
 import html
 import json
+import math
 from datetime import date, datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
@@ -21,7 +22,7 @@ from ...core.languages import (
     suggested_languages,
 )
 from ...core.models import MovieStatus
-from ...utils.config import settings
+from ...utils.config import MIN_GROSS_MAX, format_min_gross, settings
 from ...utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -200,8 +201,8 @@ async def movie_overview_page(request: Request):
 
     # "Hide ignored movies" drops them from every view except the Ignored one,
     # which stays unfiltered on purpose: it is the only place to un-ignore.
-    hide_ignored = settings.boxarr_ui_hide_ignored
-    if hide_ignored and status_filter != "ignored":
+    hiding_here = settings.boxarr_ui_hide_ignored and status_filter != "ignored"
+    if hiding_here:
         filtered_movies = [
             m for m in filtered_movies if m.get("tmdb_id") not in ignored_tmdb_ids_set
         ]
@@ -262,13 +263,14 @@ async def movie_overview_page(request: Request):
     # Avoid per-request full-library status refresh; client will update via AJAX
 
     # Count statistics — ignored movies are excluded from all other buckets.
-    # "Total" counts them too unless they are hidden, in which case it has to
-    # match what the grid shows; the Ignored card always keeps the real count
-    # so the un-ignore escape hatch stays labelled correctly.
+    # "Total" counts them too unless they are hidden on this view, in which
+    # case it has to match what the grid shows; on the Ignored tab nothing is
+    # hidden, so the real total belongs there. The Ignored card always keeps
+    # the real count so the un-ignore escape hatch stays labelled correctly.
     stats = {
         "total": (
             sum(1 for m in all_movies if m.get("tmdb_id") not in ignored_tmdb_ids_set)
-            if hide_ignored
+            if hiding_here
             else len(all_movies)
         ),
         "in_radarr": sum(
@@ -468,7 +470,8 @@ async def dashboard_page(request: Request):
         and settings.boxarr_features_auto_add_min_gross > 0
     ):
         filter_descriptions.append(
-            f"Min weekend gross ${settings.boxarr_features_auto_add_min_gross:,.0f}"
+            "Min weekend gross $"
+            f"{format_min_gross(settings.boxarr_features_auto_add_min_gross)}"
         )
 
     return templates.TemplateResponse(
@@ -499,6 +502,31 @@ async def dashboard_page(request: Request):
             current_year=datetime.now().year,
         ),
     )
+
+
+def _min_gross_input_value(value: float) -> str:
+    """Format the stored minimum-gross threshold for the setup input.
+
+    Unlike ``format_min_gross`` this renders a bare number - the value of an
+    ``<input type="number">``, which a grouping separator would make invalid.
+
+    Never rendered through Jinja's ``int`` filter: that truncates a fractional
+    threshold without telling anyone, and on a non-finite value it raises
+    OverflowError - which ``do_int`` does not catch, so a single out-of-range
+    number in local.yaml would 500 the only page able to fix it. Saves round
+    the threshold to whole dollars, so a value written by Boxarr renders
+    exactly; the guards below only cover hand-edited or legacy configs.
+    """
+    try:
+        amount = float(value)
+    except (TypeError, ValueError):
+        return "0"
+
+    if not math.isfinite(amount) or amount <= 0:
+        return "0"
+
+    amount = min(amount, MIN_GROSS_MAX)
+    return f"{amount:.0f}" if amount.is_integer() else f"{amount}"
 
 
 @router.get("/setup", response_class=HTMLResponse)
@@ -625,9 +653,19 @@ async def setup_page(request: Request):
             # in-session instead of being pinned to the persisted region -
             # which during first-run setup is nobody's actual choice.
             language_region_suggestions=REGION_DEFAULT_LANGUAGES,
-            # Minimum weekend gross filter (USD)
+            # Minimum weekend gross filter (USD). The amount is formatted here
+            # rather than in the template: rendering a float through Jinja's
+            # `int` filter truncates a fraction silently and raises on a
+            # non-finite legacy value, 500ing the only page that could fix it.
             min_gross_enabled=settings.boxarr_features_auto_add_min_gross_enabled,
-            min_gross=settings.boxarr_features_auto_add_min_gross,
+            min_gross_display=_min_gross_input_value(
+                settings.boxarr_features_auto_add_min_gross
+            ),
+            # The input's `max`, from the same constant the field is validated
+            # against: without it a fat-fingered amount is HTML5-valid, sails
+            # past form.checkValidity() and comes back as a bare 422 that takes
+            # every other edit on the page down with it.
+            min_gross_max=f"{MIN_GROSS_MAX:.0f}",
             # URL base for reverse proxy support
             url_base=settings.boxarr_url_base,
         ),
