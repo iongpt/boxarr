@@ -1,5 +1,6 @@
 """Radarr API client for movie management."""
 
+import time
 from dataclasses import dataclass, field
 from enum import Enum
 from inspect import signature
@@ -92,6 +93,10 @@ class RadarrMovie:
 
 _movies_cache: Dict[str, Any] = {"ts": 0.0, "data": []}
 _profiles_cache: Dict[str, Any] = {"ts": 0.0, "data": []}
+# Language vocabulary is cached per instance, keyed by (url, api_key): the
+# connection test builds throwaway services against arbitrary URLs, and a
+# keyless cache would let that poison the list served for the configured one.
+_languages_cache: Dict[str, Dict[str, Any]] = {}
 
 
 def get_all_movies_with_optional_cache_bypass(
@@ -577,6 +582,53 @@ class RadarrService:
         _profiles_cache["ts"] = now
         self._quality_profiles = profiles
         return profiles
+
+    def get_languages(self, ignore_cache: bool = False) -> List[str]:
+        """
+        Get the language names this Radarr instance can report for a movie.
+
+        These are the only values the auto-add language filter can ever match,
+        since it compares against ``originalLanguage.name``. The pseudo-entries
+        Any/Original/Unknown (id <= 0) are release-tagging values and excluded.
+
+        Returns:
+            Sorted language names, or an empty list on any failure so callers
+            fall back to the bundled vocabulary.
+        """
+        try:
+            ttl = getattr(settings, "radarr_cache_ttl_seconds", 120)
+        except Exception:
+            ttl = 120
+
+        cache_key = f"{self.url}|{self.api_key}"
+        now = time.time()
+        cached = _languages_cache.get(cache_key)
+        if (
+            not ignore_cache
+            and cached
+            and cached["data"]
+            and (now - cached["ts"]) < ttl
+        ):
+            return cast(List[str], cached["data"])
+
+        try:
+            response = self._make_request("GET", "/api/v3/language")
+            languages = sorted(
+                {
+                    str(item["name"]).strip()
+                    for item in response.json()
+                    if isinstance(item, dict)
+                    and item.get("name")
+                    and int(item.get("id", 0)) > 0
+                },
+                key=str.casefold,
+            )
+        except Exception as e:
+            logger.warning(f"Could not fetch languages from Radarr: {e}")
+            return []
+
+        _languages_cache[cache_key] = {"ts": now, "data": languages}
+        return languages
 
     def get_quality_profile_by_name(self, name: str) -> Optional[QualityProfile]:
         """

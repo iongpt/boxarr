@@ -9,6 +9,11 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from ... import __version__
+from ...core.languages import (
+    RADARR_LANGUAGES,
+    merge_language_options,
+    suggested_languages,
+)
 from ...core.radarr import RadarrService
 from ...utils.config import RootFolderConfig, RootFolderMapping, Settings, settings
 from ...utils.logger import get_logger
@@ -115,9 +120,54 @@ async def get_configuration():
     )
 
 
+@router.get("/languages")
+def get_language_options():
+    """Get the language vocabulary offered by the auto-add language filter.
+
+    Live names from Radarr take precedence - they are the only values the
+    filter can ever match - merged with the bundled snapshot and whatever the
+    user already has configured, so a hand-edited local.yaml value still
+    renders (and therefore survives a save).
+
+    Deliberately a plain ``def``: ``RadarrService`` is synchronous and built
+    with ``radarr_timeout`` (120s by default), so on an unreachable-but-not-
+    refusing host an ``async def`` would park the event loop - and every other
+    request with it - for the whole timeout. FastAPI runs sync handlers in the
+    threadpool, which keeps the stall to this one request.
+    """
+    current_settings = settings
+
+    live: List[str] = []
+    if current_settings.radarr_api_key:
+        try:
+            live = RadarrService().get_languages()
+        except Exception as e:  # pragma: no cover - defensive, never fatal
+            logger.warning(f"Could not load languages from Radarr: {e}")
+
+    languages = merge_language_options(
+        live,
+        RADARR_LANGUAGES,
+        current_settings.boxarr_features_auto_add_language_whitelist,
+        current_settings.boxarr_features_auto_add_language_blacklist,
+    )
+
+    return {
+        "languages": languages,
+        "source": "radarr" if live else "builtin",
+        "suggested": suggested_languages(
+            current_settings.boxarr_features_box_office_region
+        ),
+    }
+
+
 @router.post("/test")
-async def test_configuration(config: TestConfigRequest):
-    """Test Radarr connection and return profiles/folders."""
+def test_configuration(config: TestConfigRequest):
+    """Test Radarr connection and return profiles/folders.
+
+    Sync for the same reason as ``get_language_options``: every call in here is
+    a blocking Radarr request, so it belongs in the threadpool rather than on
+    the event loop.
+    """
     try:
         test_service = RadarrService(url=config.url, api_key=config.api_key)
 
@@ -138,6 +188,11 @@ async def test_configuration(config: TestConfigRequest):
         except Exception:
             version = "Unknown"
 
+        # Carry the tested instance's language vocabulary: during first-run
+        # setup nothing is persisted yet, so this is the only live source the
+        # language picker has.
+        languages = test_service.get_languages()
+
         return {
             "success": True,
             "message": "Connected successfully!",
@@ -147,6 +202,7 @@ async def test_configuration(config: TestConfigRequest):
                 {"path": f.get("path", ""), "freeSpace": f.get("freeSpace", 0)}
                 for f in folders
             ],
+            "languages": languages,
         }
     except Exception as e:
         logger.error(f"Error testing configuration: {e}")

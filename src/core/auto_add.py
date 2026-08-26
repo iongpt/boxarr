@@ -1,11 +1,12 @@
 """Shared auto-add logic for adding unmatched movies to Radarr."""
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 from ..utils.config import settings
 from ..utils.logger import get_logger
 from .boxoffice import BoxOfficeMovie
 from .ignore_list import IgnoreList
+from .languages import is_known_language, normalize_language
 from .matcher import MatchResult
 from .radarr import RadarrService
 from .root_folder_manager import RootFolderManager
@@ -41,6 +42,88 @@ def _select_search_result(
             f"'{search_results[0].get('title')}'"
         )
     return search_results[0]
+
+
+def _language_allowed(original_language: Optional[str], config: Any) -> bool:
+    """
+    Decide whether a movie's original language passes the language filter.
+
+    Both sides are compared through :func:`normalize_language`, so alias
+    spellings (``Mandarin`` -> Radarr's ``Chinese``) and casing differences
+    still match. Whitelist mode stays fail-closed: a movie with no reported
+    language is skipped, while blacklist mode lets it through.
+
+    Args:
+        original_language: Radarr's ``originalLanguage.name`` for the movie
+        config: Settings object carrying the language filter options
+
+    Returns:
+        True when the movie may be added, False when it must be skipped
+    """
+    if not config.boxarr_features_auto_add_language_filter_enabled:
+        return True
+
+    movie_language = normalize_language(original_language or "")
+
+    if config.boxarr_features_auto_add_language_filter_mode == "whitelist":
+        whitelist = config.boxarr_features_auto_add_language_whitelist
+        if not whitelist:
+            return True
+        allowed = {normalize_language(name) for name in whitelist}
+        return bool(movie_language) and movie_language in allowed
+
+    blacklist = config.boxarr_features_auto_add_language_blacklist
+    if not blacklist or not movie_language:
+        return True
+    return movie_language not in {normalize_language(name) for name in blacklist}
+
+
+def _warn_on_unmatchable_language_whitelist(
+    config: Any, radarr_service: Any = None
+) -> None:
+    """
+    Warn when the language whitelist cannot match anything Radarr reports.
+
+    Whitelist mode is fail-closed, so a whitelist made up entirely of names
+    Radarr never uses silently blocks every auto-add. Logging the offending
+    entries at WARNING level makes that state diagnosable.
+
+    The bundled snapshot is not the whole vocabulary: the setup picker also
+    offers whatever the user's own (possibly newer) Radarr reports, and those
+    names match perfectly well. Checking the snapshot alone would therefore
+    assert - very loudly, and wrongly - that a working filter can never match,
+    so the instance's own list is consulted first. It is fetched only once the
+    whitelist is actually in play, and any failure just leaves the snapshot as
+    the vocabulary: a diagnostic must never break or slow down an auto-add.
+    """
+    if not config.boxarr_features_auto_add_language_filter_enabled:
+        return
+    if config.boxarr_features_auto_add_language_filter_mode != "whitelist":
+        return
+
+    whitelist = config.boxarr_features_auto_add_language_whitelist
+    if not whitelist:
+        return
+
+    live_languages: Iterable[str] = []
+    if radarr_service is not None:
+        try:
+            live_languages = radarr_service.get_languages() or []
+        except Exception as e:  # pragma: no cover - defensive, never fatal
+            logger.debug(f"Could not read Radarr's language list: {e}")
+
+    live = {normalize_language(name) for name in live_languages if name}
+    unrecognized = [
+        name
+        for name in whitelist
+        if not is_known_language(name) and normalize_language(name) not in live
+    ]
+    if len(unrecognized) == len(whitelist):
+        logger.warning(
+            f"Language whitelist {unrecognized} matches no language name known "
+            f"to Radarr - no movie can pass the language filter. Use the names "
+            f"Radarr reports (e.g. 'English', 'Chinese', 'Norwegian')."
+        )
 
 
 def auto_add_missing_movies(
@@ -93,6 +176,8 @@ def auto_add_missing_movies(
     if not default_profile:
         logger.error("No quality profiles found in Radarr")
         return []
+
+    _warn_on_unmatchable_language_whitelist(settings, radarr_service)
 
     for result in unmatched:
         try:
@@ -181,29 +266,20 @@ def auto_add_missing_movies(
                     if isinstance(movie_info.get("originalLanguage"), dict)
                     else None
                 )
-                lang_mode = settings.boxarr_features_auto_add_language_filter_mode
-                if lang_mode == "whitelist":
-                    whitelist = settings.boxarr_features_auto_add_language_whitelist
-                    if whitelist and (
-                        not original_language or original_language not in whitelist
-                    ):
+                if not _language_allowed(original_language, settings):
+                    lang_mode = settings.boxarr_features_auto_add_language_filter_mode
+                    if lang_mode == "whitelist":
+                        whitelist = settings.boxarr_features_auto_add_language_whitelist
                         logger.info(
                             f"Skipping '{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
                             f"language '{original_language}' not in whitelist {whitelist}"
                         )
-                        continue
-                else:
-                    blacklist = settings.boxarr_features_auto_add_language_blacklist
-                    if (
-                        blacklist
-                        and original_language
-                        and original_language in blacklist
-                    ):
+                    else:
                         logger.info(
                             f"Skipping '{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
                             f"language '{original_language}' blacklisted"
                         )
-                        continue
+                    continue
 
             # Determine root folder based on genres
             root_folder_manager = RootFolderManager(radarr_service)
