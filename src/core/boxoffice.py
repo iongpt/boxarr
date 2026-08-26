@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
 import httpx
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
 from ..utils.config import settings
 from ..utils.logger import get_logger
@@ -131,6 +131,42 @@ class BoxOfficeService:
     MAX_FETCH_ATTEMPTS = 3
     RETRY_BACKOFF_SECONDS = (2, 4)
 
+    # Column headers of the Box Office Mojo weekend chart. The live layout is
+    # Rank | LW | Release | Gross | %± LW | Theaters | Change | Average |
+    # Total Gross | Weeks | Distributor | New This Week | Estimated
+    # (identical for the domestic chart and every ?area= regional variant).
+    # Columns are resolved by name so a column added or removed upstream cannot
+    # silently shift the values we read.
+    COLUMN_RELEASE = "release"
+    COLUMN_GROSS = "gross"
+    COLUMN_THEATERS = "theaters"
+    COLUMN_TOTAL_GROSS = "total gross"
+    COLUMN_WEEKS = "weeks"
+
+    EXPECTED_COLUMNS: Tuple[str, ...] = (
+        COLUMN_RELEASE,
+        COLUMN_GROSS,
+        COLUMN_THEATERS,
+        COLUMN_TOTAL_GROSS,
+        COLUMN_WEEKS,
+    )
+
+    # A header row can appear below a group label row, so look a little further
+    # than the first row before giving up on names.
+    HEADER_SCAN_ROWS = 3
+
+    # Positional indices, used only when no row names the columns above. Only
+    # the columns whose position has always held on the live chart are listed:
+    # Theaters and Total Gross are deliberately absent because the indices the
+    # parser used before this map existed (6 and 7) are the theater Change and
+    # the per-theater Average. Guessing them wrong writes bogus money into
+    # config/weekly_pages/*.json permanently; leaving them empty does not.
+    FALLBACK_COLUMN_INDEXES: Dict[str, int] = {
+        COLUMN_RELEASE: 2,
+        COLUMN_GROSS: 3,
+        COLUMN_WEEKS: 9,
+    }
+
     def __init__(self, http_client: Optional[httpx.Client] = None):
         """
         Initialize Box Office service.
@@ -238,6 +274,87 @@ class BoxOfficeService:
         except (ValueError, AttributeError):
             return None
 
+    @staticmethod
+    def _normalize_column_name(text: str) -> str:
+        """
+        Normalize a header label so lookups tolerate case and spacing noise.
+
+        Args:
+            text: Raw header cell text (e.g. "Total\xa0Gross")
+
+        Returns:
+            Lowercased, whitespace-collapsed name (e.g. "total gross")
+        """
+        return re.sub(r"\s+", " ", text.replace("\xa0", " ")).strip().lower()
+
+    def _build_column_index(self, table: Tag) -> Tuple[Dict[str, int], int]:
+        """
+        Map Box Office Mojo column names to their position in the chart table.
+
+        Args:
+            table: The bordered chart table
+
+        Returns:
+            Tuple of (column name to cell index mapping, index of the row the
+            names came from), or ({}, -1) when no row names the columns we read
+        """
+        for row_index, row in enumerate(
+            table.find_all("tr", limit=self.HEADER_SCAN_ROWS)
+        ):
+            columns: Dict[str, int] = {}
+            index = 0
+            for cell in row.find_all(["th", "td"]):
+                name = self._normalize_column_name(cell.get_text(" ", strip=True))
+                if name and name not in columns:
+                    columns[name] = index
+                # A merged cell covers several data columns, so the next name
+                # starts that many positions further along.
+                index += self._colspan(cell)
+
+            # Without the release and gross columns the row tells us nothing we
+            # can rely on - most likely it is a group label or a data row.
+            if self.COLUMN_RELEASE in columns and self.COLUMN_GROSS in columns:
+                return columns, row_index
+
+        return {}, -1
+
+    @staticmethod
+    def _colspan(cell: Tag) -> int:
+        """
+        Read how many columns a header cell spans.
+
+        Args:
+            cell: Header cell
+
+        Returns:
+            The cell's colspan, or 1 when it is absent or unparsable
+        """
+        span = cell.get("colspan")
+        if span is None:
+            return 1
+        try:
+            return max(int(str(span)), 1)
+        except (TypeError, ValueError):
+            return 1
+
+    @staticmethod
+    def _cell_text(cells: List[Tag], columns: Dict[str, int], name: str) -> str:
+        """
+        Read the text of a named column from a table row.
+
+        Args:
+            cells: The row's cells
+            columns: Column name to index mapping
+            name: Normalized column name to read
+
+        Returns:
+            Cell text, or an empty string when the column is absent
+        """
+        index = columns.get(name)
+        if index is None or index >= len(cells):
+            return ""
+        return cells[index].get_text(strip=True)
+
     def _build_weekend_url(self, year: int, week: int) -> str:
         """
         Build the Box Office Mojo weekend URL for the configured region.
@@ -337,21 +454,49 @@ class BoxOfficeService:
                 # Try alternative parsing method for different page structure
                 return self._parse_alternative_format(html, limit=limit)
 
-            # Parse table rows
-            rows = (
-                table.find_all("tr")[1:] if hasattr(table, "find_all") else []
-            )  # Skip header row
+            # Resolve columns by header name so an upstream layout change
+            # cannot shift the values we read into the wrong fields
+            all_rows: List[Tag] = []
+            if hasattr(table, "find_all"):
+                columns, header_index = self._build_column_index(table)
+                all_rows = table.find_all("tr")
+            else:
+                columns, header_index = {}, -1
 
-            for idx, row in enumerate(rows[:limit], start=1):
+            if columns:
+                missing = [
+                    name for name in self.EXPECTED_COLUMNS if name not in columns
+                ]
+                if missing:
+                    logger.warning(
+                        "Box office header is missing expected column(s): "
+                        f"{', '.join(missing)} - those fields will be empty"
+                    )
+                rows = all_rows[header_index + 1 :]
+            else:
+                logger.warning(
+                    "Box office table has no recognizable header row - falling "
+                    "back to positional columns, which may misread the chart if "
+                    "Box Office Mojo changed its layout"
+                )
+                columns = dict(self.FALLBACK_COLUMN_INDEXES)
+                # No header was identified, so every row may be data. Rows that
+                # are not are dropped by the cell-count and anchor guards below.
+                rows = all_rows
+
+            for row in rows:
+                if len(movies) >= limit:
+                    break
+
                 cells = row.find_all("td")
                 if len(cells) < 3:
                     continue
 
-                # Extract movie title - Box Office Mojo structure has title in cell[2]
-                title_cell = cells[2] if len(cells) > 2 else None
-                if not title_cell:
+                # Extract movie title from the Release column
+                title_index = columns.get(self.COLUMN_RELEASE)
+                if title_index is None or title_index >= len(cells):
                     continue
-                title_link = title_cell.find("a")
+                title_link = cells[title_index].find("a")
                 if not title_link:
                     continue
 
@@ -363,38 +508,21 @@ class BoxOfficeService:
                 if self._is_studio_name(title):
                     continue
 
-                # Extract financial data - adjusted for new cell positions
-                weekend_gross = None
-                total_gross = None
-                weeks_released = None
-                theater_count = None
-
-                # Weekend gross is now in cell[3] (was cell[2])
-                if len(cells) >= 4:
-                    weekend_gross = self.parse_money_value(
-                        cells[3].get_text(strip=True)
-                    )
-                # Theater count is now in cell[6] (was cell[5])
-                if len(cells) >= 7:
-                    theater_count = self.parse_integer_value(
-                        cells[6].get_text(strip=True)
-                    )
-                # Total gross is now in cell[7] (was cell[6])
-                if len(cells) >= 8:
-                    total_gross = self.parse_money_value(cells[7].get_text(strip=True))
-                # Weeks released is now in cell[9] (was cell[8])
-                if len(cells) >= 10:
-                    weeks_released = self.parse_integer_value(
-                        cells[9].get_text(strip=True)
-                    )
-
                 movie = BoxOfficeMovie(
                     rank=len(movies) + 1,
                     title=title,
-                    weekend_gross=weekend_gross,
-                    total_gross=total_gross,
-                    weeks_released=weeks_released,
-                    theater_count=theater_count,
+                    weekend_gross=self.parse_money_value(
+                        self._cell_text(cells, columns, self.COLUMN_GROSS)
+                    ),
+                    total_gross=self.parse_money_value(
+                        self._cell_text(cells, columns, self.COLUMN_TOTAL_GROSS)
+                    ),
+                    weeks_released=self.parse_integer_value(
+                        self._cell_text(cells, columns, self.COLUMN_WEEKS)
+                    ),
+                    theater_count=self.parse_integer_value(
+                        self._cell_text(cells, columns, self.COLUMN_THEATERS)
+                    ),
                     release_url=release_url,
                 )
                 movies.append(movie)
