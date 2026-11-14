@@ -137,6 +137,9 @@ def harness(tmp_path, monkeypatch):
             },
         }
         (tmp_path / "local.yaml").write_text(yaml.safe_dump(config))
+        # CI exports RADARR_API_KEY, which would override the key above; the
+        # no-Radarr cases need local.yaml to decide.
+        monkeypatch.delenv("RADARR_API_KEY", raising=False)
         monkeypatch.setenv("BOXARR_DATA_DIRECTORY", str(tmp_path))
         monkeypatch.setattr(cfg_utils, "_settings", None)
         monkeypatch.setattr(core_boxoffice, "BoxOfficeService", FakeBoxOffice)
