@@ -5,7 +5,7 @@ import shutil
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import yaml
 from pydantic import BaseModel, Field, HttpUrl, ValidationError, validator
@@ -67,6 +67,46 @@ def _canonicalize_languages(value: Any) -> Any:
             pass
         canonical.append(name)
     return canonical
+
+
+# boxarr sub-sections whose keys load_from_yaml prefixes with the section name.
+_BOXARR_GROUPS = ("scheduler", "features", "ui", "data")
+
+
+def yaml_paths_for_field(field: str) -> List[Tuple[str, ...]]:
+    """Return every key path that ``Settings.load_from_yaml`` reads into ``field``.
+
+    The loader accepts several spellings of most settings: ``radarr.timeout``
+    and a top-level ``radarr_timeout`` both set ``radarr_timeout``, as do
+    ``boxarr.scheduler.cron`` and ``boxarr.scheduler_cron``, or
+    ``boxarr.features.auto_add_options.limit`` and
+    ``boxarr.features.auto_add_limit``. When a file holds more than one, the
+    one read last wins. The save uses this list to remove the spellings it
+    does not write, so a stale one cannot override what was just saved.
+
+    Keep it in step with ``load_from_yaml``. It leaves out the per-device keys
+    under ``boxarr.ui.cards_per_row``, which no save writes.
+    """
+    paths: List[Tuple[str, ...]] = [(field,)]
+    for section in ("radarr", "boxarr"):
+        if field.startswith(f"{section}_"):
+            paths.append((section, field[len(section) + 1 :]))
+    if field.startswith("boxarr_"):
+        rest = field[len("boxarr_") :]
+        for group in _BOXARR_GROUPS:
+            if rest.startswith(f"{group}_"):
+                sub_key = rest[len(group) + 1 :]
+                paths.append(("boxarr", group, sub_key))
+                if group == "features" and sub_key.startswith("auto_add_"):
+                    paths.append(
+                        (
+                            "boxarr",
+                            "features",
+                            "auto_add_options",
+                            sub_key[len("auto_add_") :],
+                        )
+                    )
+    return paths
 
 
 class ThemeEnum(str, Enum):
@@ -427,12 +467,15 @@ class Settings(BaseSettings):
         return env_set
 
     @staticmethod
-    def _backup_broken_config(config_path: Path) -> None:
+    def _backup_broken_config(config_path: Path) -> Optional[Path]:
         """Copy an unreadable config file aside so user data survives.
 
         The copy preserves the original so a later ``save_configuration`` that
         overwrites ``local.yaml`` does not destroy the user's settings. When a
         ``.broken`` backup already exists, a timestamp suffix keeps each one.
+
+        Returns the backup's path, or ``None`` when the copy failed - the save
+        uses that to refuse overwriting a file it could neither read nor keep.
         """
         backup = config_path.with_suffix(config_path.suffix + ".broken")
         if backup.exists():
@@ -443,8 +486,10 @@ class Settings(BaseSettings):
         try:
             shutil.copy2(config_path, backup)
             logger.error("Backed up unreadable config to %s", backup)
+            return backup
         except OSError as exc:
             logger.error("Could not back up unreadable config %s: %s", config_path, exc)
+            return None
 
     def load_from_yaml(
         self,
@@ -477,7 +522,9 @@ class Settings(BaseSettings):
             try:
                 with open(config_path) as f:
                     config_data = yaml.safe_load(f) or {}
-            except yaml.YAMLError as exc:
+            # ValueError covers a file that is not valid UTF-8 and valid
+            # syntax whose value cannot be built, such as the date 2024-02-30.
+            except (yaml.YAMLError, ValueError) as exc:
                 logger.error(
                     "!!! Could not parse configuration file %s: %s. "
                     "Backing up the unreadable file and starting with defaults "
@@ -499,7 +546,8 @@ class Settings(BaseSettings):
                 self._backup_broken_config(config_path)
                 return
 
-            # Process configuration sections
+            # Process configuration sections. A change to the key-to-field
+            # mapping below has to be mirrored in yaml_paths_for_field().
             for section, values in config_data.items():
                 if section == "version":
                     continue  # Skip version field

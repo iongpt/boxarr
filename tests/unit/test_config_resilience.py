@@ -10,6 +10,8 @@ import os
 import textwrap
 from pathlib import Path
 
+import pytest
+
 from src.utils.config import Settings, load_settings
 
 
@@ -58,6 +60,28 @@ class TestMalformedConfigFallsBackToDefaults:
 
         assert settings.radarr_api_key == ""
         assert (tmp_path / "local.yaml.broken").exists()
+
+    @pytest.mark.parametrize(
+        "content",
+        [
+            b"boxarr:\n  data:\n    last_cleanup: 2024-02-30\n",
+            b"radarr:\n  timeout: !!int abc\n",
+            b"radarr:\n  api_key: \xc3\x28\n",
+        ],
+        ids=["bad-date", "bad-int-tag", "bad-encoding"],
+    )
+    def test_value_error_returns_defaults_and_backs_up(
+        self, tmp_path: Path, monkeypatch, content: bytes
+    ) -> None:
+        """Parse failures PyYAML reports as ValueError, not YAMLError."""
+        monkeypatch.setenv("BOXARR_DATA_DIRECTORY", str(tmp_path))
+        config_file = tmp_path / "local.yaml"
+        config_file.write_bytes(content)
+
+        settings = load_settings()
+
+        assert settings.radarr_api_key == ""
+        assert (tmp_path / "local.yaml.broken").read_bytes() == content
 
     def test_second_broken_backup_is_timestamped(
         self, tmp_path: Path, monkeypatch
