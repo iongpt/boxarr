@@ -29,6 +29,13 @@ boxarr:
     notifications: false
     # Box Office Mojo region 'area' code (e.g. "NL", "DE", "GB").
     # Empty means US & Canada domestic (no ?area parameter).
+    # Up to 5 regions can be listed, in the order they are fetched; "domestic"
+    # stands for US & Canada. Quoting "NO" (Norway) is optional: YAML reads
+    # an unquoted NO as false, which Boxarr takes to mean Norway.
+    #   box_office_region:
+    #     - domestic
+    #     - DE
+    #     - "NO"
     box_office_region: ""
   
   # UI configuration

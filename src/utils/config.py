@@ -1,14 +1,23 @@
 """Configuration management for Boxarr using pydantic-settings."""
 
+import json
 import os
+import re
 import shutil
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 import yaml
-from pydantic import BaseModel, Field, HttpUrl, ValidationError, validator
+from pydantic import (
+    BaseModel,
+    Field,
+    HttpUrl,
+    ValidationError,
+    field_validator,
+    validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .logger import get_logger
@@ -37,6 +46,214 @@ def format_min_gross(value: float) -> str:
     and the dashboard chip must not contradict the log about the same number.
     """
     return f"{value:,.0f}" if float(value).is_integer() else f"{value:,.2f}"
+
+
+# Most Box Office Mojo regions one configuration can hold. Every region is one
+# more chart request, plus its IMDb lookups, on every scheduled update.
+MAX_BOX_OFFICE_REGIONS = 5
+
+# The word that stands for the US & Canada chart, whose area code is "".
+DOMESTIC_REGION = "domestic"
+
+# A Box Office Mojo area code is two letters; "" is the domestic chart.
+_REGION_CODE = re.compile(r"[A-Z]{2}")
+
+
+def parse_box_office_regions(value: Optional[str]) -> List[str]:
+    """Split a stored box office region setting into Box Office Mojo area codes.
+
+    The setting holds nothing (domestic only), one code ("NL"), or several
+    codes joined by commas in the order the user chose ("domestic,DE,NO").
+    "domestic", in any case, stands for the US & Canada chart, whose area code
+    is "". Other codes are upper-cased. Empty tokens are dropped, so a
+    trailing comma never adds domestic, and a repeated code keeps its first
+    position.
+
+    Args:
+        value: The stored setting
+
+    Returns:
+        The area codes in configured order, or ``[""]`` when there are none
+    """
+    codes: List[str] = []
+    for token in (value or "").split(","):
+        token = token.strip()
+        if not token:
+            continue
+        code = "" if token.lower() == DOMESTIC_REGION else token.upper()
+        if code not in codes:
+            codes.append(code)
+    return codes or [""]
+
+
+def format_box_office_regions(codes: Iterable[str]) -> str:
+    """Join area codes into the stored form that ``parse_box_office_regions`` reads.
+
+    Domestic alone is "" and one region is its bare code, exactly as before a
+    configuration could hold several. Several are comma-joined, with
+    "domestic" standing for "".
+
+    Args:
+        codes: Area codes in configured order; "" is domestic
+
+    Returns:
+        The canonical stored value
+    """
+    joined = ",".join((code or "").strip() or DOMESTIC_REGION for code in codes)
+    canonical = parse_box_office_regions(joined)
+    if len(canonical) == 1:
+        return canonical[0]
+    return ",".join(code or DOMESTIC_REGION for code in canonical)
+
+
+def _coerce_box_office_regions(
+    value: Any, false_is_norway: bool = True
+) -> Tuple[List[str], List[str]]:
+    """Read area codes out of any form a box office region setting arrives in.
+
+    Accepted: None (domestic); a string of comma-joined codes; a string
+    holding a JSON list, such as the environment value '["NL","DE"]'; or a
+    list. YAML 1.1 reads an unquoted NO - Norway - as False, so False is "NO"
+    on its own and in a list. In a list, None and "" stand for domestic.
+
+    Args:
+        value: The raw setting
+        false_is_norway: Read False as "NO". Off for the save API: JSON has
+            no unquoted NO, so a posted false is a client's mistake.
+
+    Returns:
+        Tuple of (valid area codes in order, de-duplicated and possibly more
+        than ``MAX_BOX_OFFICE_REGIONS``; the rejected tokens, as reprs). The
+        codes are ``[""]`` when no valid one is left.
+    """
+    if value is None:
+        return [""], []
+    if value is False and false_is_norway:
+        value = ["NO"]
+    elif isinstance(value, str) and value.lstrip().startswith("["):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            pass  # Not JSON after all: its tokens are rejected below.
+
+    rejected: List[str] = []
+    tokens: List[str] = []
+    if isinstance(value, str):
+        tokens = [value]
+    elif isinstance(value, (list, tuple)):
+        for item in value:
+            if item is False and false_is_norway:
+                tokens.append("NO")
+            elif item is None or (isinstance(item, str) and not item.strip()):
+                tokens.append(DOMESTIC_REGION)
+            elif isinstance(item, str):
+                tokens.append(item)
+            else:
+                rejected.append(repr(item))
+    else:
+        rejected.append(repr(value))
+
+    codes: List[str] = []
+    for token in ",".join(tokens).split(","):
+        if not token.strip():
+            continue
+        # One token parses to exactly one code.
+        code = parse_box_office_regions(token)[0]
+        if code and not _REGION_CODE.fullmatch(code):
+            rejected.append(repr(token.strip()))
+        elif code not in codes:
+            codes.append(code)
+    return codes or [""], rejected
+
+
+def normalize_box_office_regions(value: Any) -> str:
+    """Normalize a configured box office region setting, never failing.
+
+    Used for the environment, ``.env`` and ``local.yaml``, where one bad
+    token must not cost the whole setting - or, for the environment, the
+    start-up. Tokens that are not area codes are dropped, and codes past
+    ``MAX_BOX_OFFICE_REGIONS`` are cut off, each with a warning. A code
+    missing from the region list but shaped like one (two letters) is kept:
+    Box Office Mojo adds markets.
+
+    Args:
+        value: The raw setting
+
+    Returns:
+        The canonical stored value
+    """
+    codes, rejected = _coerce_box_office_regions(value)
+    if rejected:
+        logger.warning(
+            "Ignoring invalid box office region %s: a region is a two-letter "
+            "Box Office Mojo area code, or 'domestic' for US & Canada",
+            ", ".join(rejected),
+        )
+    if len(codes) > MAX_BOX_OFFICE_REGIONS:
+        logger.warning(
+            "%d box office regions are configured but at most %d are used; "
+            "ignoring %s",
+            len(codes),
+            MAX_BOX_OFFICE_REGIONS,
+            ", ".join(
+                code or DOMESTIC_REGION for code in codes[MAX_BOX_OFFICE_REGIONS:]
+            ),
+        )
+        codes = codes[:MAX_BOX_OFFICE_REGIONS]
+    return format_box_office_regions(codes)
+
+
+def validate_box_office_regions(value: Any) -> str:
+    """Validate a box office region selection submitted to be saved.
+
+    The strict counterpart of ``normalize_box_office_regions``: instead of
+    dropping what it cannot use, it rejects the selection, so the save fails
+    with a message rather than storing less than was asked for.
+
+    Args:
+        value: The submitted selection
+
+    Returns:
+        The canonical stored value
+
+    Raises:
+        ValueError: If a token is not an area code (a boolean included) or
+            there are too many
+    """
+    codes, rejected = _coerce_box_office_regions(value, false_is_norway=False)
+    if rejected:
+        raise ValueError(
+            f"Invalid box office region {', '.join(rejected)}: a region is a "
+            "two-letter Box Office Mojo area code, or 'domestic' for US & Canada"
+        )
+    if len(codes) > MAX_BOX_OFFICE_REGIONS:
+        raise ValueError(
+            f"At most {MAX_BOX_OFFICE_REGIONS} box office regions can be "
+            f"selected, got {len(codes)}"
+        )
+    return format_box_office_regions(codes)
+
+
+def configured_box_office_regions(obj: Any = None) -> List[str]:
+    """Return the configured Box Office Mojo area codes, in configured order.
+
+    Read the region setting through this rather than directly: the stored
+    value may join several codes with commas.
+
+    Args:
+        obj: The settings object to read. A module that imports ``settings``
+            passes its own, so a test patching that name - often with a
+            SimpleNamespace - is honoured. Defaults to this module's settings.
+
+    Returns:
+        Area codes, "" for domestic; ``[""]`` when nothing is configured
+    """
+    source = settings if obj is None else obj
+    value = getattr(source, "boxarr_features_box_office_region", "") or ""
+    if not isinstance(value, str):
+        # Only an unvalidated assignment can store anything else.
+        value = normalize_box_office_regions(value)
+    return parse_box_office_regions(value)
 
 
 def _canonicalize_languages(value: Any) -> Any:
@@ -275,11 +492,17 @@ class Settings(BaseSettings):
         le=30,
         description="Number of movies to fetch from Box Office Mojo (1-30)",
     )
+    # A str, not a List[str]: pydantic-settings JSON-decodes a list field's
+    # environment value before any validator runs, so the documented
+    # BOXARR_FEATURES_BOX_OFFICE_REGION=NL would stop the app from starting.
+    # Read it through configured_box_office_regions().
     boxarr_features_box_office_region: str = Field(
         default="",
         description=(
-            "Box Office Mojo region 'area' code (e.g. 'NL', 'DE'). "
-            "Empty means US & Canada domestic (no ?area parameter)."
+            "Box Office Mojo region 'area' codes, comma-separated in the order "
+            "they are fetched (e.g. 'NL' or 'domestic,DE'), at most "
+            f"{MAX_BOX_OFFICE_REGIONS}. Empty or 'domestic' means US & Canada "
+            "(no ?area parameter)."
         ),
     )
     boxoffice_timeout: float = Field(
@@ -399,6 +622,17 @@ class Settings(BaseSettings):
             if port_env:
                 return int(port_env)
         return v
+
+    @field_validator("boxarr_features_box_office_region", mode="before")
+    @classmethod
+    def normalize_box_office_region(cls, v: Any) -> str:
+        """Store the box office regions in canonical form, whatever their source.
+
+        Runs for the environment, ``.env``, the constructor and ``local.yaml``
+        (whose loader validates every assignment), so a YAML list, an unquoted
+        NO and a JSON list in an environment variable all load.
+        """
+        return normalize_box_office_regions(v)
 
     @validator("boxarr_url_base")
     def normalize_url_base(cls, v: str) -> str:

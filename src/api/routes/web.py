@@ -22,7 +22,12 @@ from ...core.languages import (
     suggested_languages,
 )
 from ...core.models import MovieStatus
-from ...utils.config import MIN_GROSS_MAX, format_min_gross, settings
+from ...utils.config import (
+    MIN_GROSS_MAX,
+    configured_box_office_regions,
+    format_min_gross,
+    settings,
+)
 from ...utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -585,7 +590,8 @@ async def setup_page(request: Request):
     language_options = [n for n in all_languages if n in selected] + [
         n for n in all_languages if n not in selected
     ]
-    box_office_region = settings.boxarr_features_box_office_region
+    box_office_regions = configured_box_office_regions(settings)
+    region_names = dict(BOX_OFFICE_REGIONS)
 
     return templates.TemplateResponse(
         request,
@@ -621,11 +627,13 @@ async def setup_page(request: Request):
             quality_upgrade=settings.boxarr_features_quality_upgrade,
             # Box office fetch limit
             box_office_limit=settings.boxarr_features_box_office_limit,
-            # Box office region
-            box_office_region=box_office_region,
+            # Box office region. The page still offers a single region, so
+            # it shows the first configured one; the language suggestions
+            # below cover them all.
+            box_office_region=box_office_regions[0],
             box_office_regions=BOX_OFFICE_REGIONS,
-            box_office_region_name=dict(BOX_OFFICE_REGIONS).get(
-                box_office_region, box_office_region
+            box_office_region_name=", ".join(
+                region_names.get(code, code) for code in box_office_regions
             ),
             # Auto tagging
             auto_tag_enabled=settings.boxarr_features_auto_tag_enabled,
@@ -647,7 +655,7 @@ async def setup_page(request: Request):
             language_whitelist=sorted(whitelist_selected),
             language_blacklist=sorted(blacklist_selected),
             language_options=language_options,
-            language_suggested=suggested_languages(box_office_region),
+            language_suggested=suggested_languages(box_office_regions),
             # The whole map, so the chips can follow the region dropdown
             # in-session instead of being pinned to the persisted region -
             # which during first-run setup is nobody's actual choice.
