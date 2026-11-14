@@ -1,8 +1,9 @@
 """Integration tests: saving settings round-trips the hide-ignored flag.
 
-``save_configuration`` rebuilds ``local.yaml`` from scratch, so an omitted flag
-has to carry the stored value over - otherwise a client that never learned about
-the setting would silently reset it. The mirror image matters just as much: the
+``save_configuration`` always writes the hide-ignored key, from the request or,
+when the request omits it, from the current settings, so an omitted flag has to
+carry the stored value over - otherwise a client that never learned about the
+setting would silently reset it. The mirror image matters just as much: the
 setup page must be able to post an explicit ``false``, or a user who turned
 hiding on could never turn it off again.
 """

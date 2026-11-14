@@ -3,7 +3,7 @@
 import os
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 import yaml
@@ -23,6 +23,7 @@ from ...utils.config import (
     RootFolderMapping,
     Settings,
     settings,
+    yaml_paths_for_field,
 )
 from ...utils.logger import get_logger
 
@@ -262,7 +263,9 @@ def _read_existing_config(config_path: Path) -> Optional[Dict[Any, Any]]:
     raw = config_path.read_bytes()
     try:
         data = yaml.safe_load(raw)
-    except yaml.YAMLError as exc:
+    # ValueError: valid syntax whose value cannot be built, such as the date
+    # 2024-02-30 or "!!int abc".
+    except (yaml.YAMLError, ValueError) as exc:
         logger.warning(
             "Could not parse %s (%s); backing it up and saving the submitted "
             "settings in its place",
@@ -303,6 +306,57 @@ def _merge_config(existing: Dict[Any, Any], managed: Dict[Any, Any]) -> Dict[Any
         else:
             merged[key] = value
     return merged
+
+
+def _has_path(data: Dict[Any, Any], path: Tuple[str, ...]) -> bool:
+    """Return whether ``data`` holds a key at ``path``, through mappings only."""
+    node: Any = data
+    for key in path[:-1]:
+        node = node.get(key) if isinstance(node, dict) else None
+    return isinstance(node, dict) and path[-1] in node
+
+
+def _pop_path(data: Dict[Any, Any], path: Tuple[str, ...]) -> None:
+    """Remove the key at ``path``, which ``_has_path`` has confirmed.
+
+    Each mapping on the way is copied first, so one that a YAML anchor shares
+    with another section is not changed through it.
+    """
+    node = data
+    for key in path[:-1]:
+        node[key] = dict(node[key])
+        node = node[key]
+    del node[path[-1]]
+
+
+def _drop_other_spellings(
+    merged: Dict[Any, Any], written: Dict[Any, Any], cleared: Tuple[str, ...]
+) -> List[str]:
+    """Remove the other spellings of every setting this save manages.
+
+    ``load_from_yaml`` reads a setting from more than one key path (see
+    ``yaml_paths_for_field``), and the last one in the file wins. The merge
+    keeps every key the save does not write, so a hand-written
+    ``radarr_timeout`` below ``radarr:`` would otherwise override the timeout
+    just saved, on this reload and every one after it.
+
+    A setting is managed when ``written`` holds it under one of its paths, or
+    when it is listed in ``cleared`` (written by leaving it out). Only those
+    are touched: an alternative spelling of a setting the page does not show,
+    such as a top-level ``boxarr_url_base``, is still the user's value and
+    stays. Returns the removed paths, dotted.
+    """
+    removed: List[str] = []
+    for field in Settings.model_fields:
+        paths = yaml_paths_for_field(field)
+        written_paths = [path for path in paths if _has_path(written, path)]
+        if not written_paths and field not in cleared:
+            continue
+        for path in paths:
+            if path not in written_paths and _has_path(merged, path):
+                _pop_path(merged, path)
+                removed.append(".".join(path))
+    return removed
 
 
 @router.post("/save")
@@ -522,6 +576,21 @@ async def save_configuration(config: SaveConfigRequest):
         for key in _RADARR_KEYS_DROPPED_WHEN_EMPTY:
             if key not in radarr_config:
                 merged_radarr.pop(key, None)
+        # The settings saved above must not be overridden on reload by another
+        # spelling of the same key kept from the file.
+        shadowing = _drop_other_spellings(
+            merged_config,
+            config_data,
+            tuple(f"radarr_{key}" for key in _RADARR_KEYS_DROPPED_WHEN_EMPTY),
+        )
+        if shadowing:
+            # Key names only: the values can include the Radarr API key.
+            logger.warning(
+                "Removed %s from %s: another spelling of a setting the setup "
+                "page saves, which would have overridden the saved value",
+                ", ".join(shadowing),
+                config_path,
+            )
 
         # Save to local.yaml atomically (temp file + os.replace) so an
         # interrupted write cannot truncate local.yaml and brick startup.
