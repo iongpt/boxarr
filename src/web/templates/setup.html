@@ -201,27 +201,47 @@
                 
                 <!-- Box Office Fetch Limit -->
                 <div class="form-group" style="margin-top: 1rem;">
-                    <label for="boxOfficeLimit" class="form-label">Box Office Fetch Limit</label>
+                    <label for="boxOfficeLimit" class="form-label">Box Office Fetch Limit (per region)</label>
                     <select id="boxOfficeLimit" name="boxarr_features_box_office_limit" class="form-select">
                         {% for i in [5, 10, 15, 20, 25, 30] %}
                         <option value="{{ i }}" {% if box_office_limit == i %}selected{% endif %}>{{ i }} movies</option>
                         {% endfor %}
                     </select>
-                    <small class="text-muted">Number of movies to fetch from Box Office Mojo each week (1-30)</small>
+                    <small class="text-muted">Number of movies to fetch from each region's Box Office Mojo chart every week (1-30 per region)</small>
                 </div>
 
-                <!-- Box Office Region -->
-                <div class="form-group" style="margin-top: 1rem;">
-                    <label for="boxOfficeRegion" class="form-label">Box Office Region</label>
-                    <select id="boxOfficeRegion" name="boxarr_features_box_office_region" class="form-select">
-                        {% if not box_office_region_listed %}
-                        <option value="{{ box_office_region }}" selected>{{ box_office_region_name }}</option>
-                        {% endif %}
-                        {% for code, name in box_office_regions %}
-                        <option value="{{ code }}" {% if box_office_region == code %}selected{% endif %}>{{ name }}</option>
+                <!-- Box Office Regions: one checkbox per region. The configured
+                     regions are pinned to the top in configured order, which is
+                     the order a save posts back (app.js keeps it, appending newly
+                     checked regions). The search box has no name on purpose, so
+                     the FormData sweep never posts it. -->
+                <div class="form-group" id="boxOfficeRegionGroup" style="margin-top: 1rem;">
+                    <label for="boxOfficeRegionSearch" class="form-label">Box Office Regions</label>
+                    {% if box_office_region_env_locked %}
+                    <div id="boxOfficeRegionLocked" class="alert" style="margin-bottom: 0.5rem; padding: 0.75rem; background: var(--bg-tertiary); color: var(--text-primary); border-left: 3px solid var(--warning-color); border-radius: 4px; font-size: 0.9rem;">
+                        🔒 Set by the <code>BOXARR_FEATURES_BOX_OFFICE_REGION</code> environment variable, which overrides this page. Change the variable and restart Boxarr to track other regions.
+                    </div>
+                    {% endif %}
+                    <input type="search" id="boxOfficeRegionSearch" class="form-input" autocomplete="off"
+                           placeholder="Search regions..." aria-label="Search box office regions"
+                           style="margin-bottom: 0.5rem;"
+                           {% if box_office_region_env_locked %}disabled{% endif %}>
+                    <div id="boxOfficeRegionOptions" class="region-grid" role="group" aria-label="Box office regions"
+                         data-max-regions="{{ box_office_region_max }}"
+                         data-locked="{{ 'true' if box_office_region_env_locked else 'false' }}"
+                         style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 0.5rem; max-height: 240px; overflow-y: auto; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: 6px;">
+                        {% for region in box_office_region_rows %}
+                        <label class="checkbox-label region-option" data-region-name="{{ region.name }}" data-catalog-index="{{ region.index }}" style="display: flex; align-items: center; gap: 0.5rem;">
+                            <input type="checkbox" name="boxarr_features_box_office_region" value="{{ region.value }}"
+                                   data-region-code="{{ region.code }}"
+                                   {% if region.checked %}checked{% endif %}
+                                   {% if box_office_region_env_locked %}disabled{% endif %}>
+                            <span>{{ region.name }}</span>
+                        </label>
                         {% endfor %}
-                    </select>
-                    <small class="text-muted">Which Box Office Mojo weekend chart to fetch (grosses are reported in US dollars for every region)</small>
+                    </div>
+                    <div id="boxOfficeRegionStatus" class="text-muted" aria-live="polite" style="font-size: 0.8rem; margin-top: 0.25rem;">{{ box_office_region_count }} of {{ box_office_region_max }} selected</div>
+                    <small class="text-muted">Which Box Office Mojo weekend charts to fetch: pick 1 to {{ box_office_region_max }}. Each region's chart is fetched on its own and the films are merged into one list per week, which the weekly page can also show region by region. Grosses are reported in US dollars for every region.</small>
                 </div>
 
                 <!-- Auto-Add Advanced Options -->
@@ -431,6 +451,7 @@
                                 <small class="text-muted">
                                     The amount is the movie's <strong>weekend</strong> gross in <strong>US dollars</strong> - Box Office Mojo reports every regional chart in USD, so no conversion is applied.
                                     A sensible value depends heavily on the selected region: small markets gross orders of magnitude less than the US &amp; Canada chart (the top Indian release of a recent weekend took about $56,000).
+                                    With several regions, a movie is compared by its best weekend gross across them.
                                     Regenerating an older week compares that week's historical grosses against today's threshold. Movies below it still appear on the weekly page and can be added by hand.
                                 </small>
                             </div>

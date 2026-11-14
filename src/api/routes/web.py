@@ -23,9 +23,11 @@ from ...core.languages import (
 )
 from ...core.models import MovieStatus
 from ...utils.config import (
+    DOMESTIC_REGION,
+    MAX_BOX_OFFICE_REGIONS,
     MIN_GROSS_MAX,
+    box_office_regions_set_by_env,
     configured_box_office_regions,
-    format_box_office_regions,
     format_min_gross,
     settings,
 )
@@ -534,6 +536,60 @@ def _min_gross_input_value(value: float) -> str:
     return f"{amount:.0f}" if amount.is_integer() else f"{amount}"
 
 
+# More selected regions than this are summed up as "your N regions" in the
+# language suggestion label; app.js applies the same rule in-session.
+REGION_LABEL_MAX_NAMES = 3
+
+
+def region_selection_label(names: List[str]) -> str:
+    """Name a region selection for the language suggestion label.
+
+    Args:
+        names: Display names of the selected regions, in configured order
+
+    Returns:
+        The names joined by commas, or "your N regions" when there are more
+        than REGION_LABEL_MAX_NAMES
+    """
+    if len(names) > REGION_LABEL_MAX_NAMES:
+        return f"your {len(names)} regions"
+    return ", ".join(names)
+
+
+def _region_picker_rows(configured: List[str]) -> List[Dict[str, object]]:
+    """Return the setup page's region checkboxes, in display order.
+
+    The configured regions come first, checked and in configured order - the
+    order a save posts back, so a hand-written list is never re-sorted. A
+    configured code missing from the catalogue still gets a checked row
+    ("ZZ (not in list)"), so saving the page keeps it instead of silently
+    dropping it. Every other catalogue region follows in catalogue order.
+
+    Each row has ``value`` (what the checkbox posts: the code, or "domestic"
+    for the US & Canada chart, whose code is ""), ``code``, ``name``,
+    ``checked`` and ``index`` (the row's catalogue position, which app.js
+    sorts unchecked rows back into; codes outside the catalogue sort last).
+    """
+    catalogue = {code: index for index, (code, _) in enumerate(BOX_OFFICE_REGIONS)}
+    names = dict(BOX_OFFICE_REGIONS)
+
+    def row(code: str, checked: bool) -> Dict[str, object]:
+        listed = code in names
+        return {
+            "value": code or DOMESTIC_REGION,
+            "code": code,
+            "name": names[code] if listed else f"{code} (not in list)",
+            "checked": checked,
+            "index": catalogue.get(code, len(catalogue)),
+        }
+
+    rows = [row(code, True) for code in configured]
+    rows.extend(
+        row(code, False) for code, _ in BOX_OFFICE_REGIONS if code not in configured
+    )
+    return rows
+
+
 @router.get("/setup", response_class=HTMLResponse)
 async def setup_page(request: Request):
     """Serve the setup page."""
@@ -593,21 +649,11 @@ async def setup_page(request: Request):
     ]
     box_office_regions = configured_box_office_regions(settings)
     region_names = dict(BOX_OFFICE_REGIONS)
-    # The page offers one region per option. A configuration it cannot show
-    # as one of them - several regions, or a code missing from the catalogue -
-    # gets an extra option holding the stored value itself, selected, so a
-    # save from this page posts it back unchanged instead of the first region.
-    box_office_region = format_box_office_regions(box_office_regions)
-    box_office_region_listed = box_office_region in region_names
-    # The whole map, so the chips can follow the region dropdown in-session
-    # instead of being pinned to the persisted region - which during
-    # first-run setup is nobody's actual choice. The extra option's value
-    # maps to the union of its regions' suggestions.
+    box_office_region_rows = _region_picker_rows(box_office_regions)
+    # The whole map, keyed by area code, so the chips can follow the region
+    # picker in-session instead of being pinned to the persisted regions -
+    # which during first-run setup are nobody's actual choice.
     language_region_suggestions = dict(REGION_DEFAULT_LANGUAGES)
-    if not box_office_region_listed:
-        language_region_suggestions[box_office_region] = suggested_languages(
-            box_office_regions
-        )
 
     return templates.TemplateResponse(
         request,
@@ -643,13 +689,16 @@ async def setup_page(request: Request):
             quality_upgrade=settings.boxarr_features_quality_upgrade,
             # Box office fetch limit
             box_office_limit=settings.boxarr_features_box_office_limit,
-            # Box office region: the stored value, and whether one of the
-            # catalogue options already stands for it.
-            box_office_region=box_office_region,
-            box_office_region_listed=box_office_region_listed,
-            box_office_regions=BOX_OFFICE_REGIONS,
-            box_office_region_name=", ".join(
-                region_names.get(code, code) for code in box_office_regions
+            # Box office regions: one checkbox per region, the configured ones
+            # first and in configured order (see _region_picker_rows).
+            box_office_region_rows=box_office_region_rows,
+            box_office_region_count=len(box_office_regions),
+            box_office_region_max=MAX_BOX_OFFICE_REGIONS,
+            # The environment variable outranks local.yaml: a selection made
+            # here would never apply, so the picker is shown disabled.
+            box_office_region_env_locked=box_office_regions_set_by_env(settings),
+            box_office_region_name=region_selection_label(
+                [region_names.get(code, code) for code in box_office_regions]
             ),
             # Auto tagging
             auto_tag_enabled=settings.boxarr_features_auto_tag_enabled,

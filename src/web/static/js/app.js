@@ -383,9 +383,161 @@ function mergeLanguageOptions(names) {
     filterLanguageOptions();
 }
 
-// Rebuild the region suggestion chips from the currently selected region and
-// filter mode. The server paints them once from the *persisted* region, which
-// during first-run setup is not the region the user just picked.
+// ==========================================
+// Box office region picker (searchable checkboxes)
+// ==========================================
+
+// The selected regions' checkbox values ("domestic" or an area code) in the
+// order they will be saved: the configured regions first, in configured
+// order (the server renders them checked at the top), then each region the
+// user checks appended. A hand-written list is never re-sorted by a save.
+let regionSelection = [];
+
+// More selected regions than this read "your N regions" in the language
+// suggestion label (web.py's REGION_LABEL_MAX_NAMES).
+const REGION_LABEL_MAX_NAMES = 3;
+
+function regionPicker() {
+    return document.getElementById('boxOfficeRegionOptions');
+}
+
+function regionOptionRows() {
+    const picker = regionPicker();
+    return picker ? Array.from(picker.querySelectorAll('.region-option')) : [];
+}
+
+function regionRowCheckbox(row) {
+    return row.querySelector('input[type="checkbox"]');
+}
+
+function regionPickerLocked() {
+    const picker = regionPicker();
+    return !!(picker && picker.dataset.locked === 'true');
+}
+
+function regionMaxSelected() {
+    const picker = regionPicker();
+    const max = picker ? parseInt(picker.dataset.maxRegions || '', 10) : NaN;
+    return Number.isFinite(max) && max > 0 ? max : 5;
+}
+
+function regionRowByValue(value) {
+    return regionOptionRows().find(row => {
+        const checkbox = regionRowCheckbox(row);
+        return checkbox && checkbox.value === value;
+    });
+}
+
+// The selected regions as {code, name}, in selection order.
+function selectedRegions() {
+    return regionSelection.map(value => {
+        const row = regionRowByValue(value);
+        const checkbox = row ? regionRowCheckbox(row) : null;
+        return {
+            code: checkbox ? (checkbox.dataset.regionCode || '') : value,
+            name: row ? (row.dataset.regionName || value) : value,
+        };
+    });
+}
+
+function regionSelectionLabel(names) {
+    return names.length > REGION_LABEL_MAX_NAMES
+        ? `your ${names.length} regions`
+        : names.join(', ');
+}
+
+// Null when the selection can be saved, else what is wrong with it.
+function regionSelectionProblem() {
+    if (!regionPicker() || regionPickerLocked()) return null;
+    const count = regionSelection.length;
+    const max = regionMaxSelected();
+    if (count === 0) {
+        return 'Select at least one box office region (Domestic for US & Canada)';
+    }
+    if (count > max) {
+        return `Select at most ${max} box office regions - ${count} are selected`;
+    }
+    return null;
+}
+
+function renderRegionStatus() {
+    const status = document.getElementById('boxOfficeRegionStatus');
+    if (!status) return;
+    const names = selectedRegions().map(region => region.name);
+    let text = `${names.length} of ${regionMaxSelected()} selected`;
+    if (names.length) text += `: ${names.join(', ')}`;
+    const problem = regionSelectionProblem();
+    if (problem) text += ` - ${problem}`;
+    status.textContent = text;
+    status.style.color = problem ? 'var(--error-color)' : '';
+}
+
+// Selected rows first, in selection order; the rest in catalogue order.
+function pinSelectedRegions() {
+    const picker = regionPicker();
+    if (!picker) return;
+    const rows = regionOptionRows();
+    const pinned = regionSelection.map(regionRowByValue).filter(Boolean);
+    const rest = rows
+        .filter(row => !pinned.includes(row))
+        .sort((a, b) => Number(a.dataset.catalogIndex) - Number(b.dataset.catalogIndex));
+    pinned.concat(rest).forEach(row => picker.appendChild(row));
+}
+
+function filterRegionOptions() {
+    const search = document.getElementById('boxOfficeRegionSearch');
+    const term = search ? search.value.trim().toLowerCase() : '';
+    regionOptionRows().forEach(row => {
+        const checkbox = regionRowCheckbox(row);
+        const name = (row.dataset.regionName || '').toLowerCase();
+        const code = checkbox ? (checkbox.dataset.regionCode || '').toLowerCase() : '';
+        // A selected region is never filtered out of view, so a search can
+        // never hide - or appear to drop - part of the selection.
+        const visible = !term || name.includes(term) || (code && code === term)
+            || !!(checkbox && checkbox.checked);
+        row.style.display = visible ? 'flex' : 'none';
+    });
+}
+
+// Delegated: one listener on the picker for every checkbox in it.
+function onRegionPickerChange(e) {
+    const checkbox = e.target;
+    if (!checkbox || checkbox.type !== 'checkbox') return;
+    const value = checkbox.value;
+    regionSelection = regionSelection.filter(v => v !== value);
+    if (checkbox.checked) regionSelection.push(value);
+    pinSelectedRegions();
+    filterRegionOptions();
+    renderRegionStatus();
+    renderLanguageSuggestions();
+}
+
+function initRegionPicker() {
+    const picker = regionPicker();
+    if (!picker) return;
+    // The server renders the configured regions checked, at the top, in
+    // configured order - which is the selection order to start from.
+    regionSelection = regionOptionRows()
+        .map(regionRowCheckbox)
+        .filter(checkbox => checkbox && checkbox.checked)
+        .map(checkbox => checkbox.value);
+    picker.addEventListener('change', onRegionPickerChange);
+
+    const search = document.getElementById('boxOfficeRegionSearch');
+    if (search) {
+        search.addEventListener('input', filterRegionOptions);
+        search.addEventListener('keydown', function(e) {
+            // Enter in the search box would implicitly submit the form,
+            // saving the whole configuration mid-search.
+            if (e.key === 'Enter') e.preventDefault();
+        });
+    }
+    renderRegionStatus();
+}
+
+// Rebuild the region suggestion chips from the currently selected regions
+// and filter mode. The server paints them once from the *persisted* regions,
+// which during first-run setup are not the regions the user just picked.
 function renderLanguageSuggestions() {
     const container = document.getElementById('languageSuggestions');
     if (!container) return;
@@ -395,12 +547,22 @@ function renderLanguageSuggestions() {
         map = JSON.parse(container.dataset.regionLanguages || '{}') || {};
     } catch (_) { /* keep the server-rendered chips */ return; }
 
-    const select = document.getElementById('boxOfficeRegion');
-    const region = select ? select.value : '';
-    const regionName = select && select.selectedOptions.length
-        ? select.selectedOptions[0].textContent.trim()
-        : (container.dataset.regionName || '');
-    const suggested = Array.isArray(map[region]) ? map[region] : [];
+    const picker = regionPicker();
+    let regionName = container.dataset.regionName || '';
+    let suggested = Array.from(container.querySelectorAll('[data-suggested-language]'))
+        .map(button => button.dataset.suggestedLanguage);
+    if (picker) {
+        // The union of the selected regions' languages, in selection order.
+        const regions = selectedRegions();
+        regionName = regionSelectionLabel(regions.map(region => region.name));
+        suggested = [];
+        regions.forEach(region => {
+            const names = Array.isArray(map[region.code]) ? map[region.code] : [];
+            names.forEach(name => {
+                if (!suggested.includes(name)) suggested.push(name);
+            });
+        });
+    }
 
     const label = document.getElementById('languageSuggestionsLabel');
     if (label) {
@@ -1620,7 +1782,17 @@ function reloadScheduler() {
             announceInvalidField();
             return;
         }
-        
+
+        // 1 to 5 box office regions. The server rejects anything else with a
+        // 422 that would discard every other edit, so stop here and say why.
+        const regionProblem = regionSelectionProblem();
+        if (regionProblem) {
+            renderRegionStatus();
+            showMessage(regionProblem, 'error');
+            document.getElementById('boxOfficeRegionGroup')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            return;
+        }
+
         const formData = new FormData(form);
         const config = {};
         
@@ -1645,8 +1817,12 @@ function reloadScheduler() {
 
         // Box office fetch limit
         config.boxarr_features_box_office_limit = parseInt(document.getElementById('boxOfficeLimit')?.value || '10');
-        // Box office region
-        config.boxarr_features_box_office_region = document.getElementById('boxOfficeRegion')?.value || '';
+        // Box office regions, as a list in selection order. Omitted while the
+        // environment variable sets them: the server then carries the current
+        // value over.
+        if (regionPicker() && !regionPickerLocked()) {
+            config.boxarr_features_box_office_region = regionSelection.slice();
+        }
         // Handle new auto-add advanced options
         config.boxarr_features_auto_add_limit = parseInt(document.getElementById('autoAddLimit')?.value || '10');
         config.boxarr_features_auto_add_genre_filter_enabled = document.getElementById('genreFilterEnabled')?.checked || false;
@@ -1946,11 +2122,11 @@ function reloadScheduler() {
                     const button = e.target.closest('[data-suggested-language]');
                     if (button) addSuggestedLanguage(button.dataset.suggestedLanguage);
                 });
-                const regionSelect = document.getElementById('boxOfficeRegion');
-                if (regionSelect) {
-                    regionSelect.addEventListener('change', renderLanguageSuggestions);
-                }
             }
+
+            // Region picker: its delegated change listener also redraws the
+            // language suggestion chips for the new selection.
+            initRegionPicker();
 
             // Top up the bundled vocabulary with this Radarr's own languages.
             if (document.getElementById('languageOptions')) {

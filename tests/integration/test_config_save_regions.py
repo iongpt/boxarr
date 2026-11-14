@@ -251,14 +251,28 @@ class TestLanguageSuggestions:
         assert client.get("/api/config/languages").json()["suggested"] == ["Norwegian"]
 
 
-def _posted_region(select) -> str:
-    """What the setup page's app.js posts: the select's value, or ''.
+def _picker(soup):
+    picker = soup.find(id="boxOfficeRegionOptions")
+    assert picker is not None
+    return picker
 
-    A browser shows the first option when none is marked selected.
+
+def _checked(soup) -> list:
+    """(value, name) of the checked region boxes, in page order."""
+    return [
+        (box["value"], box.find_parent("label")["data-region-name"])
+        for box in _picker(soup).find_all("input", attrs={"type": "checkbox"})
+        if box.has_attr("checked")
+    ]
+
+
+def _posted_regions(soup) -> list:
+    """What app.js posts for an unchanged page: the checked values, in order.
+
+    The client seeds its selection from the boxes the server renders checked,
+    top to bottom - the configured order.
     """
-    options = select.find_all("option")
-    chosen = [o for o in options if o.has_attr("selected")] or options[:1]
-    return chosen[0]["value"] or ""
+    return [value for value, _ in _checked(soup)]
 
 
 class TestSetupPage:
@@ -268,16 +282,52 @@ class TestSetupPage:
         assert response.status_code == 200
         return BeautifulSoup(response.text, "html.parser")
 
-    def test_select_holds_every_configured_region(self, client, tmp_path):
+    def test_picker_checks_every_configured_region_in_order(self, client, tmp_path):
         soup = self._soup(client, tmp_path, "[DE, domestic, NO]")
 
-        select = soup.find("select", id="boxOfficeRegion")
-        selected = select.find_all("option", selected=True)
-        assert [(o["value"], o.get_text()) for o in selected] == [
-            ("DE,domestic,NO", "Germany, Domestic (US & Canada), Norway")
+        assert _checked(soup) == [
+            ("DE", "Germany"),
+            ("domestic", "Domestic (US & Canada)"),
+            ("NO", "Norway"),
         ]
-        # The catalogue options are all still there to pick a single region.
-        assert len(select.find_all("option")) == len(BOX_OFFICE_REGIONS) + 1
+        boxes = _picker(soup).find_all("input", attrs={"type": "checkbox"})
+        # Pinned first, then every other catalogue region, each once.
+        assert [box["value"] for box in boxes[:3]] == ["DE", "domestic", "NO"]
+        assert len(boxes) == len(BOX_OFFICE_REGIONS)
+        assert len({box["value"] for box in boxes}) == len(boxes)
+        assert soup.find("select", id="boxOfficeRegion") is None
+
+    def test_unchecked_regions_follow_in_catalogue_order(self, client, tmp_path):
+        soup = self._soup(client, tmp_path, "[NO, DE]")
+
+        rows = _picker(soup).find_all("label", class_="region-option")
+        rest = [row.find("input")["data-region-code"] for row in rows[2:]]
+        catalogue = [code for code, _ in BOX_OFFICE_REGIONS if code not in ("NO", "DE")]
+        assert rest == catalogue
+        indexes = [int(row["data-catalog-index"]) for row in rows[2:]]
+        assert indexes == sorted(indexes)
+
+    def test_code_outside_the_catalogue_is_rendered_checked(self, client, tmp_path):
+        soup = self._soup(client, tmp_path, "[ZZ, NL]")
+
+        assert _checked(soup) == [("ZZ", "ZZ (not in list)"), ("NL", "Netherlands")]
+        zz = _picker(soup).find("input", attrs={"value": "ZZ"})
+        assert zz["data-region-code"] == "ZZ"
+        assert "ZZ (not in list)" in zz.find_parent("label").get_text()
+
+    def test_status_counts_the_selection(self, client, tmp_path):
+        soup = self._soup(client, tmp_path, "[DE, domestic, NO]")
+
+        status = soup.find(id="boxOfficeRegionStatus").get_text(strip=True)
+        assert status == "3 of 5 selected"
+        assert _picker(soup)["data-max-regions"] == "5"
+
+    def test_search_box_is_never_posted(self, client, tmp_path):
+        soup = self._soup(client, tmp_path, "NL")
+
+        search = soup.find(id="boxOfficeRegionSearch")
+        assert search is not None
+        assert not search.has_attr("name")
 
     @pytest.mark.parametrize(
         "raw, codes",
@@ -298,7 +348,7 @@ class TestSetupPage:
     ):
         soup = self._soup(client, tmp_path, raw)
         assert _reloaded() == codes
-        posted = _posted_region(soup.find("select", id="boxOfficeRegion"))
+        posted = _posted_regions(soup)
 
         # e.g. only the cron was changed
         _save(
@@ -311,15 +361,35 @@ class TestSetupPage:
 
         assert _reloaded() == codes
 
-    def test_chips_follow_the_whole_selection_in_session(self, client, tmp_path):
-        """app.js redraws the chips from the map entry for the select's value."""
+    def test_a_newly_checked_region_is_saved_last(self, client, tmp_path):
+        """app.js appends a newly checked region to the configured order."""
+        soup = self._soup(client, tmp_path, "[NO, DE]")
+
+        _save(
+            client,
+            _payload(boxarr_features_box_office_region=_posted_regions(soup) + ["AL"]),
+        )
+
+        # Never re-sorted into catalogue order (AL, DE, NO).
+        assert _reloaded() == ["NO", "DE", "AL"]
+
+    def test_chip_map_is_keyed_by_area_code(self, client, tmp_path):
+        """app.js unions the map entries of the checked boxes' codes."""
         soup = self._soup(client, tmp_path, "[DE, domestic, NO]")
 
-        suggestions = soup.find(id="languageSuggestions")
-        value = _posted_region(soup.find("select", id="boxOfficeRegion"))
-        region_map = json.loads(suggestions["data-region-languages"])
-        assert region_map[value] == ["German", "English", "Norwegian"]
-        assert region_map["NO"] == ["Norwegian"]
+        region_map = json.loads(
+            soup.find(id="languageSuggestions")["data-region-languages"]
+        )
+        assert set(region_map) == set(REGION_DEFAULT_LANGUAGES)
+        codes = [
+            box["data-region-code"]
+            for box in _picker(soup).find_all("input", attrs={"checked": True})
+        ]
+        assert codes == ["DE", "", "NO"]
+        union: list = []
+        for code in codes:
+            union += [name for name in region_map[code] if name not in union]
+        assert union == ["German", "English", "Norwegian"]
 
     def test_suggestions_cover_every_configured_region(self, client, tmp_path):
         soup = self._soup(client, tmp_path, "[DE, domestic, NO]")
@@ -333,13 +403,25 @@ class TestSetupPage:
         assert suggestions["data-region-name"] == (
             "Germany, Domestic (US & Canada), Norway"
         )
+        label = soup.find(id="languageSuggestionsLabel").get_text()
+        assert "Germany, Domestic (US & Canada), Norway" in label
 
-    def test_single_region_page_is_unchanged(self, client, tmp_path):
+    def test_label_sums_up_more_than_three_regions(self, client, tmp_path):
+        soup = self._soup(client, tmp_path, "[NL, DE, FR, GB]")
+
+        suggestions = soup.find(id="languageSuggestions")
+        assert suggestions["data-region-name"] == "your 4 regions"
+        assert "your 4 regions" in soup.find(id="languageSuggestionsLabel").get_text()
+        chips = [
+            button["data-suggested-language"]
+            for button in suggestions.find_all(attrs={"data-suggested-language": True})
+        ]
+        assert chips[:2] == ["Dutch", "German"]
+
+    def test_single_region_page(self, client, tmp_path):
         soup = self._soup(client, tmp_path, "NL")
 
-        select = soup.find("select", id="boxOfficeRegion")
-        assert [o["value"] for o in select.find_all("option", selected=True)] == ["NL"]
-        assert len(select.find_all("option")) == len(BOX_OFFICE_REGIONS)
+        assert _checked(soup) == [("NL", "Netherlands")]
         region_map = json.loads(
             soup.find(id="languageSuggestions")["data-region-languages"]
         )
@@ -347,3 +429,50 @@ class TestSetupPage:
         assert soup.find(id="languageSuggestions")["data-region-name"] == (
             "Netherlands"
         )
+        assert soup.find(id="boxOfficeRegionLocked") is None
+        assert _picker(soup)["data-locked"] == "false"
+
+    def test_domestic_is_posted_as_the_word(self, client, tmp_path):
+        soup = self._soup(client, tmp_path, "''")
+
+        assert _checked(soup) == [("domestic", "Domestic (US & Canada)")]
+        domestic = _picker(soup).find("input", attrs={"value": "domestic"})
+        assert domestic["data-region-code"] == ""
+
+
+class TestSetupPageEnvLocked:
+    def test_picker_is_disabled_when_the_environment_sets_regions(
+        self, client, tmp_path, monkeypatch
+    ):
+        _seed(tmp_path, raw="NL")
+        monkeypatch.setenv("BOXARR_FEATURES_BOX_OFFICE_REGION", "domestic,DE")
+        cfg_utils._settings = None
+
+        soup = BeautifulSoup(client.get("/setup").text, "html.parser")
+
+        note = soup.find(id="boxOfficeRegionLocked")
+        assert note is not None
+        assert "BOXARR_FEATURES_BOX_OFFICE_REGION" in note.get_text()
+        picker = _picker(soup)
+        assert picker["data-locked"] == "true"
+        boxes = picker.find_all("input", attrs={"type": "checkbox"})
+        assert boxes and all(box.has_attr("disabled") for box in boxes)
+        assert soup.find(id="boxOfficeRegionSearch").has_attr("disabled")
+        # It shows what the environment set, not local.yaml's NL.
+        assert _checked(soup) == [
+            ("domestic", "Domestic (US & Canada)"),
+            ("DE", "Germany"),
+        ]
+
+    def test_omitting_the_locked_field_keeps_the_environment_value(
+        self, client, tmp_path, monkeypatch
+    ):
+        """app.js omits the field while locked; the save carries it over."""
+        _seed(tmp_path, raw="NL")
+        monkeypatch.setenv("BOXARR_FEATURES_BOX_OFFICE_REGION", "domestic,DE")
+        cfg_utils._settings = None
+        client.get("/setup")
+
+        _save(client, _payload())
+
+        assert _reloaded() == ["", "DE"]
