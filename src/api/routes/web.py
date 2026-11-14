@@ -709,7 +709,6 @@ async def setup_page(request: Request):
         n for n in all_languages if n not in selected
     ]
     box_office_regions = configured_box_office_regions(settings)
-    region_names = dict(BOX_OFFICE_REGIONS)
     box_office_region_rows = _region_picker_rows(box_office_regions)
     # The whole map, keyed by area code, so the chips can follow the region
     # picker in-session instead of being pinned to the persisted regions -
@@ -758,8 +757,10 @@ async def setup_page(request: Request):
             # The environment variable outranks local.yaml: a selection made
             # here would never apply, so the picker is shown disabled.
             box_office_region_env_locked=box_office_regions_set_by_env(settings),
+            # Named like the checked rows ("ZZ (not in list)"), which is what
+            # app.js reads when the picker changes.
             box_office_region_name=region_selection_label(
-                [region_names.get(code, code) for code in box_office_regions]
+                [str(row["name"]) for row in box_office_region_rows if row["checked"]]
             ),
             # Auto tagging
             auto_tag_enabled=settings.boxarr_features_auto_tag_enabled,

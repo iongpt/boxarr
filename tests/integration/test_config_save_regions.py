@@ -314,6 +314,9 @@ class TestSetupPage:
         zz = _picker(soup).find("input", attrs={"value": "ZZ"})
         assert zz["data-region-code"] == "ZZ"
         assert "ZZ (not in list)" in zz.find_parent("label").get_text()
+        # The first-paint label names it as app.js will once the picker changes.
+        suggestions = soup.find(id="languageSuggestions")
+        assert suggestions["data-region-name"] == "ZZ (not in list), Netherlands"
 
     def test_status_counts_the_selection(self, client, tmp_path):
         soup = self._soup(client, tmp_path, "[DE, domestic, NO]")
@@ -476,3 +479,7 @@ class TestSetupPageEnvLocked:
         _save(client, _payload())
 
         assert _reloaded() == ["", "DE"]
+        # The save carries the running value over, so local.yaml now holds the
+        # environment's regions instead of NL - as it did when the old region
+        # <select> showed (and posted) the environment's value.
+        assert _stored(tmp_path) == ["domestic", "DE"]
