@@ -306,17 +306,87 @@ def test_title_only_legacy_entry_links_by_normalized_title(
     assert after["matched_movies"] == 1
 
 
-def test_title_only_entry_with_a_different_year_is_not_linked(
+def test_remake_is_not_linked_to_the_originals_title_only_entry(
     weekly_dir, bom_calls, radarr
 ):
-    radarr["library"] = [_FakeMovie(ADDED_RADARR_ID, 420818, "The Lion King")]
+    # The shape json_generator writes for an unmatched film whose TMDB lookup
+    # failed: no tmdb_id and no year. Only the week's own year tells the 1978
+    # "Superman" apart from the 2025 one.
+    radarr["library"] = [_FakeMovie(ADDED_RADARR_ID, 1061474, "Superman", year=2025)]
+    old_week = _write_week(weekly_dir, 1978, 51, [_unlinked(1, "Superman", None)])
+    new_week = _write_week(weekly_dir, 2025, 28, [_unlinked(1, "Superman", None)])
+    old_before = old_week.read_bytes()
+
+    movies_route.regenerate_weeks_with_movie("Superman", 1061474)
+
+    assert bom_calls == []
+    # The relink did look at the library: the guard, not an early exit, kept
+    # the 1978 week as it was.
+    assert radarr["library_fetches"] == 1
+    assert old_week.read_bytes() == old_before
+    linked = _read(new_week)["movies"][0]
+    assert linked["tmdb_id"] == 1061474
+    assert linked["radarr_id"] == ADDED_RADARR_ID
+    _assert_lock_free()
+
+
+@pytest.mark.parametrize(
+    ("film_year", "linked"),
+    [
+        (2024, True),  # same year as the chart week
+        (2025, True),  # dated the next year, e.g. a late-December opening
+        (2026, False),  # two years later: a different film of that title
+        (1979, True),  # older film charting again (a re-release)
+        (0, True),  # Radarr does not know the year: no reason to refuse
+    ],
+)
+def test_title_only_entry_week_year_boundary(
+    weekly_dir, bom_calls, radarr, film_year, linked
+):
+    radarr["library"] = [_FakeMovie(ADDED_RADARR_ID, 348, "Alien", year=film_year)]
+    week = _write_week(weekly_dir, 2024, 52, [_unlinked(1, "Alien", None)])
+    before_bytes = week.read_bytes()
+
+    movies_route.regenerate_weeks_with_movie("Alien", 348)
+
+    assert bom_calls == []
+    assert radarr["library_fetches"] == 1
+    if linked:
+        assert _read(week)["movies"][0]["radarr_id"] == ADDED_RADARR_ID
+    else:
+        assert week.read_bytes() == before_bytes
+
+
+def test_week_year_falls_back_to_the_file_name(weekly_dir, bom_calls, radarr):
+    radarr["library"] = [_FakeMovie(ADDED_RADARR_ID, 1061474, "Superman", year=2025)]
+    week = weekly_dir / "1978W51.json"
+    week.write_text(json.dumps({"movies": [_unlinked(1, "Superman", None)]}))
+    before_bytes = week.read_bytes()
+
+    movies_route.regenerate_weeks_with_movie("Superman", 1061474)
+
+    assert bom_calls == []
+    assert radarr["library_fetches"] == 1
+    assert week.read_bytes() == before_bytes
+
+
+def test_title_only_entry_storing_a_different_year_is_not_linked(
+    weekly_dir, bom_calls, radarr
+):
+    # Secondary guard: an entry that stores a year (without a tmdb_id) and it
+    # differs from the added film's year names another film of that title.
+    radarr["library"] = [
+        _FakeMovie(ADDED_RADARR_ID, 420818, "The Lion King", year=2019)
+    ]
     week = _write_week(
-        weekly_dir, 2024, 35, [_unlinked(1, "The Lion King", None, year=1994)]
+        weekly_dir, 2019, 29, [_unlinked(1, "The Lion King", None, year=1994)]
     )
     before_bytes = week.read_bytes()
 
     movies_route.regenerate_weeks_with_movie("The Lion King", 420818)
 
+    assert bom_calls == []
+    assert radarr["library_fetches"] == 1
     assert week.read_bytes() == before_bytes
 
 
@@ -362,6 +432,7 @@ def test_only_weeks_listing_the_film_are_rewritten(weekly_dir, bom_calls, radarr
 
     movies_route.regenerate_weeks_with_movie("Film 07", ADDED_TMDB_ID)
 
+    assert bom_calls == []
     assert _read(listing)["movies"][0]["radarr_id"] == ADDED_RADARR_ID
     assert (other.read_bytes(), other.stat().st_mtime_ns) == other_before
 
@@ -375,6 +446,7 @@ def test_film_missing_from_radarr_library_leaves_weeks_alone(
 
     movies_route.regenerate_weeks_with_movie("Alien", 348)
 
+    assert bom_calls == []
     assert week.read_bytes() == before_bytes
     assert radarr["library_fetches"] == 1
     _assert_lock_free()
@@ -391,6 +463,7 @@ def test_relink_refreshes_status_of_an_already_listed_film(
 
     movies_route.regenerate_weeks_with_movie("Film 07", ADDED_TMDB_ID)
 
+    assert bom_calls == []
     entry = _read(week)["movies"][0]
     assert entry["radarr_id"] == ADDED_RADARR_ID
     assert entry["status"] == "Downloaded"

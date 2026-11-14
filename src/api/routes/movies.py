@@ -422,7 +422,7 @@ async def upgrade_movie_quality(movie_id: int):
 
 @router.post("/add")
 async def add_movie_to_radarr(request: AddMovieRequest):
-    """Add a movie to Radarr and regenerate affected weeks."""
+    """Add a movie to Radarr and relink the stored weeks that list it."""
     try:
         if not settings.radarr_api_key:
             raise HTTPException(status_code=400, detail="Radarr not configured")
@@ -554,14 +554,48 @@ async def add_movie_to_radarr(request: AddMovieRequest):
             return {"success": False, "message": "Unexpected error", "error": error_msg}
 
 
+# Weeks that store the added film's TMDB id are linked by any later status
+# refresh; legacy title-only entries are only linked here or by regenerating
+# their week.
+_RELINK_CATCH_UP_HINT = (
+    "weeks storing its TMDB id are linked by the next status refresh; "
+    "title-only entries need their week regenerated or the movie added again"
+)
+
+
+def _known_year(value: Any) -> Optional[int]:
+    """``value`` as a year, or None when it is missing, zero or not a number."""
+    try:
+        year = int(value)
+    except (TypeError, ValueError):
+        return None
+    return year or None
+
+
 def _years_conflict(stored_year: Any, radarr_year: Any) -> bool:
     """True when both years are known and differ (e.g. a remake sharing a title)."""
-    try:
-        return bool(stored_year and radarr_year) and int(stored_year) != int(
-            radarr_year
-        )
-    except (TypeError, ValueError):
-        return False
+    stored, radarr = _known_year(stored_year), _known_year(radarr_year)
+    return stored is not None and radarr is not None and stored != radarr
+
+
+def _week_year(metadata: Dict[str, Any], json_file: Path) -> Optional[int]:
+    """The year of a stored chart week, from its data or its ``{Y}W{ww}`` name."""
+    year = _known_year(metadata.get("year"))
+    if year is None:
+        year = _known_year(json_file.stem.split("W", 1)[0])
+    return year
+
+
+def _week_predates_film(week_year: Optional[int], film_year: Any) -> bool:
+    """True when a chart week is too early to list a film released in ``film_year``.
+
+    A film cannot chart before its release, so a week more than a year earlier
+    than the film's year lists another film of the same title (the original of
+    a remake). The year of slack covers December openings of films dated the
+    following year; later weeks (re-releases) are never ruled out.
+    """
+    film = _known_year(film_year)
+    return week_year is not None and film is not None and week_year < film - 1
 
 
 def regenerate_weeks_with_movie(
@@ -577,9 +611,11 @@ def regenerate_weeks_with_movie(
       :func:`refresh_weekly_data_from_radarr`;
     * legacy entries stored without a ``tmdb_id`` (and not linked to anything)
       whose title normalizes to the same title as ``movie_title`` first get the
-      film's ``tmdb_id`` stamped on them, unless both sides know a year and it
-      differs. Titles are compared whole, so adding "Alien" never touches
-      "Aliens".
+      film's ``tmdb_id`` stamped on them. Titles are compared whole, so adding
+      "Alien" never touches "Aliens". An entry is skipped when its week is more
+      than a year older than the film (it charted before the film existed, so
+      it is the original of a remake), or when the entry itself stores a year
+      that differs from the film's.
 
     Weeks that do not list the film are never rewritten, and when no stored week
     lists it, Radarr is not queried at all.
@@ -587,15 +623,18 @@ def regenerate_weeks_with_movie(
     if not WEEKLY_WRITE_LOCK.acquire(blocking=False):
         logger.info(
             "Another weekly update is in progress; skipping regeneration after "
-            f"adding {movie_title} (weekly pages will catch up on the next refresh)"
+            f"adding {movie_title} ({_RELINK_CATCH_UP_HINT})"
         )
         return
     try:
         _relink_weeks_with_movie(movie_title, tmdb_id)
     except Exception as e:
         # The movie is already in Radarr; a failed relink must not turn the add
-        # into an error. Weekly pages catch up on the next status refresh.
-        logger.error(f"Error relinking weekly pages after adding {movie_title}: {e}")
+        # into an error. Only weeks storing its TMDB id catch up on their own.
+        logger.error(
+            f"Error relinking weekly pages after adding {movie_title}: {e} "
+            f"({_RELINK_CATCH_UP_HINT})"
+        )
     finally:
         WEEKLY_WRITE_LOCK.release()
 
@@ -607,10 +646,7 @@ def _relink_weeks_with_movie(movie_title: str, tmdb_id: Optional[int]) -> None:
     except (TypeError, ValueError):
         tmdb_id = None
     if not tmdb_id:
-        logger.info(
-            f"No TMDB id for {movie_title}; weekly pages will catch up on the "
-            "next refresh"
-        )
+        logger.info(f"No TMDB id for {movie_title}; stored weeks were not relinked")
         return
 
     data_directory = Path(settings.boxarr_data_directory)
@@ -669,13 +705,19 @@ def _relink_weeks_with_movie(movie_title: str, tmdb_id: Optional[int]) -> None:
     if added is None:
         logger.warning(
             f"{movie_title} (TMDB {tmdb_id}) is not in the Radarr library yet; "
-            "weekly pages will catch up on the next refresh"
+            f"stored weeks were not relinked ({_RELINK_CATCH_UP_HINT})"
         )
         return
 
     # Stamp the film's TMDB id on legacy entries so the refresh links them.
     affected = set(weeks_by_id)
     for json_file, (metadata, legacy_entries) in title_only.items():
+        if _week_predates_film(_week_year(metadata, json_file), added.year):
+            logger.info(
+                f"Not linking {movie_title} ({added.year}) to {json_file.name}: "
+                "the week predates the film, so it lists another film of that title"
+            )
+            continue
         stamped = 0
         for movie in legacy_entries:
             if _years_conflict(movie.get("year"), added.year):
@@ -687,7 +729,7 @@ def _relink_weeks_with_movie(movie_title: str, tmdb_id: Optional[int]) -> None:
             affected.add(json_file)
 
     if not affected:
-        logger.info(f"No stored week lists {movie_title}; nothing to relink")
+        logger.info(f"No stored week entry could be linked to {movie_title}")
         return
 
     results = refresh_weekly_data_from_radarr(

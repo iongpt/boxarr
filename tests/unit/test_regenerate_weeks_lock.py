@@ -3,8 +3,9 @@
 The add-movie path relinks affected weekly pages in a worker thread. That
 worker mutates weekly JSON and so must honour the shared ``WEEKLY_WRITE_LOCK``
 like the other four mutators: acquire non-blocking, and if another writer holds
-it, skip the relink gracefully (the movie is already in Radarr; weekly pages
-catch up on the next refresh). It must also release the lock however it ends.
+it, skip the relink gracefully (the movie is already in Radarr; weeks storing
+its TMDB id are linked by the next status refresh). It must also release the
+lock however it ends.
 """
 
 import json
