@@ -151,8 +151,8 @@ class BoxarrScheduler:
 
         Raises:
             SchedulerError: If another update is running, no region could be
-                fetched, or anything else failed. The week's file is left as
-                it was.
+                fetched (the week's file is then left as it was), or anything
+                else failed.
         """
         if year and week:
             logger.info(f"Starting box office update for {year} Week {week:02d}")
@@ -172,6 +172,7 @@ class BoxarrScheduler:
         regions = configured_box_office_regions(settings)
         actual_year: Optional[int] = None
         actual_week: Optional[int] = None
+        build: Optional[WeekBuildResult] = None
         try:
             # Initialize services if needed
             if not self.boxoffice_service:
@@ -191,7 +192,7 @@ class BoxarrScheduler:
 
             # Fetch every region, merge, match, auto-add and write the week.
             # _run_in_executor forwards positional arguments only.
-            build: WeekBuildResult = await self._run_in_executor(
+            build = await self._run_in_executor(
                 partial(
                     build_week,
                     actual_year,
@@ -266,7 +267,11 @@ class BoxarrScheduler:
                     self._failed_results(
                         str(e),
                         regions,
-                        getattr(e, "region_status", []),
+                        getattr(
+                            e,
+                            "region_status",
+                            build.region_status if build is not None else [],
+                        ),
                         getattr(e, "errors", [str(e)]),
                     ),
                     actual_year,
