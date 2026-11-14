@@ -427,12 +427,15 @@ class Settings(BaseSettings):
         return env_set
 
     @staticmethod
-    def _backup_broken_config(config_path: Path) -> None:
+    def _backup_broken_config(config_path: Path) -> Optional[Path]:
         """Copy an unreadable config file aside so user data survives.
 
         The copy preserves the original so a later ``save_configuration`` that
         overwrites ``local.yaml`` does not destroy the user's settings. When a
         ``.broken`` backup already exists, a timestamp suffix keeps each one.
+
+        Returns the backup's path, or ``None`` when the copy failed - the save
+        uses that to refuse overwriting a file it could neither read nor keep.
         """
         backup = config_path.with_suffix(config_path.suffix + ".broken")
         if backup.exists():
@@ -443,8 +446,10 @@ class Settings(BaseSettings):
         try:
             shutil.copy2(config_path, backup)
             logger.error("Backed up unreadable config to %s", backup)
+            return backup
         except OSError as exc:
             logger.error("Could not back up unreadable config %s: %s", config_path, exc)
+            return None
 
     def load_from_yaml(
         self,

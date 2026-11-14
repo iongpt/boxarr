@@ -1,10 +1,12 @@
 """Configuration management routes."""
 
 import os
+import tempfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import httpx
+import yaml
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
@@ -236,17 +238,86 @@ def _whole_dollars(value: float) -> int:
     return int(round(min(max(float(value), 0.0), MIN_GROSS_MAX)))
 
 
+# Radarr keys the setup page manages but leaves out of the file when the form
+# posts them empty, so that the reload falls back to the default. The merge
+# keeps every key the save does not write, so these have to be removed from the
+# stored file explicitly - otherwise a cleared upgrade profile could never be
+# cleared.
+_RADARR_KEYS_DROPPED_WHEN_EMPTY = ("quality_profile_upgrade", "minimum_availability")
+
+
+def _read_existing_config(config_path: Path) -> Optional[Dict[Any, Any]]:
+    """Return the mapping currently stored in ``config_path``.
+
+    A missing, empty or comment-only file is an empty mapping. A file that is
+    not valid YAML, or whose top level is not a mapping, returns ``None`` so the
+    caller can back it up before overwriting it. Read errors (permissions, a
+    directory in the way) propagate: a file that cannot be read cannot be
+    backed up either, so the save must fail rather than replace it.
+    """
+    if not config_path.exists():
+        return {}
+    # Parse bytes, not text: PyYAML then reports bad encoding as a YAMLError
+    # instead of a UnicodeDecodeError escaping from open().
+    raw = config_path.read_bytes()
+    try:
+        data = yaml.safe_load(raw)
+    except yaml.YAMLError as exc:
+        logger.warning(
+            "Could not parse %s (%s); backing it up and saving the submitted "
+            "settings in its place",
+            config_path,
+            exc,
+        )
+        return None
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        logger.warning(
+            "%s does not hold a mapping (got %s); backing it up and saving the "
+            "submitted settings in its place",
+            config_path,
+            type(data).__name__,
+        )
+        return None
+    return data
+
+
+def _merge_config(existing: Dict[Any, Any], managed: Dict[Any, Any]) -> Dict[Any, Any]:
+    """Return ``existing`` with every key of ``managed`` written over it.
+
+    Mappings present on both sides merge recursively, so a key the setup page
+    does not manage survives next to the ones it does. Any other managed value
+    - a scalar, a list, or a mapping replacing a non-mapping - replaces the
+    stored value outright, falsy values included.
+
+    Existing keys keep their position and new keys are appended. Neither
+    argument is modified: YAML anchors can make two sections share one dict,
+    and updating it in place would leak the posted values into the other one.
+    """
+    merged = dict(existing)
+    for key, value in managed.items():
+        current = merged.get(key)
+        if isinstance(value, dict) and isinstance(current, dict):
+            merged[key] = _merge_config(current, value)
+        else:
+            merged[key] = value
+    return merged
+
+
 @router.post("/save")
 async def save_configuration(config: SaveConfigRequest):
-    """Save configuration to file."""
+    """Save configuration to file.
+
+    The posted values are merged into the existing ``local.yaml`` rather than
+    replacing it, so settings the setup page does not show (``url_base``, the
+    scheduler timezone, ``log_level``, anything hand-written) survive a save.
+    """
     try:
         data_directory = Path(
             os.getenv("BOXARR_DATA_DIRECTORY", str(settings.boxarr_data_directory))
         )
         config_path = data_directory / "local.yaml"
-        current_file_settings = Settings(boxarr_data_directory=data_directory)
-        if config_path.exists():
-            current_file_settings.load_from_yaml(config_path)
 
         # Validate cron expression first
         if config.boxarr_scheduler_enabled:
@@ -271,6 +342,25 @@ async def save_configuration(config: SaveConfigRequest):
                 "success": False,
                 "message": "Cannot save: Radarr connection failed",
             }
+
+        # Load what is on disk now, after validation so a rejected save never
+        # touches it: the posted values are merged into this.
+        existing_config = _read_existing_config(config_path)
+        current_file_settings = Settings(boxarr_data_directory=data_directory)
+        if existing_config is None:
+            # Unparseable: keep a copy before overwriting it, as before the
+            # merge. If even the copy fails, leave the file alone.
+            if Settings._backup_broken_config(config_path) is None:
+                return {
+                    "success": False,
+                    "message": (
+                        f"Cannot save: {config_path} could not be parsed or "
+                        "backed up, so it was left untouched"
+                    ),
+                }
+            existing_config = {}
+        elif existing_config:
+            current_file_settings.load_from_yaml(config_path)
 
         # Build config dict
         radarr_config: Dict[str, Any] = {
@@ -425,17 +515,26 @@ async def save_configuration(config: SaveConfigRequest):
             ),
         }
 
+        # Merge into the file instead of replacing it (#142): keys the form
+        # does not manage survive, with their position in the file kept.
+        merged_config: Dict[Any, Any] = _merge_config(existing_config, config_data)
+        merged_radarr = merged_config["radarr"]  # a fresh dict, never the file's
+        for key in _RADARR_KEYS_DROPPED_WHEN_EMPTY:
+            if key not in radarr_config:
+                merged_radarr.pop(key, None)
+
         # Save to local.yaml atomically (temp file + os.replace) so an
         # interrupted write cannot truncate local.yaml and brick startup.
-        import tempfile
-
-        import yaml
-
+        # mkstemp creates the file 0600, which keeps the Radarr API key private.
         config_path.parent.mkdir(parents=True, exist_ok=True)
         tmp_fd, tmp_path = tempfile.mkstemp(dir=config_path.parent, suffix=".tmp")
         try:
             with open(tmp_fd, "w") as f:
-                yaml.dump(config_data, f, default_flow_style=False)
+                # safe_dump: whatever it writes, the safe_load at startup can
+                # read back. sort_keys=False keeps the file's own key order.
+                yaml.safe_dump(
+                    merged_config, f, default_flow_style=False, sort_keys=False
+                )
                 f.flush()
                 os.fsync(f.fileno())
             os.replace(tmp_path, config_path)
