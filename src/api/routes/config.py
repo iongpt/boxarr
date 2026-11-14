@@ -71,10 +71,10 @@ class SaveConfigRequest(BaseModel):
     boxarr_features_quality_upgrade: bool = True
     # Box office fetch limit
     boxarr_features_box_office_limit: int = 10
-    # Box office regions in the order they are fetched: Box Office Mojo area
-    # codes, "" or "domestic" meaning US & Canada. A list, or a string - one
-    # code, as setup pages before multi-region post, or comma-joined codes.
-    # None carries over the current value on save.
+    # Box office regions, kept in the order given: Box Office Mojo area codes,
+    # "" or "domestic" meaning US & Canada. A list, or a string - one code, as
+    # setup pages before multi-region post, or comma-joined codes. None
+    # carries over the current value on save; an empty list is rejected.
     boxarr_features_box_office_region: Optional[Union[List[str], str]] = None
     # HTTP request timeouts (seconds); None carries over the current value on save
     boxoffice_timeout: Optional[float] = Field(default=None, ge=5, le=600)

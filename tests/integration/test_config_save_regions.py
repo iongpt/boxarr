@@ -7,6 +7,7 @@ list for several, in the order given. An omitted selection carries the
 current one over instead of resetting it to domestic.
 """
 
+import json
 from pathlib import Path
 from typing import Any, Optional
 
@@ -18,6 +19,8 @@ from fastapi.testclient import TestClient
 import src.api.routes.config as cfg_routes
 import src.utils.config as cfg_utils
 from src.api.app import create_app
+from src.core.boxoffice import BOX_OFFICE_REGIONS
+from src.core.languages import REGION_DEFAULT_LANGUAGES
 from src.utils.config import configured_box_office_regions
 
 
@@ -118,7 +121,7 @@ class TestSaveWritesRegions:
         assert _stored(tmp_path) == "NL"
         assert _reloaded() == ["NL"]
 
-    @pytest.mark.parametrize("posted", ["", [""], ["domestic"], "domestic", []])
+    @pytest.mark.parametrize("posted", ["", [""], ["domestic"], "domestic"])
     def test_domestic_alone_is_saved_as_an_empty_string(self, client, tmp_path, posted):
         _seed(tmp_path, raw="NL")
         _save(client, _payload(boxarr_features_box_office_region=posted))
@@ -192,7 +195,12 @@ class TestSaveRejects:
             # False is Norway only to absorb YAML's unquoted NO, not in JSON.
             ([False, "DE"], "Invalid box office region False"),
             (False, "Invalid box office region False"),
+            # Selecting nothing is not domestic: that is "" or ["domestic"].
+            ([], "Select at least one box office region"),
+            # json.loads raises RecursionError here; still a 422, not a 500.
+            ("[" * 100_000, "Invalid box office region"),
         ],
+        ids=lambda v: repr(v)[:40],
     )
     def test_unusable_selection_is_a_422_and_leaves_the_file_alone(
         self, client, tmp_path, posted, message
@@ -243,6 +251,16 @@ class TestLanguageSuggestions:
         assert client.get("/api/config/languages").json()["suggested"] == ["Norwegian"]
 
 
+def _posted_region(select) -> str:
+    """What the setup page's app.js posts: the select's value, or ''.
+
+    A browser shows the first option when none is marked selected.
+    """
+    options = select.find_all("option")
+    chosen = [o for o in options if o.has_attr("selected")] or options[:1]
+    return chosen[0]["value"] or ""
+
+
 class TestSetupPage:
     def _soup(self, client, tmp_path, raw):
         _seed(tmp_path, raw=raw)
@@ -250,12 +268,58 @@ class TestSetupPage:
         assert response.status_code == 200
         return BeautifulSoup(response.text, "html.parser")
 
-    def test_single_select_shows_the_first_configured_region(self, client, tmp_path):
+    def test_select_holds_every_configured_region(self, client, tmp_path):
         soup = self._soup(client, tmp_path, "[DE, domestic, NO]")
 
         select = soup.find("select", id="boxOfficeRegion")
         selected = select.find_all("option", selected=True)
-        assert [option["value"] for option in selected] == ["DE"]
+        assert [(o["value"], o.get_text()) for o in selected] == [
+            ("DE,domestic,NO", "Germany, Domestic (US & Canada), Norway")
+        ]
+        # The catalogue options are all still there to pick a single region.
+        assert len(select.find_all("option")) == len(BOX_OFFICE_REGIONS) + 1
+
+    @pytest.mark.parametrize(
+        "raw, codes",
+        [
+            ("[DE, domestic, NO]", ["DE", "", "NO"]),
+            ("[domestic, DE]", ["", "DE"]),
+            ("[NO, DE]", ["NO", "DE"]),
+            ("[ZZ, NL]", ["ZZ", "NL"]),
+            ("'NL,DE'", ["NL", "DE"]),
+            ("[NL, DE, FR, GB, IT]", ["NL", "DE", "FR", "GB", "IT"]),
+            ("ZZ", ["ZZ"]),
+            ("NL", ["NL"]),
+            ("''", [""]),
+        ],
+    )
+    def test_saving_the_page_unchanged_keeps_the_regions(
+        self, client, tmp_path, raw, codes
+    ):
+        soup = self._soup(client, tmp_path, raw)
+        assert _reloaded() == codes
+        posted = _posted_region(soup.find("select", id="boxOfficeRegion"))
+
+        # e.g. only the cron was changed
+        _save(
+            client,
+            _payload(
+                boxarr_features_box_office_region=posted,
+                boxarr_scheduler_cron="0 22 * * 3",
+            ),
+        )
+
+        assert _reloaded() == codes
+
+    def test_chips_follow_the_whole_selection_in_session(self, client, tmp_path):
+        """app.js redraws the chips from the map entry for the select's value."""
+        soup = self._soup(client, tmp_path, "[DE, domestic, NO]")
+
+        suggestions = soup.find(id="languageSuggestions")
+        value = _posted_region(soup.find("select", id="boxOfficeRegion"))
+        region_map = json.loads(suggestions["data-region-languages"])
+        assert region_map[value] == ["German", "English", "Norwegian"]
+        assert region_map["NO"] == ["Norwegian"]
 
     def test_suggestions_cover_every_configured_region(self, client, tmp_path):
         soup = self._soup(client, tmp_path, "[DE, domestic, NO]")
@@ -275,6 +339,11 @@ class TestSetupPage:
 
         select = soup.find("select", id="boxOfficeRegion")
         assert [o["value"] for o in select.find_all("option", selected=True)] == ["NL"]
+        assert len(select.find_all("option")) == len(BOX_OFFICE_REGIONS)
+        region_map = json.loads(
+            soup.find(id="languageSuggestions")["data-region-languages"]
+        )
+        assert set(region_map) == set(REGION_DEFAULT_LANGUAGES)
         assert soup.find(id="languageSuggestions")["data-region-name"] == (
             "Netherlands"
         )

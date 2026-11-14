@@ -25,6 +25,7 @@ from ...core.models import MovieStatus
 from ...utils.config import (
     MIN_GROSS_MAX,
     configured_box_office_regions,
+    format_box_office_regions,
     format_min_gross,
     settings,
 )
@@ -592,6 +593,21 @@ async def setup_page(request: Request):
     ]
     box_office_regions = configured_box_office_regions(settings)
     region_names = dict(BOX_OFFICE_REGIONS)
+    # The page offers one region per option. A configuration it cannot show
+    # as one of them - several regions, or a code missing from the catalogue -
+    # gets an extra option holding the stored value itself, selected, so a
+    # save from this page posts it back unchanged instead of the first region.
+    box_office_region = format_box_office_regions(box_office_regions)
+    box_office_region_listed = box_office_region in region_names
+    # The whole map, so the chips can follow the region dropdown in-session
+    # instead of being pinned to the persisted region - which during
+    # first-run setup is nobody's actual choice. The extra option's value
+    # maps to the union of its regions' suggestions.
+    language_region_suggestions = dict(REGION_DEFAULT_LANGUAGES)
+    if not box_office_region_listed:
+        language_region_suggestions[box_office_region] = suggested_languages(
+            box_office_regions
+        )
 
     return templates.TemplateResponse(
         request,
@@ -627,10 +643,10 @@ async def setup_page(request: Request):
             quality_upgrade=settings.boxarr_features_quality_upgrade,
             # Box office fetch limit
             box_office_limit=settings.boxarr_features_box_office_limit,
-            # Box office region. The page still offers a single region, so
-            # it shows the first configured one; the language suggestions
-            # below cover them all.
-            box_office_region=box_office_regions[0],
+            # Box office region: the stored value, and whether one of the
+            # catalogue options already stands for it.
+            box_office_region=box_office_region,
+            box_office_region_listed=box_office_region_listed,
             box_office_regions=BOX_OFFICE_REGIONS,
             box_office_region_name=", ".join(
                 region_names.get(code, code) for code in box_office_regions
@@ -656,10 +672,7 @@ async def setup_page(request: Request):
             language_blacklist=sorted(blacklist_selected),
             language_options=language_options,
             language_suggested=suggested_languages(box_office_regions),
-            # The whole map, so the chips can follow the region dropdown
-            # in-session instead of being pinned to the persisted region -
-            # which during first-run setup is nobody's actual choice.
-            language_region_suggestions=REGION_DEFAULT_LANGUAGES,
+            language_region_suggestions=language_region_suggestions,
             # Minimum weekend gross filter (USD). The amount is formatted here
             # rather than in the template: rendering a float through Jinja's
             # `int` filter truncates a fraction silently and raises on a

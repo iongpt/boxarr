@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 import pytest
 
+import src.core.boxoffice as boxoffice_module
 from src.core.boxoffice import BoxOfficeService
 from src.core.exceptions import BoxOfficeError
 from src.core.languages import suggested_languages
@@ -119,11 +120,31 @@ class TestNormalize:
             (("GB", "DE"), "GB,DE"),
             ('["NL","DE"]', "NL,DE"),
             ('["", "DE"]', "domestic,DE"),
+            # YAML flow style, as a docker-compose value may be written
+            ("[NL,DE]", "NL,DE"),
+            (" [NL, DE] ", "NL,DE"),
+            ("['NL','DE']", "NL,DE"),
+            ("[NO, DE]", "NO,DE"),
+            ("['', DE]", "domestic,DE"),
+            ("[NL,]", "NL"),  # a trailing comma adds nothing
             ("ZZ", "ZZ"),  # two letters but not in the catalog: kept
         ],
     )
     def test_forms(self, value, expected):
         assert normalize_box_office_regions(value) == expected
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            pytest.param("[" * 100_000, id="unclosed"),
+            pytest.param("[" * 100_000 + "]" * 100_000, id="closed"),
+        ],
+    )
+    def test_deeply_nested_brackets_are_dropped_not_raised(self, caplog, value):
+        # json.loads raises RecursionError, not ValueError, on these.
+        with caplog.at_level("WARNING"):
+            assert normalize_box_office_regions(value) == ""
+        assert any("Ignoring invalid" in r.getMessage() for r in caplog.records)
 
     @pytest.mark.parametrize(
         "value, expected, bad",
@@ -199,6 +220,20 @@ class TestValidate:
         with pytest.raises(ValueError, match="At most 5"):
             validate_box_office_regions(SIX)
 
+    @pytest.mark.parametrize("value", [[], (), "[]", " [ ] "])
+    def test_rejects_an_empty_selection(self, value):
+        with pytest.raises(ValueError, match="at least one"):
+            validate_box_office_regions(value)
+
+    @pytest.mark.parametrize("value", ["", [""], ["domestic"], [None]])
+    def test_empty_strings_still_mean_domestic(self, value):
+        # A setup page from before multi-region posts "" for domestic.
+        assert validate_box_office_regions(value) == ""
+
+    def test_deeply_nested_brackets_are_rejected_not_raised(self):
+        with pytest.raises(ValueError, match="two-letter"):
+            validate_box_office_regions("[" * 100_000)
+
 
 class TestEnvironment:
     """Every documented env form boots: the field is a str, not a List[str]."""
@@ -213,6 +248,9 @@ class TestEnvironment:
             ("domestic,DE", "domestic,DE", ["", "DE"]),
             ("DE,FR,GB,NL,NO,PL", "DE,FR,GB,NL,NO", ["DE", "FR", "GB", "NL", "NO"]),
             ("NL,BAD", "NL", ["NL"]),
+            ("[NL, DE]", "NL,DE", ["NL", "DE"]),
+            ("['NL','DE']", "NL,DE", ["NL", "DE"]),
+            pytest.param("[" * 100_000, "", [""], id="nested-brackets"),
         ],
     )
     def test_env_forms(self, clean_env, env_value, stored, codes):
@@ -335,6 +373,19 @@ class TestBoxOfficeService:
     def test_invalid_configured_region_fails_loudly(self, bad):
         with pytest.raises(BoxOfficeError, match="area code"):
             self._build(bad)
+
+    def test_unfetched_regions_are_reported_once(self, caplog, monkeypatch):
+        monkeypatch.setattr(boxoffice_module, "_UNFETCHED_REGIONS_LOGGED", set())
+        with caplog.at_level("INFO", logger="src.core.boxoffice"):
+            self._build("DE,NL")
+            self._build("DE,NL")
+            self._build("NL")
+        notes = [
+            r.getMessage() for r in caplog.records if "is fetched" in r.getMessage()
+        ]
+        assert notes == [
+            "Box office regions DE, NL are configured; only the first, DE, is fetched"
+        ]
 
 
 class TestSuggestedLanguages:

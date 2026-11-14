@@ -48,8 +48,8 @@ def format_min_gross(value: float) -> str:
     return f"{value:,.0f}" if float(value).is_integer() else f"{value:,.2f}"
 
 
-# Most Box Office Mojo regions one configuration can hold. Every region is one
-# more chart request, plus its IMDb lookups, on every scheduled update.
+# Most Box Office Mojo regions one configuration can hold. Each region is a
+# chart of its own, so the cap bounds the requests one configuration can cause.
 MAX_BOX_OFFICE_REGIONS = 5
 
 # The word that stands for the US & Canada chart, whose area code is "".
@@ -106,15 +106,53 @@ def format_box_office_regions(codes: Iterable[str]) -> str:
     return ",".join(code or DOMESTIC_REGION for code in canonical)
 
 
+def _decode_region_list(value: Any) -> Any:
+    """Return the list a string spells when it is written as one.
+
+    An environment variable can only hold a string, so a list arrives as JSON
+    ('["NL","DE"]') or in YAML's flow style ("[NL, DE]", "['NL','DE']"). JSON
+    is tried first. Failing that, a string in brackets is split on commas and
+    the quotes around each item are dropped; a quoted empty item ('') is
+    domestic, while an empty one - a trailing comma - adds nothing. Anything
+    else is returned unchanged.
+
+    Args:
+        value: The raw setting
+
+    Returns:
+        The decoded list, or ``value`` itself
+    """
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if not text.startswith("["):
+        return value
+    try:
+        return json.loads(text)
+    except (ValueError, RecursionError):
+        # RecursionError: thousands of nested brackets. Neither is fatal; the
+        # value is read as a flow list or its tokens are rejected.
+        pass
+    if not text.endswith("]"):
+        return value
+    items: List[str] = []
+    for item in text[1:-1].split(","):
+        item = item.strip()
+        if item:
+            items.append(item.strip("'\""))
+    return items
+
+
 def _coerce_box_office_regions(
     value: Any, false_is_norway: bool = True
 ) -> Tuple[List[str], List[str]]:
     """Read area codes out of any form a box office region setting arrives in.
 
     Accepted: None (domestic); a string of comma-joined codes; a string
-    holding a JSON list, such as the environment value '["NL","DE"]'; or a
-    list. YAML 1.1 reads an unquoted NO - Norway - as False, so False is "NO"
-    on its own and in a list. In a list, None and "" stand for domestic.
+    written as a list, in JSON ('["NL","DE"]') or YAML flow style
+    ("[NL, DE]"); or a list. YAML 1.1 reads an unquoted NO - Norway - as
+    False, so False is "NO" on its own and in a list. In a list, None and ""
+    stand for domestic.
 
     Args:
         value: The raw setting
@@ -130,11 +168,8 @@ def _coerce_box_office_regions(
         return [""], []
     if value is False and false_is_norway:
         value = ["NO"]
-    elif isinstance(value, str) and value.lstrip().startswith("["):
-        try:
-            value = json.loads(value)
-        except ValueError:
-            pass  # Not JSON after all: its tokens are rejected below.
+    else:
+        value = _decode_region_list(value)
 
     rejected: List[str] = []
     tokens: List[str] = []
@@ -217,9 +252,16 @@ def validate_box_office_regions(value: Any) -> str:
         The canonical stored value
 
     Raises:
-        ValueError: If a token is not an area code (a boolean included) or
-            there are too many
+        ValueError: If the selection is an empty list, a token is not an area
+            code (a boolean included), or there are too many
     """
+    decoded = _decode_region_list(value)
+    if isinstance(decoded, (list, tuple)) and not decoded:
+        # "" and [""] stay domestic - a setup page before multi-region posts
+        # "" for it - but an empty list is a client that selected nothing.
+        raise ValueError(
+            "Select at least one box office region ('domestic' for US & Canada)"
+        )
     codes, rejected = _coerce_box_office_regions(value, false_is_norway=False)
     if rejected:
         raise ValueError(
@@ -499,8 +541,8 @@ class Settings(BaseSettings):
     boxarr_features_box_office_region: str = Field(
         default="",
         description=(
-            "Box Office Mojo region 'area' codes, comma-separated in the order "
-            "they are fetched (e.g. 'NL' or 'domestic,DE'), at most "
+            "Box Office Mojo region 'area' codes, comma-separated, in the "
+            "order the user chose (e.g. 'NL' or 'domestic,DE'), at most "
             f"{MAX_BOX_OFFICE_REGIONS}. Empty or 'domestic' means US & Canada "
             "(no ?area parameter)."
         ),

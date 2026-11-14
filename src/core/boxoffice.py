@@ -4,7 +4,7 @@ import re
 import time
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 import httpx
 from bs4 import BeautifulSoup, SoupStrainer, Tag
@@ -106,6 +106,9 @@ BOX_OFFICE_REGIONS: List[Tuple[str, str]] = [
 
 # A Box Office Mojo area code: two letters. Domestic has none ("").
 _AREA_CODE = re.compile(r"[A-Z]{2}")
+
+# Region lists already reported as fetching only their first region.
+_UNFETCHED_REGIONS_LOGGED: Set[Tuple[str, ...]] = set()
 
 # ISO weekday (Monday=1 ... Sunday=7) on which each market's Box Office Mojo
 # weekend starts. Mojo numbers a market's weekends by the calendar year and
@@ -454,7 +457,17 @@ class BoxOfficeService:
 
         Reads this module's ``settings`` so tests can patch it here.
         """
-        return cls._normalize_region(configured_box_office_regions(settings)[0])
+        regions = configured_box_office_regions(settings)
+        if len(regions) > 1 and tuple(regions) not in _UNFETCHED_REGIONS_LOGGED:
+            # Once per configured list, not on every chart URL built.
+            _UNFETCHED_REGIONS_LOGGED.add(tuple(regions))
+            logger.info(
+                "Box office regions %s are configured; only the first, %s, is "
+                "fetched",
+                ", ".join(code or "domestic" for code in regions),
+                regions[0] or "domestic",
+            )
+        return cls._normalize_region(regions[0])
 
     @staticmethod
     def _weekend_start(region: str) -> int:
