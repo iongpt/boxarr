@@ -272,3 +272,68 @@ def test_refresh_can_be_limited_to_given_week_files(tmp_path):
     with open(wanted) as f:
         assert json.load(f)["movies"][0]["radarr_id"] == 202
     assert skipped.read_bytes() == skipped_before
+
+
+def test_refresh_keeps_the_region_keys_of_a_multi_region_week(tmp_path):
+    """Entries are updated in place, so data version 2 keys survive."""
+    weekly_pages_dir = tmp_path / "weekly_pages"
+    weekly_pages_dir.mkdir()
+    week_file = weekly_pages_dir / "2026W44.json"
+    rows = [
+        {"code": "", "title": "Linked Later", "rank": 2, "weekend_gross": 9.0},
+        {"code": "DE", "title": "Spaeter", "rank": 1, "weekend_gross": 1.0},
+    ]
+    region_status = [
+        {"region": "", "status": "ok", "bom_week": "2026W44", "movies": 1},
+        {"region": "DE", "status": "stale", "carried_from": "2026-11-02T23:00:00"},
+    ]
+    week_file.write_text(
+        json.dumps(
+            {
+                "year": 2026,
+                "week": 44,
+                "matched_movies": 0,
+                "data_version": 2,
+                "regions": ["", "DE"],
+                "region_status": region_status,
+                "movies": [
+                    {
+                        "title": "Spaeter",
+                        "radarr_id": None,
+                        "tmdb_id": 2002,
+                        "region": "DE",
+                        "regions": rows,
+                        "bom_imdb_id": "tt2002",
+                    }
+                ],
+            }
+        )
+    )
+    radarr_movie = _FakeMovie(
+        202,
+        2002,
+        "Linked Later",
+        has_file=False,
+        status=MovieStatus.IN_CINEMAS,
+        is_available=False,
+        quality_profile_id=1,
+        poster_url="https://example.com/202.jpg",
+    )
+
+    results = refresh_weekly_data_from_radarr(
+        radarr_service=_FakeRadarrService([radarr_movie], [_FakeProfile(1, "HD")]),
+        data_directory=tmp_path,
+    )
+
+    assert results["movies_linked"] == 1
+    stored = json.loads(week_file.read_text())
+    assert (stored["data_version"], stored["regions"]) == (2, ["", "DE"])
+    assert stored["region_status"] == region_status
+    assert stored["matched_movies"] == 1
+    [movie] = stored["movies"]
+    assert movie["radarr_id"] == 202
+    assert (movie["region"], movie["regions"], movie["bom_imdb_id"]) == (
+        "DE",
+        rows,
+        "tt2002",
+    )

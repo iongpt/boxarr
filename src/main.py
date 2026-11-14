@@ -127,6 +127,10 @@ class BoxarrApplication:
 
         try:
             results = await self.scheduler.update_box_office()
+            if results.get("success") is False:
+                # A stored legacy (pre-multi-region) week was kept: a region failed.
+                logger.error(f"Update failed: {results.get('message')}")
+                sys.exit(1)
 
             print("\n" + "=" * 50)
             print("BOX OFFICE UPDATE RESULTS")
@@ -134,6 +138,8 @@ class BoxarrApplication:
             print(f"Total movies: {results['total_count']}")
             print(f"Matched: {results['matched_count']}")
             print(f"Unmatched: {results['unmatched_count']}")
+            if results.get("partial"):
+                print("Regions with errors: " + "; ".join(results.get("errors", [])))
 
             if results["status_breakdown"]:
                 print("\nStatus Breakdown:")
