@@ -4,7 +4,7 @@ import json
 import threading
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterable, List, Optional, Union
 
 from ..utils.atomic import atomic_write_json
 from ..utils.config import settings
@@ -20,7 +20,8 @@ logger = get_logger(__name__)
 
 # Process-wide guard serializing every path that rewrites weekly_pages/*.json:
 # the scheduled cron update, the manual /api/scheduler/trigger, the button
-# refresh background job, and /update-week. Callers acquire it around their
+# refresh background job, /update-week, and the relink that runs after a manual
+# "Add to Radarr" (regenerate_weeks_with_movie). Callers acquire it around their
 # whole mutation; the writers it protects never re-acquire it, so it cannot
 # deadlock. A second caller that cannot acquire it fails fast.
 WEEKLY_WRITE_LOCK = threading.Lock()
@@ -98,14 +99,30 @@ def _build_movie_update(
 
 def refresh_weekly_data_from_radarr(
     radarr_service: Optional[RadarrService] = None,
-    data_directory: Optional[Path] = None,
+    data_directory: Optional[Union[str, Path]] = None,
     ignore_cache: bool = False,
     progress_callback=None,
+    radarr_movies: Optional[List[RadarrMovie]] = None,
+    week_files: Optional[Iterable[Union[str, Path]]] = None,
 ) -> Dict[str, int]:
-    """Refresh stored weekly JSON files with current Radarr status/details."""
+    """Refresh stored weekly JSON files with current Radarr status/details.
+
+    Only the Radarr link/status fields of existing entries change: a week keeps
+    its length, order and Box Office Mojo data.
+
+    Args:
+        radarr_service: Service to read quality profiles (and the library) from.
+        data_directory: Data root holding ``weekly_pages``; defaults to settings.
+        ignore_cache: Bypass the Radarr library cache when fetching it here.
+        progress_callback: Called as ``(scanned, total, updated, refreshed)``.
+        radarr_movies: An already-fetched Radarr library. When given it is used
+            as-is (an empty list included) and the library is not fetched again.
+        week_files: Restrict the refresh to these weekly JSON files instead of
+            every stored week.
+    """
     weekly_pages_dir = (
-        data_directory or settings.boxarr_data_directory
-    ) / "weekly_pages"
+        Path(data_directory or settings.boxarr_data_directory) / "weekly_pages"
+    )
     if not weekly_pages_dir.exists():
         return {
             "weeks_scanned": 0,
@@ -115,7 +132,8 @@ def refresh_weekly_data_from_radarr(
         }
 
     service = radarr_service or RadarrService()
-    radarr_movies = get_all_movies_with_optional_cache_bypass(service, ignore_cache)
+    if radarr_movies is None:
+        radarr_movies = get_all_movies_with_optional_cache_bypass(service, ignore_cache)
     profiles = service.get_quality_profiles()
     profiles_by_id = {profile.id: profile.name for profile in profiles}
     upgrade_profile_id = next(
@@ -135,9 +153,12 @@ def refresh_weekly_data_from_radarr(
     movies_refreshed = 0
     movies_linked = 0
 
-    all_files = [
-        f for f in sorted(weekly_pages_dir.glob("*.json")) if f.name != "current.json"
-    ]
+    candidates = (
+        sorted(Path(f) for f in week_files)
+        if week_files is not None
+        else sorted(weekly_pages_dir.glob("*.json"))
+    )
+    all_files = [f for f in candidates if f.name != "current.json"]
     total_weeks = len(all_files)
 
     if progress_callback:
