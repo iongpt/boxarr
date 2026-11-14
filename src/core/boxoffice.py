@@ -3,7 +3,7 @@
 import re
 import time
 from dataclasses import asdict, dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
 import httpx
@@ -366,13 +366,34 @@ class BoxOfficeService:
         Returns:
             Weekend chart URL, with ?area=CODE appended for non-domestic regions
         """
-        url = f"{self.BASE_URL}/weekend/{year}W{week:02d}/"
         region = (
             getattr(settings, "boxarr_features_box_office_region", "") or ""
         ).strip()
         if region and region.lower() != "domestic":
-            url = f"{url}?area={region}"
-        return url
+            return f"{self.BASE_URL}/weekend/{year}W{week:02d}/?area={region}"
+        mojo_year, mojo_week = self._domestic_weekend_number(year, week)
+        return f"{self.BASE_URL}/weekend/{mojo_year}W{mojo_week:02d}/"
+
+    @staticmethod
+    def _domestic_weekend_number(year: int, week: int) -> Tuple[int, int]:
+        """
+        Map an ISO year/week to Box Office Mojo's domestic weekend number.
+
+        Mojo numbers domestic weekends by the calendar year of their Friday:
+        weekend 1 is the first Friday-Sunday whose Friday is in January. When
+        1 January is a Friday (2016, 2021, 2027), that Friday belongs to the
+        previous ISO year, so every ISO week of that year is one Mojo weekend
+        behind. 2021W01 is January 1-3 on Mojo, while ISO 2021-W01 has
+        January 8-10.
+
+        Raises:
+            BoxOfficeError: If the year has no such ISO week
+        """
+        try:
+            friday = date.fromisocalendar(year, week, 5)
+        except ValueError as e:
+            raise BoxOfficeError(f"Invalid ISO week {year}W{week:02d}") from e
+        return friday.year, (friday.timetuple().tm_yday - 1) // 7 + 1
 
     def fetch_weekend_box_office(
         self,
