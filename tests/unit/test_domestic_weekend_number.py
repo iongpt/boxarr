@@ -54,8 +54,8 @@ def test_new_year_weekend_2027_is_fetched_as_mojo_week_one():
     assert url == "https://www.boxofficemojo.com/weekend/2027W01/"
 
 
-def test_regional_url_keeps_iso_week():
-    """Regional weekends start on other days, so their numbers are unchanged."""
+def test_thursday_market_url_keeps_iso_week():
+    """German weekends start on Thursday, so Mojo's numbers equal ISO weeks."""
     with patch(
         "src.core.boxoffice.settings",
         SimpleNamespace(boxarr_features_box_office_region="DE"),
