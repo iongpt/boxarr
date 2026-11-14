@@ -9,11 +9,12 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 
 from ...core.ignore_list import IgnoreList
-from ...core.json_generator import WeeklyDataGenerator
 from ...core.library_sync import WEEKLY_WRITE_LOCK, refresh_weekly_data_from_radarr
+from ...core.matcher import MovieMatcher
 from ...core.models import MovieStatus
 from ...core.radarr import RadarrService, get_all_movies_with_optional_cache_bypass
 from ...core.root_folder_manager import RootFolderManager
+from ...utils.atomic import atomic_write_json
 from ...utils.config import settings
 from ...utils.logger import get_logger
 
@@ -421,7 +422,7 @@ async def upgrade_movie_quality(movie_id: int):
 
 @router.post("/add")
 async def add_movie_to_radarr(request: AddMovieRequest):
-    """Add a movie to Radarr and regenerate affected weeks."""
+    """Add a movie to Radarr and relink the stored weeks that list it."""
     try:
         if not settings.radarr_api_key:
             raise HTTPException(status_code=400, detail="Radarr not configured")
@@ -433,18 +434,20 @@ async def add_movie_to_radarr(request: AddMovieRequest):
         if not req_title:
             return {"success": False, "message": "No movie title provided"}
 
-        # Search for movie on TMDB
-        search_results = radarr_service.search_movie_tmdb(req_title)
-        if not search_results:
-            return {"success": False, "message": "Movie not found on TMDB"}
-
-        # Use first result or match by TMDB ID if provided
-        movie_data = search_results[0]
         if request.tmdb_id:
+            # The card knows exactly which film it shows: look that TMDB id up
+            # directly instead of trusting the first hit of a title search,
+            # which can be a different film with a similar title.
+            search_results = radarr_service.search_movie(f"tmdb:{request.tmdb_id}")
             movie_data = next(
                 (m for m in search_results if m.get("tmdbId") == request.tmdb_id),
-                search_results[0],
+                None,
             )
+        else:
+            search_results = radarr_service.search_movie_tmdb(req_title)
+            movie_data = search_results[0] if search_results else None
+        if not movie_data:
+            return {"success": False, "message": "Movie not found on TMDB"}
 
         # Determine root folder based on genres
         root_folder_manager = RootFolderManager(radarr_service)
@@ -476,8 +479,10 @@ async def add_movie_to_radarr(request: AddMovieRequest):
             already = None
 
         if already:
-            # Regenerate affected weeks so UI reflects correct status immediately
-            await asyncio.to_thread(regenerate_weeks_with_movie, req_title)
+            # Relink affected weeks so UI reflects correct status immediately
+            await asyncio.to_thread(
+                regenerate_weeks_with_movie, req_title, already.tmdbId
+            )
 
             return {
                 "success": True,
@@ -495,8 +500,12 @@ async def add_movie_to_radarr(request: AddMovieRequest):
         )
 
         if result:
-            # Find and regenerate weeks containing this movie
-            await asyncio.to_thread(regenerate_weeks_with_movie, req_title)
+            # Relink the stored weeks that list this movie
+            await asyncio.to_thread(
+                regenerate_weeks_with_movie,
+                req_title,
+                result.tmdbId or movie_data.get("tmdbId"),
+            )
 
             return {
                 "success": True,
@@ -545,69 +554,191 @@ async def add_movie_to_radarr(request: AddMovieRequest):
             return {"success": False, "message": "Unexpected error", "error": error_msg}
 
 
-def regenerate_weeks_with_movie(movie_title: str):
-    """Find and regenerate all weeks containing a specific movie."""
+# Weeks that store the added film's TMDB id are linked by any later status
+# refresh; legacy title-only entries are only linked here or by regenerating
+# their week.
+_RELINK_CATCH_UP_HINT = (
+    "weeks storing its TMDB id are linked by the next status refresh; "
+    "title-only entries need their week regenerated or the movie added again"
+)
+
+
+def _known_year(value: Any) -> Optional[int]:
+    """``value`` as a year, or None when it is missing, zero or not a number."""
+    try:
+        year = int(value)
+    except (TypeError, ValueError):
+        return None
+    return year or None
+
+
+def _years_conflict(stored_year: Any, radarr_year: Any) -> bool:
+    """True when both years are known and differ (e.g. a remake sharing a title)."""
+    stored, radarr = _known_year(stored_year), _known_year(radarr_year)
+    return stored is not None and radarr is not None and stored != radarr
+
+
+def _week_year(metadata: Dict[str, Any], json_file: Path) -> Optional[int]:
+    """The year of a stored chart week, from its data or its ``{Y}W{ww}`` name."""
+    year = _known_year(metadata.get("year"))
+    if year is None:
+        year = _known_year(json_file.stem.split("W", 1)[0])
+    return year
+
+
+def _week_predates_film(week_year: Optional[int], film_year: Any) -> bool:
+    """True when a chart week is too early to list a film released in ``film_year``.
+
+    A film cannot chart before its release, so a week more than a year earlier
+    than the film's year lists another film of the same title (the original of
+    a remake). The year of slack covers December openings of films dated the
+    following year; later weeks (re-releases) are never ruled out.
+    """
+    film = _known_year(film_year)
+    return week_year is not None and film is not None and week_year < film - 1
+
+
+def regenerate_weeks_with_movie(
+    movie_title: str, tmdb_id: Optional[int] = None
+) -> None:
+    """Relink the stored weeks that list a movie just added to Radarr.
+
+    Stored weeks are a snapshot of the Box Office Mojo chart they were fetched
+    from (their length, order and region), so this never re-fetches them. It
+    only refreshes the Radarr link/status of the weeks that list the film:
+
+    * entries whose ``tmdb_id`` is the added film are linked by
+      :func:`refresh_weekly_data_from_radarr`;
+    * legacy entries stored without a ``tmdb_id`` (and not linked to anything)
+      whose title normalizes to the same title as ``movie_title`` first get the
+      film's ``tmdb_id`` stamped on them. Titles are compared whole, so adding
+      "Alien" never touches "Aliens". An entry is skipped when its week is more
+      than a year older than the film (it charted before the film existed, so
+      it is the original of a remake), or when the entry itself stores a year
+      that differs from the film's.
+
+    Weeks that do not list the film are never rewritten, and when no stored week
+    lists it, Radarr is not queried at all.
+    """
     if not WEEKLY_WRITE_LOCK.acquire(blocking=False):
         logger.info(
             "Another weekly update is in progress; skipping regeneration after "
-            f"adding {movie_title} (weekly pages will catch up on the next refresh)"
+            f"adding {movie_title} ({_RELINK_CATCH_UP_HINT})"
         )
         return
     try:
-        weekly_pages_dir = Path(settings.boxarr_data_directory) / "weekly_pages"
-        radarr_service = RadarrService()
-        generator = WeeklyDataGenerator(radarr_service)
-
-        # Get updated Radarr library
-        # Always bypass cache so recently added movies are visible to the matcher
-        radarr_movies = get_all_movies_with_optional_cache_bypass(
-            radarr_service, ignore_cache=True
+        _relink_weeks_with_movie(movie_title, tmdb_id)
+    except Exception as e:
+        # The movie is already in Radarr; a failed relink must not turn the add
+        # into an error. Only weeks storing its TMDB id catch up on their own.
+        logger.error(
+            f"Error relinking weekly pages after adding {movie_title}: {e} "
+            f"({_RELINK_CATCH_UP_HINT})"
         )
-
-        # Search all metadata files
-        for json_file in weekly_pages_dir.glob("*.json"):
-            try:
-                with open(json_file) as f:
-                    metadata = json.load(f)
-
-                # Check if this week contains the movie
-                movie_found = False
-                for movie in metadata.get("movies", []):
-                    if movie_title.lower() in movie.get("title", "").lower():
-                        movie_found = True
-                        break
-
-                if movie_found:
-                    # Regenerate this week's page
-                    year = metadata["year"]
-                    week = metadata["week"]
-                    logger.info(
-                        f"Regenerating week {year}W{week:02d} after adding "
-                        f"{movie_title}"
-                    )
-
-                    # The generator will re-match with updated Radarr data
-                    from ...core.boxoffice import BoxOfficeService
-                    from ...core.matcher import MovieMatcher
-
-                    boxoffice_service = BoxOfficeService()
-                    matcher = MovieMatcher()
-
-                    # Get week's data
-                    box_office_movies = boxoffice_service.fetch_weekend_box_office(
-                        year, week
-                    )
-                    matcher.build_movie_index(radarr_movies)
-                    match_results = matcher.match_movies(
-                        box_office_movies, radarr_movies
-                    )
-
-                    # Generate updated data file
-                    generator.generate_weekly_data(
-                        match_results, year, week, radarr_movies
-                    )
-            except Exception as e:
-                logger.error(f"Error processing {json_file}: {e}")
-                continue
     finally:
         WEEKLY_WRITE_LOCK.release()
+
+
+def _relink_weeks_with_movie(movie_title: str, tmdb_id: Optional[int]) -> None:
+    """Body of :func:`regenerate_weeks_with_movie`; the caller holds the lock."""
+    try:
+        tmdb_id = int(tmdb_id) if tmdb_id else None
+    except (TypeError, ValueError):
+        tmdb_id = None
+    if not tmdb_id:
+        logger.info(f"No TMDB id for {movie_title}; stored weeks were not relinked")
+        return
+
+    data_directory = Path(settings.boxarr_data_directory)
+    weekly_pages_dir = data_directory / "weekly_pages"
+    if not weekly_pages_dir.is_dir():
+        return
+
+    matcher = MovieMatcher()
+    wanted_title = matcher.normalize_title(movie_title or "")
+
+    # Weeks listing the film by TMDB id, and legacy title-only entries per week.
+    weeks_by_id: List[Path] = []
+    title_only: Dict[Path, Any] = {}
+    for json_file in sorted(weekly_pages_dir.glob("*.json")):
+        if json_file.name == "current.json":
+            continue
+        try:
+            with open(json_file) as f:
+                metadata = json.load(f)
+            movies = metadata.get("movies", [])
+        except Exception as e:
+            logger.warning(f"Could not read weekly data file {json_file}: {e}")
+            continue
+
+        listed_by_id = False
+        legacy_entries = []
+        for movie in movies:
+            if not isinstance(movie, dict):
+                continue
+            if movie.get("tmdb_id") == tmdb_id:
+                listed_by_id = True
+            elif (
+                wanted_title
+                and not movie.get("tmdb_id")
+                and not movie.get("radarr_id")
+                and matcher.normalize_title(str(movie.get("title") or ""))
+                == wanted_title
+            ):
+                legacy_entries.append(movie)
+
+        if listed_by_id:
+            weeks_by_id.append(json_file)
+        if legacy_entries:
+            title_only[json_file] = (metadata, legacy_entries)
+
+    if not weeks_by_id and not title_only:
+        logger.info(f"No stored week lists {movie_title}; nothing to relink")
+        return
+
+    radarr_service = RadarrService()
+    # Bypass the cache so the movie that was just added is visible.
+    radarr_movies = get_all_movies_with_optional_cache_bypass(
+        radarr_service, ignore_cache=True
+    )
+    added = next((m for m in radarr_movies if m.tmdbId == tmdb_id), None)
+    if added is None:
+        logger.warning(
+            f"{movie_title} (TMDB {tmdb_id}) is not in the Radarr library yet; "
+            f"stored weeks were not relinked ({_RELINK_CATCH_UP_HINT})"
+        )
+        return
+
+    # Stamp the film's TMDB id on legacy entries so the refresh links them.
+    affected = set(weeks_by_id)
+    for json_file, (metadata, legacy_entries) in title_only.items():
+        if _week_predates_film(_week_year(metadata, json_file), added.year):
+            logger.info(
+                f"Not linking {movie_title} ({added.year}) to {json_file.name}: "
+                "the week predates the film, so it lists another film of that title"
+            )
+            continue
+        stamped = 0
+        for movie in legacy_entries:
+            if _years_conflict(movie.get("year"), added.year):
+                continue
+            movie["tmdb_id"] = tmdb_id
+            stamped += 1
+        if stamped:
+            atomic_write_json(json_file, metadata, indent=2, default=str)
+            affected.add(json_file)
+
+    if not affected:
+        logger.info(f"No stored week entry could be linked to {movie_title}")
+        return
+
+    results = refresh_weekly_data_from_radarr(
+        radarr_service=radarr_service,
+        data_directory=data_directory,
+        radarr_movies=radarr_movies,
+        week_files=sorted(affected),
+    )
+    logger.info(
+        f"Relinked {movie_title} in {results.get('weeks_updated', 0)} of "
+        f"{len(affected)} stored week(s) listing it"
+    )

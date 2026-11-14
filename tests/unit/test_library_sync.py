@@ -173,3 +173,102 @@ def test_refresh_weekly_data_from_radarr_updates_stale_entries(tmp_path, monkeyp
 
     assert refreshed["matched_movies"] == 2
     assert "status_refreshed_at" in refreshed
+
+
+def _unmatched_week(path, title: str, tmdb_id: int) -> None:
+    with open(path, "w") as f:
+        json.dump(
+            {
+                "year": 2024,
+                "week": int(path.stem[-2:]),
+                "matched_movies": 0,
+                "movies": [{"title": title, "radarr_id": None, "tmdb_id": tmdb_id}],
+            },
+            f,
+        )
+
+
+class _NoLibraryRadarrService(_FakeRadarrService):
+    def get_all_movies(self, ignore_cache: bool = False):
+        raise AssertionError("library was passed in; it must not be fetched again")
+
+
+def test_refresh_uses_a_prefetched_library_and_str_data_directory(tmp_path):
+    weekly_pages_dir = tmp_path / "weekly_pages"
+    weekly_pages_dir.mkdir()
+    week_file = weekly_pages_dir / "2024W10.json"
+    _unmatched_week(week_file, "Linked From TMDB", 1002)
+
+    library = [
+        _FakeMovie(
+            202,
+            1002,
+            "Linked From TMDB",
+            has_file=False,
+            status=MovieStatus.RELEASED,
+            is_available=True,
+            quality_profile_id=1,
+            poster_url="https://example.com/202.jpg",
+        )
+    ]
+    service = _NoLibraryRadarrService(movies=[], profiles=[_FakeProfile(1, "HD")])
+
+    results = refresh_weekly_data_from_radarr(
+        radarr_service=service,
+        data_directory=str(tmp_path),  # settings may hold a plain str
+        radarr_movies=library,
+    )
+
+    assert results["movies_linked"] == 1
+    with open(week_file) as f:
+        assert json.load(f)["movies"][0]["radarr_id"] == 202
+
+
+def test_refresh_honours_an_empty_prefetched_library(tmp_path):
+    weekly_pages_dir = tmp_path / "weekly_pages"
+    weekly_pages_dir.mkdir()
+    _unmatched_week(weekly_pages_dir / "2024W10.json", "Not In Radarr", 1002)
+    service = _NoLibraryRadarrService(movies=[], profiles=[])
+
+    results = refresh_weekly_data_from_radarr(
+        radarr_service=service, data_directory=tmp_path, radarr_movies=[]
+    )
+
+    assert results["weeks_scanned"] == 1
+    assert results["weeks_updated"] == 0
+
+
+def test_refresh_can_be_limited_to_given_week_files(tmp_path):
+    weekly_pages_dir = tmp_path / "weekly_pages"
+    weekly_pages_dir.mkdir()
+    wanted = weekly_pages_dir / "2024W10.json"
+    skipped = weekly_pages_dir / "2024W11.json"
+    _unmatched_week(wanted, "Linked From TMDB", 1002)
+    _unmatched_week(skipped, "Linked From TMDB", 1002)
+    skipped_before = skipped.read_bytes()
+
+    service = _FakeRadarrService(
+        movies=[
+            _FakeMovie(
+                202,
+                1002,
+                "Linked From TMDB",
+                has_file=True,
+                status=MovieStatus.RELEASED,
+                is_available=True,
+                quality_profile_id=1,
+                poster_url="https://example.com/202.jpg",
+            )
+        ],
+        profiles=[_FakeProfile(1, "HD")],
+    )
+
+    results = refresh_weekly_data_from_radarr(
+        radarr_service=service, data_directory=tmp_path, week_files=[wanted]
+    )
+
+    assert results["weeks_scanned"] == 1
+    assert results["weeks_updated"] == 1
+    with open(wanted) as f:
+        assert json.load(f)["movies"][0]["radarr_id"] == 202
+    assert skipped.read_bytes() == skipped_before

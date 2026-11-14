@@ -1318,10 +1318,22 @@ function reloadScheduler() {
                 buttonElement.style.opacity = '0.7';
             }
             
+            // Send the card's TMDB id when it has one, so the server adds exactly
+            // the film shown rather than the first TMDB hit for its title, and
+            // the stored weeks listing that id get linked to it.
+            const payload = { title, year };
+            const card = buttonElement && buttonElement.closest
+                ? buttonElement.closest('.movie-card')
+                : null;
+            const tmdbId = card ? parseInt(card.dataset.tmdbId, 10) : NaN;
+            if (Number.isInteger(tmdbId) && tmdbId > 0) {
+                payload.tmdb_id = tmdbId;
+            }
+
             fetch(apiUrl('/movies/add'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ title, year })
+                body: JSON.stringify(payload)
             })
             .then(response => response.json())
             .then(data => {
