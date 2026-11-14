@@ -6,9 +6,16 @@ ISO week 1 of the following year (e.g. 2018-12-31), that returns 1, so the
 Previous button on a W01 page linked to ``prev_year`` W01 instead of W52/W53.
 """
 
+from datetime import date
+
 import pytest
 
-from src.api.routes.web import _last_iso_week, _next_week, _previous_week
+from src.api.routes.web import (
+    _historical_years,
+    _last_iso_week,
+    _next_week,
+    _previous_week,
+)
 
 
 class TestLastIsoWeek:
@@ -21,6 +28,8 @@ class TestLastIsoWeek:
             (2013, 52),  # 2013-12-31 falls in ISO week 1 of 2014
             (2020, 53),  # 53-week year
             (2019, 52),  # normal 52-week year
+            (2026, 53),  # 2026W53 is the weekend of January 1-3, 2027
+            (2025, 52),
         ],
     )
     def test_last_iso_week(self, year, expected):
@@ -58,3 +67,30 @@ class TestNextWeek:
     )
     def test_next_week(self, year, week, expected):
         assert _next_week(year, week) == expected
+
+
+class TestHistoricalYears:
+    """Year choices (with week counts) for the dashboard's historical pickers."""
+
+    def test_years_newest_first_with_their_iso_week_counts(self):
+        assert _historical_years(date(2026, 11, 14)) == [
+            (2026, 53),
+            (2025, 52),
+            (2024, 52),
+            (2023, 52),
+            (2022, 52),
+            (2021, 52),
+            (2020, 53),
+        ]
+
+    @pytest.mark.parametrize(
+        "today,newest",
+        [
+            (date(2027, 1, 2), 2026),  # still 2026W53: no 2027 week has begun
+            (date(2027, 1, 4), 2027),  # 2027W01
+            (date(2025, 12, 30), 2025),  # 2026W01, but /update-week rejects 2026
+            (date(2026, 1, 1), 2026),  # 2026W01
+        ],
+    )
+    def test_newest_year_is_one_with_a_week_that_has_begun(self, today, newest):
+        assert _historical_years(today)[0][0] == newest
