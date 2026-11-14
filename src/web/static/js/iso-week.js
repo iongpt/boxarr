@@ -105,9 +105,10 @@
                 // yet, so this is the whole previous year.
                 return {start: {year: lastComplete.year, week: 1}, end: lastComplete};
             case 'lastQuarter': {
-                // 13-week quarters: W01-13, W14-26, W27-39 and W40 to the
-                // year's last week (52 or 53).
-                var quarterEnd = Math.floor((now.week - 1) / 13) * 13;
+                // The most recent complete quarter. Quarters are W01-13,
+                // W14-26, W27-39 and W40 to the year's last week (52 or 53),
+                // so W53 is still in Q4 and gets Q3, like W40-W52 do.
+                var quarterEnd = Math.min(Math.floor((now.week - 1) / 13), 3) * 13;
                 if (quarterEnd === 0) {
                     var prevYear = now.year - 1;
                     return {

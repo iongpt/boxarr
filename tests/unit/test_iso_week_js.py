@@ -235,11 +235,16 @@ def _expected_preset(preset: str, year: int, week: int):
     if preset == "thisYear":
         end_year = last_complete.isocalendar()[0]
         return _tag(end_year, 1), _iso_tag(last_complete)
-    # lastQuarter: W01-13, W14-26, W27-39, W40-last
-    quarter_end = (week - 1) // 13 * 13
-    if quarter_end == 0:
-        return _tag(year - 1, 40), _tag(year - 1, _last_iso_week(year - 1))
-    return _tag(year, quarter_end - 12), _tag(year, quarter_end)
+    # lastQuarter: the latest quarter (W01-13, W14-26, W27-39, W40-last week)
+    # that ended before the current week started
+    quarters = [
+        (y, first, last)
+        for y in (year - 1, year)
+        for first, last in ((1, 13), (14, 26), (27, 39), (40, _last_iso_week(y)))
+    ]
+    done = [q for q in quarters if date.fromisocalendar(q[0], q[2], 1) < this_monday]
+    y, first, last = done[-1]
+    return _tag(y, first), _tag(y, last)
 
 
 def test_presets_step_over_53_week_years(js):
@@ -271,8 +276,12 @@ def test_presets_step_over_53_week_years(js):
         ("2026W46", "lastQuarter", ["2026W27", "2026W39"]),
         ("2027W05", "lastQuarter", ["2026W40", "2026W53"]),
         ("2025W03", "lastQuarter", ["2024W40", "2024W52"]),
-        # in W53 the year must not be decremented (the old code did)
-        ("2026W53", "lastQuarter", ["2026W40", "2026W52"]),
+        ("2026W40", "lastQuarter", ["2026W27", "2026W39"]),
+        ("2026W52", "lastQuarter", ["2026W27", "2026W39"]),
+        # W53 is still in Q4: neither last year's Q4 (the old code) nor a
+        # partial W40-W52
+        ("2026W53", "lastQuarter", ["2026W27", "2026W39"]),
+        ("2020W53", "lastQuarter", ["2020W27", "2020W39"]),
     ],
 )
 def test_preset_examples(js, now, preset, expected):

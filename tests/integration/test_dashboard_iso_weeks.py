@@ -7,6 +7,7 @@ default year's weeks and tags every year option with its ISO week count, which
 the page script uses to add or drop week 53 when the year changes.
 """
 
+import re
 from datetime import date
 from pathlib import Path
 
@@ -151,3 +152,96 @@ def test_dashboard_loads_the_iso_week_helper(tmp_path, monkeypatch):
     response = client.get("/static/js/iso-week.js")
     assert response.status_code == 200
     assert "BoxarrIsoWeek" in response.text
+
+
+def _page_script(soup: BeautifulSoup) -> str:
+    """The dashboard's inline page script, without its // comments."""
+    script = next(
+        s.string
+        for s in soup.find_all("script")
+        if "class RangeProcessor" in (s.string or "")
+    )
+    return re.sub(r"(?m)(?:^|(?<=\s))//.*$", "", script)
+
+
+def _body(script: str, signature: str) -> str:
+    """The source from ``signature`` to the end of its brace-delimited body."""
+    start = script.index(signature)
+    depth = 0
+    for i in range(script.index("{", start), len(script)):
+        depth += {"{": 1, "}": -1}.get(script[i], 0)
+        if depth == 0:
+            return script[start : i + 1]
+    raise AssertionError(f"unbalanced body: {signature}")
+
+
+def _in_order(text: str, *needles: str) -> bool:
+    positions = [text.index(needle) for needle in needles]
+    return positions == sorted(positions)
+
+
+def test_page_script_takes_every_week_from_the_iso_helper(tmp_path, monkeypatch):
+    """Pin the page glue that builds the /update-week requests (#144).
+
+    The helper itself is tested under node (tests/unit/test_iso_week_js.py);
+    these checks make sure the page still uses it for every year/week it
+    sends or offers, instead of local calendar math.
+    """
+    script = _page_script(_dashboard(tmp_path, monkeypatch, date(2026, 11, 14)))
+
+    # The range requests are exactly the helper's ISO (year, week) list.
+    calculate = _body(script, "calculateWeeks(startYear, startWeek, endYear, endWeek)")
+    assert re.fullmatch(
+        r"calculateWeeks\(startYear, startWeek, endYear, endWeek\) \{\s*"
+        r"return BoxarrIsoWeek\.isoWeekRange\(startYear, startWeek, endYear, endWeek\);"
+        r"\s*\}",
+        calculate,
+    ), calculate
+
+    # No calendar-year labels, Jan 1 + 7*(w-1) placement or local week number:
+    # the only Date the page builds is "now" (and log timestamps).
+    assert "getWeekNumber" not in script
+    assert "getFullYear" not in script
+    assert re.findall(r"new Date\((?!\))", script) == []
+    assert script.count("BoxarrIsoWeek.isoWeekOfLocalDate(new Date())") == 2
+
+    # Presets come from the helper; each end sets the year, then rebuilds that
+    # year's week list (52 or 53), then picks the week - W53 needs the list.
+    preset = _body(script, "function setPreset(preset)")
+    assert "BoxarrIsoWeek.presetRange(preset, now)" in preset
+    assert _in_order(
+        preset,
+        "setYearAndWeek('startYear', 'startWeek', range.start)",
+        "setYearAndWeek('endYear', 'endWeek', range.end)",
+        "limitFutureWeeks('startYear', 'startWeek')",
+        "updateRangeSummary()",
+    ), preset
+    set_both = _body(
+        script, "function setYearAndWeek(yearSelectId, weekSelectId, isoWeek)"
+    )
+    assert _in_order(
+        set_both,
+        ".value = isoWeek.year",
+        "syncWeekOptions(yearSelectId, weekSelectId)",
+        ".value = isoWeek.week",
+    ), set_both
+
+    # A year change rebuilds the week list before limiting future weeks, and
+    # before the range summary reads the (possibly clamped) week.
+    ready = _body(script, "document.addEventListener('DOMContentLoaded', function()")
+    assert re.search(
+        r"yearEl\.addEventListener\('change', \(\) => \{\s*"
+        r"syncWeekOptions\(yearId, weekId\);\s*"
+        r"limitFutureWeeks\(yearId, weekId\);\s*\}\)",
+        ready,
+    ), ready
+    assert _in_order(
+        ready,
+        "syncWeekOptions(yearId, weekId)",
+        "addEventListener('change', updateRangeSummary)",
+    ), ready
+
+    # The week list length comes from the year option the server tagged.
+    sync = _body(script, "function syncWeekOptions(yearSelectId, weekSelectId)")
+    assert "dataset.lastWeek" in sync
+    assert "BoxarrIsoWeek.lastIsoWeek(" in sync
