@@ -1551,7 +1551,9 @@ function updateCurrentWeek() {
 function showUpdateOutcome(data, httpOk) {
     const result = describeUpdateResult(data, httpOk);
     if (result.outcome === 'success' || result.outcome === 'partial') {
-        addToProgressLog(`Update completed successfully! Found ${data.movies_found || 0} movies.`);
+        if (result.outcome === 'success') {
+            addToProgressLog(`Update completed successfully! Found ${data.movies_found || 0} movies.`);
+        }
         if (data.movies_added > 0) {
             addToProgressLog(`Added ${data.movies_added} movies to Radarr.`);
         }
