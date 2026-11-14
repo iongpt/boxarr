@@ -434,18 +434,20 @@ async def add_movie_to_radarr(request: AddMovieRequest):
         if not req_title:
             return {"success": False, "message": "No movie title provided"}
 
-        # Search for movie on TMDB
-        search_results = radarr_service.search_movie_tmdb(req_title)
-        if not search_results:
-            return {"success": False, "message": "Movie not found on TMDB"}
-
-        # Use first result or match by TMDB ID if provided
-        movie_data = search_results[0]
         if request.tmdb_id:
+            # The card knows exactly which film it shows: look that TMDB id up
+            # directly instead of trusting the first hit of a title search,
+            # which can be a different film with a similar title.
+            search_results = radarr_service.search_movie(f"tmdb:{request.tmdb_id}")
             movie_data = next(
                 (m for m in search_results if m.get("tmdbId") == request.tmdb_id),
-                search_results[0],
+                None,
             )
+        else:
+            search_results = radarr_service.search_movie_tmdb(req_title)
+            movie_data = search_results[0] if search_results else None
+        if not movie_data:
+            return {"success": False, "message": "Movie not found on TMDB"}
 
         # Determine root folder based on genres
         root_folder_manager = RootFolderManager(radarr_service)
