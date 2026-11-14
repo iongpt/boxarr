@@ -374,18 +374,11 @@ class TestBoxOfficeService:
         with pytest.raises(BoxOfficeError, match="area code"):
             self._build(bad)
 
-    def test_unfetched_regions_are_reported_once(self, caplog, monkeypatch):
-        monkeypatch.setattr(boxoffice_module, "_UNFETCHED_REGIONS_LOGGED", set())
+    def test_several_regions_no_longer_log_that_only_the_first_is_fetched(self, caplog):
+        """The weekly pipeline fetches every configured region now."""
         with caplog.at_level("INFO", logger="src.core.boxoffice"):
             self._build("DE,NL")
-            self._build("DE,NL")
-            self._build("NL")
-        notes = [
-            r.getMessage() for r in caplog.records if "is fetched" in r.getMessage()
-        ]
-        assert notes == [
-            "Box office regions DE, NL are configured; only the first, DE, is fetched"
-        ]
+        assert not [r for r in caplog.records if "is fetched" in r.getMessage()]
 
 
 class TestSuggestedLanguages:

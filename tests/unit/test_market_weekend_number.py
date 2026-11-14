@@ -19,8 +19,9 @@ from src.core.boxoffice import (
     _LEARNED_WEEKEND_START,
     REGION_WEEKEND_START,
     BoxOfficeService,
+    market_weekend,
 )
-from src.core.exceptions import BoxOfficeError
+from src.core.exceptions import BoxOfficeError, BoxOfficeNoData
 
 MOJO = "https://www.boxofficemojo.com"
 FR_2026W43_URL = f"{MOJO}/weekend/2026W43/?area=FR"
@@ -118,9 +119,12 @@ def chart_urls(client):
     return [url for url in requested_urls(client) if "/weekend/" in url]
 
 
-def fetch(client, region, year, week):
-    with patch("src.core.boxoffice.settings", region_settings(region)):
-        return BoxOfficeService(http_client=client).fetch_weekend_box_office(year, week)
+def fetch(client, setting, year, week, **kwargs):
+    """Fetch with the region setting patched to ``setting``."""
+    with patch("src.core.boxoffice.settings", region_settings(setting)):
+        return BoxOfficeService(http_client=client).fetch_weekend_box_office(
+            year, week, **kwargs
+        )
 
 
 class TestMarketWeekendUrl:
@@ -421,3 +425,168 @@ class TestWeekendSelfCheck:
         assert chart_urls(client) == [FR_2026W44_URL, FR_2026W43_URL, FR_2026W43_URL]
         assert [m.release_url for m in movies] == ["/release/rl43/"]
         mock_sleep.assert_called_once_with(2)
+
+
+class TestRegionArgument:
+    """The weekly pipeline names the region of every chart it fetches."""
+
+    def test_explicit_region_overrides_the_configured_one(self):
+        de_url = f"{MOJO}/weekend/2026W44/?area=DE"
+        page = chart_page(
+            "German 2026 Weekend 44", "October 29-November 1, 2026", "/release/rl7/"
+        )
+        client = fake_mojo({de_url: page})
+
+        movies = fetch(client, "FR", 2026, 44, region="DE")
+
+        assert chart_urls(client) == [de_url]
+        assert [m.region for m in movies] == ["DE"]
+
+    def test_rows_are_tagged_with_the_configured_region_by_default(self):
+        client = fake_mojo({FR_2026W43_URL: FR_2026W43})
+
+        movies = fetch(client, "FR,DE", 2026, 44)
+
+        assert chart_urls(client) == [FR_2026W43_URL]
+        assert [m.region for m in movies] == ["FR"]
+
+    @pytest.mark.parametrize("region", ["", "domestic"])
+    def test_domestic_rows_have_an_empty_region(self, region):
+        url = f"{MOJO}/weekend/2026W44/"
+        page = chart_page("Domestic 2026 Weekend 44", "October 30-November 1, 2026")
+        client = fake_mojo({url: page})
+
+        movies = fetch(client, "FR", 2026, 44, region=region)
+
+        assert [m.region for m in movies] == [""]
+
+    def test_invalid_region_is_rejected_before_fetching(self):
+        client = fake_mojo({})
+        with pytest.raises(BoxOfficeError, match="area code"):
+            fetch(client, "", 2026, 44, region="DE,NL")
+        client.get.assert_not_called()
+
+
+class TestNoData:
+    """'No data available' is told apart from a failed fetch."""
+
+    def test_no_data_page_raises_no_data(self):
+        de_url = f"{MOJO}/weekend/2026W46/?area=DE"
+        client = fake_mojo({de_url: NO_DATA_DE_2026W46})
+
+        with pytest.raises(BoxOfficeNoData, match="No movies found") as exc_info:
+            fetch(client, "", 2026, 46, region="DE")
+
+        # Still a BoxOfficeError, so a one-chart caller is unaffected.
+        assert isinstance(exc_info.value, BoxOfficeError)
+        assert requested_urls(client) == [de_url]
+
+    def test_heading_without_a_chart_is_no_data(self):
+        de_url = f"{MOJO}/weekend/2026W46/?area=DE"
+        page = (
+            '<html><body><h1 class="mojo-gutter">German 2026 Weekend 46</h1>'
+            '<h4 class="mojo-gutter">November 12-15, 2026</h4></body></html>'
+        )
+        client = fake_mojo({de_url: page})
+
+        with pytest.raises(BoxOfficeNoData):
+            fetch(client, "", 2026, 46, region="DE")
+
+    @pytest.mark.parametrize(
+        "page",
+        [
+            "",
+            "<html><body>Robot check</body></html>",
+            # A chart table whose rows cannot be read is broken, not empty.
+            """<html><body><h1 class="mojo-gutter">German 2026 Weekend 46</h1>
+            <table class="a-bordered"><tr><th>Rank</th><th>Release</th>
+            <th>Gross</th></tr></table></body></html>""",
+        ],
+    )
+    def test_unreadable_page_is_an_error_not_no_data(self, page):
+        de_url = f"{MOJO}/weekend/2026W46/?area=DE"
+        client = fake_mojo({de_url: page})
+
+        with pytest.raises(BoxOfficeError) as exc_info:
+            fetch(client, "", 2026, 46, region="DE")
+
+        assert not isinstance(exc_info.value, BoxOfficeNoData)
+
+    @patch.dict(REGION_WEEKEND_START, {"FR": 4})
+    def test_wrong_week_is_an_error_not_no_data(self):
+        client = fake_mojo({FR_2026W44_URL: FR_2026W44, FR_2026W43_URL: FR_2026W44})
+
+        with pytest.raises(BoxOfficeError) as exc_info:
+            fetch(client, "FR", 2026, 44)
+
+        assert not isinstance(exc_info.value, BoxOfficeNoData)
+
+
+class TestLastChart:
+    """The service reports which Mojo weekend it fetched."""
+
+    def test_printed_range_is_recorded(self):
+        client = fake_mojo({FR_2026W43_URL: FR_2026W43})
+        with patch("src.core.boxoffice.settings", region_settings("")):
+            service = BoxOfficeService(http_client=client)
+            service.fetch_weekend_box_office(2026, 44, region="FR")
+
+        assert service.last_chart == {
+            "region": "FR",
+            "bom_week": "2026W43",
+            "weekend_start": "2026-10-28",
+            "weekend_end": "2026-11-01",
+        }
+
+    @patch.dict(REGION_WEEKEND_START, {"FR": 4})
+    def test_corrected_week_is_recorded(self):
+        client = fake_mojo({FR_2026W44_URL: FR_2026W44, FR_2026W43_URL: FR_2026W43})
+        with patch("src.core.boxoffice.settings", region_settings("")):
+            service = BoxOfficeService(http_client=client)
+            service.fetch_weekend_box_office(2026, 44, region="FR")
+
+        assert service.last_chart["bom_week"] == "2026W43"
+        assert service.last_chart["weekend_start"] == "2026-10-28"
+
+    def test_no_data_page_is_recorded_too(self):
+        de_url = f"{MOJO}/weekend/2026W46/?area=DE"
+        client = fake_mojo({de_url: NO_DATA_DE_2026W46})
+        with patch("src.core.boxoffice.settings", region_settings("")):
+            service = BoxOfficeService(http_client=client)
+            with pytest.raises(BoxOfficeNoData):
+                service.fetch_weekend_box_office(2026, 46, region="DE")
+
+        assert service.last_chart == {
+            "region": "DE",
+            "bom_week": "2026W46",
+            "weekend_start": "2026-11-12",
+            "weekend_end": "2026-11-15",
+        }
+
+    def test_page_without_a_range_falls_back_to_the_start_day(self):
+        client = fake_mojo({FR_2026W43_URL: NO_HEADER})
+        with patch("src.core.boxoffice.settings", region_settings("")):
+            service = BoxOfficeService(http_client=client)
+            service.fetch_weekend_box_office(2026, 44, region="FR")
+
+        assert service.last_chart == {
+            "region": "FR",
+            "bom_week": "2026W43",
+            "weekend_start": "2026-10-28",
+            "weekend_end": "2026-11-01",
+        }
+
+    @pytest.mark.parametrize(
+        "region,expected",
+        [
+            ("", ("2026W44", "2026-10-30", "2026-11-01")),
+            ("DE", ("2026W44", "2026-10-29", "2026-11-01")),
+            ("FR", ("2026W43", "2026-10-28", "2026-11-01")),
+            ("JP", ("2026W44", "2026-10-31", "2026-11-01")),
+        ],
+    )
+    def test_market_weekend_is_computed_from_the_start_day(self, region, expected):
+        info = market_weekend(2026, 44, region)
+        assert (info["bom_week"], info["weekend_start"], info["weekend_end"]) == (
+            expected
+        )
