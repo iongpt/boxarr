@@ -168,17 +168,12 @@ class WeeklyBoxOfficeReport:
 
     @property
     def date_range(self) -> tuple[datetime, datetime]:
-        """Calculate the date range for this week."""
+        """Return the Monday and Sunday of this ISO week."""
         from datetime import timedelta
 
-        # Get first day of the year
-        jan1 = datetime(self.year, 1, 1)
-
-        # Calculate week start (Monday)
-        week_start = jan1 + timedelta(weeks=self.week - 1)
-        week_start -= timedelta(days=week_start.weekday())
-
-        # Calculate week end (Sunday)
+        # Not Jan 1 + (week - 1) weeks: that is a week early in years that
+        # start on a Friday-Sunday, such as 2021 and 2027.
+        week_start = datetime.fromisocalendar(self.year, self.week, 1)
         week_end = week_start + timedelta(days=6)
 
         return week_start, week_end

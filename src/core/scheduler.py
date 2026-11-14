@@ -166,8 +166,6 @@ class BoxarrScheduler:
                 self.radarr_service = RadarrService()
 
             # Determine target (top) year/week for this run
-            from datetime import timedelta
-
             if year and week:
                 actual_year = year
                 actual_week = week
@@ -225,17 +223,6 @@ class BoxarrScheduler:
                 match_results = await self._run_in_executor(
                     self.matcher.match_batch, box_office_movies, radarr_movies
                 )
-
-            # Get weekend dates (recompute concrete Friday/Sunday for metadata)
-            if year and week:
-                jan1 = datetime(year, 1, 1)
-                days_to_week = (week - 1) * 7
-                week_start = jan1 + timedelta(days=days_to_week)
-                days_to_friday = (4 - week_start.weekday()) % 7
-                friday = week_start + timedelta(days=days_to_friday)
-                sunday = friday + timedelta(days=2)
-            else:
-                friday, sunday, _, _ = self.boxoffice_service.get_weekend_dates()
 
             # Generate JSON data file
             page_generator = WeeklyDataGenerator(self.radarr_service)

@@ -848,20 +848,23 @@
         </div>
         
         <div class="modal-body">
+            {# Week pickers list exactly the ISO weeks of the selected year (52 or 53);
+               the page script swaps week 53 in or out when the year changes. #}
+            {% set default_last_week = historical_years[0][1] if historical_years else 52 %}
             <!-- Single Week Mode -->
             <div class="mode-panel" id="singleModePanel">
                 <div class="form-group">
                     <label for="historicalYear">Year</label>
                     <select id="historicalYear" class="form-select">
-                        {% for year in range(current_year, 2019, -1) %}
-                        <option value="{{ year }}" {% if year == current_year %}selected{% endif %}>{{ year }}</option>
+                        {% for year, last_week in historical_years %}
+                        <option value="{{ year }}" data-last-week="{{ last_week }}" {% if loop.first %}selected{% endif %}>{{ year }}</option>
                         {% endfor %}
                     </select>
                 </div>
                 <div class="form-group">
                     <label for="historicalWeek">Week</label>
-                    <select id="historicalWeek" class="form-select">
-                        {% for week in range(1, 53) %}
+                    <select id="historicalWeek" class="form-select" data-week-prefix="Week ">
+                        {% for week in range(1, default_last_week + 1) %}
                         <option value="{{ week }}">Week {{ "%02d"|format(week) }}</option>
                         {% endfor %}
                     </select>
@@ -875,12 +878,12 @@
                         <label>From</label>
                         <div class="range-selects">
                             <select id="startYear" class="form-select">
-                                {% for year in range(current_year, 2019, -1) %}
-                                <option value="{{ year }}" {% if year == current_year %}selected{% endif %}>{{ year }}</option>
+                                {% for year, last_week in historical_years %}
+                                <option value="{{ year }}" data-last-week="{{ last_week }}" {% if loop.first %}selected{% endif %}>{{ year }}</option>
                                 {% endfor %}
                             </select>
-                            <select id="startWeek" class="form-select">
-                                {% for week in range(1, 53) %}
+                            <select id="startWeek" class="form-select" data-week-prefix="W">
+                                {% for week in range(1, default_last_week + 1) %}
                                 <option value="{{ week }}">W{{ "%02d"|format(week) }}</option>
                                 {% endfor %}
                             </select>
@@ -890,12 +893,12 @@
                         <label>To</label>
                         <div class="range-selects">
                             <select id="endYear" class="form-select">
-                                {% for year in range(current_year, 2019, -1) %}
-                                <option value="{{ year }}" {% if year == current_year %}selected{% endif %}>{{ year }}</option>
+                                {% for year, last_week in historical_years %}
+                                <option value="{{ year }}" data-last-week="{{ last_week }}" {% if loop.first %}selected{% endif %}>{{ year }}</option>
                                 {% endfor %}
                             </select>
-                            <select id="endWeek" class="form-select">
-                                {% for week in range(1, 53) %}
+                            <select id="endWeek" class="form-select" data-week-prefix="W">
+                                {% for week in range(1, default_last_week + 1) %}
                                 <option value="{{ week }}">W{{ "%02d"|format(week) }}</option>
                                 {% endfor %}
                             </select>
@@ -1075,6 +1078,7 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="{{ request.scope.get('root_path', '') }}/static/js/iso-week.js?v=1"></script>
 <script>
 // Ensure apiUrl function is available (fallback if app.js hasn't loaded yet)
 if (typeof apiUrl === 'undefined') {
@@ -1100,26 +1104,8 @@ class RangeProcessor {
     }
     
     calculateWeeks(startYear, startWeek, endYear, endWeek) {
-        const weeks = [];
-        let current = new Date(startYear, 0, 1 + (startWeek - 1) * 7);
-        const end = new Date(endYear, 0, 1 + (endWeek - 1) * 7);
-        
-        while (current <= end) {
-            const year = current.getFullYear();
-            const week = this.getWeekNumber(current);
-            weeks.push({year, week});
-            current.setDate(current.getDate() + 7);
-        }
-        
-        return weeks;
-    }
-    
-    getWeekNumber(date) {
-        const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-        const dayNum = d.getUTCDay() || 7;
-        d.setUTCDate(d.getUTCDate() + 4 - dayNum);
-        const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-        return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+        // ISO year AND week of every week in the range (static/js/iso-week.js)
+        return BoxarrIsoWeek.isoWeekRange(startYear, startWeek, endYear, endWeek);
     }
     
     async checkExistingWeeks() {
@@ -1307,11 +1293,13 @@ function updateRangeSummary() {
     const weeks = rangeProcessor.calculateWeeks(startYear, startWeek, endYear, endWeek);
     document.getElementById('weekCount').textContent = weeks.length;
     
-    // Calculate date range
-    const startDate = new Date(startYear, 0, 1 + (startWeek - 1) * 7);
-    const endDate = new Date(endYear, 0, 1 + (endWeek - 1) * 7 + 6);
-    
-    const dateRange = `${startDate.toLocaleDateString('en-US', {month: 'short', day: 'numeric', year: 'numeric'})} - ${endDate.toLocaleDateString('en-US', {month: 'short', day: 'numeric', year: 'numeric'})}`;
+    // Calculate date range: Monday of the first ISO week to Sunday of the last.
+    // The dates are UTC midnights, so format them in UTC to keep the day.
+    const startDate = BoxarrIsoWeek.isoWeekMonday(startYear, startWeek);
+    const endDate = BoxarrIsoWeek.isoWeekSunday(endYear, endWeek);
+    const dateFormat = {month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC'};
+
+    const dateRange = `${startDate.toLocaleDateString('en-US', dateFormat)} - ${endDate.toLocaleDateString('en-US', dateFormat)}`;
     document.getElementById('dateRange').textContent = dateRange;
     
     // Check for existing weeks
@@ -1332,65 +1320,14 @@ function updateRangeSummary() {
 
 // Quick presets
 function setPreset(preset) {
-    const now = new Date();
-    const currentYear = now.getFullYear();
-    const currentWeek = rangeProcessor.getWeekNumber(now);
-    
-    let startYear, startWeek, endYear, endWeek;
-    
-    switch(preset) {
-        case 'last4':
-            endYear = currentYear;
-            endWeek = currentWeek - 1; // Last complete week
-            if (endWeek < 1) {
-                endYear--;
-                endWeek = 52;
-            }
-            startWeek = endWeek - 3;
-            startYear = endYear;
-            if (startWeek < 1) {
-                startYear--;
-                startWeek = 52 + startWeek;
-            }
-            break;
-            
-        case 'last8':
-            endYear = currentYear;
-            endWeek = currentWeek - 1;
-            if (endWeek < 1) {
-                endYear--;
-                endWeek = 52;
-            }
-            startWeek = endWeek - 7;
-            startYear = endYear;
-            if (startWeek < 1) {
-                startYear--;
-                startWeek = 52 + startWeek;
-            }
-            break;
-            
-        case 'thisYear':
-            startYear = currentYear;
-            startWeek = 1;
-            endYear = currentYear;
-            endWeek = currentWeek - 1;
-            break;
-            
-        case 'lastQuarter':
-            const quarterEnd = Math.floor((currentWeek - 1) / 13) * 13;
-            endYear = currentYear;
-            endWeek = quarterEnd || 52;
-            if (endWeek === 52) endYear--;
-            startYear = endYear;
-            startWeek = Math.max(1, endWeek - 12);
-            break;
-    }
-    
-    // Set the values
-    document.getElementById('startYear').value = startYear;
-    document.getElementById('startWeek').value = startWeek;
-    document.getElementById('endYear').value = endYear;
-    document.getElementById('endWeek').value = endWeek;
+    const now = BoxarrIsoWeek.isoWeekOfLocalDate(new Date());
+    const range = BoxarrIsoWeek.presetRange(preset, now);
+    if (!range) return;
+
+    // Set the values: year first, then that year's week list (52 or 53),
+    // then the week - assigning W53 to a 52-week list would blank the select.
+    setYearAndWeek('startYear', 'startWeek', range.start);
+    setYearAndWeek('endYear', 'endWeek', range.end);
 
     // Re-apply future week limits after preset selection
     limitFutureWeeks('startYear', 'startWeek');
@@ -1400,15 +1337,48 @@ function setPreset(preset) {
     updateRangeSummary();
 }
 
+function setYearAndWeek(yearSelectId, weekSelectId, isoWeek) {
+    document.getElementById(yearSelectId).value = isoWeek.year;
+    syncWeekOptions(yearSelectId, weekSelectId);
+    document.getElementById(weekSelectId).value = isoWeek.week;
+}
+
+// Offer exactly the ISO weeks of the selected year: 52, or 53 in years such
+// as 2020 and 2026. The server puts each year's count on its <option>.
+function syncWeekOptions(yearSelectId, weekSelectId) {
+    const yearSelect = document.getElementById(yearSelectId);
+    const weekSelect = document.getElementById(weekSelectId);
+    if (!yearSelect || !weekSelect) return;
+
+    const yearOption = yearSelect.options[yearSelect.selectedIndex];
+    const lastWeek = parseInt(yearOption && yearOption.dataset.lastWeek)
+        || BoxarrIsoWeek.lastIsoWeek(parseInt(yearSelect.value));
+    if (!lastWeek) return;
+
+    // Keep the chosen week, clamped (W53 -> W52) when the new year is shorter
+    const selectedWeek = Math.min(parseInt(weekSelect.value) || 1, lastWeek);
+    const prefix = weekSelect.dataset.weekPrefix || 'W';
+    while (weekSelect.options.length > lastWeek) {
+        weekSelect.remove(weekSelect.options.length - 1);
+    }
+    while (weekSelect.options.length < lastWeek) {
+        const week = weekSelect.options.length + 1;
+        weekSelect.add(new Option(prefix + String(week).padStart(2, '0'), String(week)));
+    }
+    weekSelect.value = String(selectedWeek);
+}
+
 // Limit week options to past weeks when current year is selected
 function limitFutureWeeks(yearSelectId, weekSelectId) {
     const yearSelect = document.getElementById(yearSelectId);
     const weekSelect = document.getElementById(weekSelectId);
     if (!yearSelect || !weekSelect) return;
 
-    const now = new Date();
-    const currentYear = now.getFullYear();
-    const currentWeek = rangeProcessor.getWeekNumber(now);
+    // Today's ISO year and week: on Jan 1-3 or Dec 29-31 the ISO year can
+    // differ from the calendar year, so never mix getFullYear() with an ISO week.
+    const now = BoxarrIsoWeek.isoWeekOfLocalDate(new Date());
+    const currentYear = now.year;
+    const currentWeek = now.week;
     const selectedYear = parseInt(yearSelect.value);
 
     const options = weekSelect.options;
@@ -1437,8 +1407,14 @@ document.addEventListener('DOMContentLoaded', function() {
     yearWeekPairs.forEach(([yearId, weekId]) => {
         const yearEl = document.getElementById(yearId);
         if (yearEl) {
-            yearEl.addEventListener('change', () => limitFutureWeeks(yearId, weekId));
+            // Registered before the range-summary listeners below, so the week
+            // list already matches the new year when the summary is computed.
+            yearEl.addEventListener('change', () => {
+                syncWeekOptions(yearId, weekId);
+                limitFutureWeeks(yearId, weekId);
+            });
             // Apply on load for the default selection
+            syncWeekOptions(yearId, weekId);
             limitFutureWeeks(yearId, weekId);
         }
     });

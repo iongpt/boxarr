@@ -378,8 +378,6 @@ async def dashboard_page(request: Request):
     older_weeks: List[WeekInfo] = []
 
     # Calculate next scheduled update
-    from datetime import datetime
-
     next_update = "Not scheduled"
     if settings.boxarr_scheduler_enabled:
         # Parse cron to get next run time (simplified display)
@@ -498,8 +496,9 @@ async def dashboard_page(request: Request):
             available_years=available_years,
             year_filter=year_filter,
             total_all_weeks=len(all_weeks),
-            # Year information
-            current_year=datetime.now().year,
+            # (year, number of ISO weeks) choices for the historical-update
+            # pickers, newest first
+            historical_years=_historical_years(_today()),
         ),
     )
 
@@ -680,6 +679,30 @@ def _last_iso_week(year: int) -> int:
     report the last week as 1.
     """
     return date(year, 12, 28).isocalendar()[1]
+
+
+def _today() -> date:
+    """Return today's date (a seam so tests can pin the clock)."""
+    return date.today()
+
+
+def _historical_years(today: date) -> List[Tuple[int, int]]:
+    """Return the dashboard's historical-update year choices, newest first.
+
+    Each entry is ``(year, last ISO week)`` so the week pickers can offer
+    exactly the weeks that year has: 52, or 53 in years such as 2020 and 2026
+    (whose W53 weekend is January 1-3 of the next calendar year).
+
+    The newest year is the smaller of the calendar year and the ISO year:
+    - On January 1-3 of a year that starts on a Friday-Sunday (e.g. 2027)
+      today is still in the previous ISO year's last week, so the new year has
+      no week to offer yet.
+    - On December 29-31 today can already be ISO week 1 of the next year, but
+      /update-week rejects a year after the current calendar year (and that
+      week's weekend has not happened yet).
+    """
+    newest = min(today.year, today.isocalendar()[0])
+    return [(year, _last_iso_week(year)) for year in range(newest, 2019, -1)]
 
 
 def _previous_week(year: int, week: int) -> Tuple[int, int]:
