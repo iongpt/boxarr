@@ -66,6 +66,23 @@ function apiUrl(endpoint) {
     return makeUrl('/api' + endpoint);
 }
 
+// Read a /scheduler/trigger or /scheduler/update-week response: outcome
+// 'success', 'partial' (written, a region failed), 'kept' (an older stored
+// week left as it was) or 'failed', with the words for it. See
+// update-result.js; without it, falls back to the plain success flag.
+function describeUpdateResult(data, httpOk) {
+    if (window.BoxarrUpdateResult) {
+        return window.BoxarrUpdateResult.describe(data, httpOk);
+    }
+    const body = data && typeof data === 'object' ? data : {};
+    const ok = httpOk !== false && body.success === true;
+    return {
+        outcome: ok ? 'success' : 'failed',
+        summary: '',
+        message: ok ? '' : (body.detail || body.message || body.error || 'Unknown error'),
+    };
+}
+
 // Helper to check if current path matches a given path (handling base path)
 function isCurrentPath(targetPath) {
     const currentPath = window.location.pathname;
@@ -731,11 +748,18 @@ function triggerScheduler() {
     fetch(apiUrl('/scheduler/trigger'), { method: 'POST' })
         .then(response => response.json())
         .then(data => {
-            if (data.success) {
-                alert(`Update completed! Found ${data.movies_found} movies, added ${data.movies_added || 0} new movies.`);
+            const result = describeUpdateResult(data);
+            if (result.outcome === 'success' || result.outcome === 'partial') {
+                let text = `Update completed! Found ${data.movies_found} movies, added ${data.movies_added || 0} new movies.`;
+                // e.g. "Updated 2 of 3 regions (FR failed)"
+                if (result.summary) text += `\n${result.summary}`;
+                alert(text);
+                refreshSchedulerStatus();
+            } else if (result.outcome === 'kept') {
+                alert(`Week not updated: ${result.message}`);
                 refreshSchedulerStatus();
             } else {
-                alert(`Update failed: ${data.message}`);
+                alert(`Update failed: ${result.message}`);
             }
         })
         .catch(error => {
@@ -908,7 +932,7 @@ function reloadScheduler() {
         function addLogEntry(message, type = 'info') {
             if (progressLog) {
                 const entry = document.createElement('div');
-                entry.style.color = type === 'error' ? '#f56565' : type === 'success' ? '#48bb78' : '#718096';
+                entry.style.color = type === 'error' ? '#f56565' : type === 'success' ? '#48bb78' : type === 'warning' ? '#ed8936' : '#718096';
                 entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
                 progressLog.appendChild(entry);
                 progressLog.scrollTop = progressLog.scrollHeight;
@@ -923,17 +947,32 @@ function reloadScheduler() {
                 return response.json();
             })
             .then(data => {
-                if (data.success) {
+                const result = describeUpdateResult(data);
+                if (result.outcome === 'success' || result.outcome === 'partial') {
                     addLogEntry(`Found ${data.movies_found || 0} movies`, 'success');
                     if (data.movies_added && data.movies_added > 0) {
                         addLogEntry(`Added ${data.movies_added} new movies to Radarr`, 'success');
                     }
-                    if (progressMessage) progressMessage.textContent = '✅ Update completed successfully!';
+                    // e.g. "Updated 2 of 3 regions (FR failed)"
+                    if (result.summary) {
+                        addLogEntry(result.summary, result.outcome === 'partial' ? 'warning' : 'info');
+                    }
+                    if (progressMessage) {
+                        progressMessage.textContent = result.outcome === 'partial'
+                            ? `⚠️ ${result.message}`
+                            : '✅ Update completed successfully!';
+                    }
                     addLogEntry('Update completed!', 'success');
                     if (progressFooter) progressFooter.style.display = 'block';
-                    setTimeout(() => window.location.reload(), 2000);
+                    setTimeout(() => window.location.reload(), result.outcome === 'partial' ? 4000 : 2000);
+                } else if (result.outcome === 'kept') {
+                    // An older stored week was left as it was: not a failure
+                    // of the whole run, but nothing was written either.
+                    if (progressMessage) progressMessage.textContent = '⚠️ Week not updated';
+                    addLogEntry(result.message, 'warning');
+                    if (progressFooter) progressFooter.style.display = 'block';
                 } else {
-                    const errorMsg = data.message || data.error || 'Unknown error occurred';
+                    const errorMsg = result.message || 'Unknown error occurred';
                     if (progressMessage) progressMessage.textContent = '❌ Update failed';
                     addLogEntry(`Error: ${errorMsg}`, 'error');
                     
@@ -1024,7 +1063,7 @@ function reloadScheduler() {
         function addLogEntry(message, type = 'info') {
             if (progressLog) {
                 const entry = document.createElement('div');
-                entry.style.color = type === 'error' ? '#f56565' : type === 'success' ? '#48bb78' : '#718096';
+                entry.style.color = type === 'error' ? '#f56565' : type === 'success' ? '#48bb78' : type === 'warning' ? '#ed8936' : '#718096';
                 entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
                 progressLog.appendChild(entry);
                 progressLog.scrollTop = progressLog.scrollHeight;
@@ -1046,17 +1085,32 @@ function reloadScheduler() {
             return response.json();
         })
         .then(data => {
-            if (data.success) {
+            const result = describeUpdateResult(data);
+            if (result.outcome === 'success' || result.outcome === 'partial') {
                 addLogEntry(`Found ${data.movies_found || 0} movies`, 'success');
                 if (data.movies_added && data.movies_added > 0) {
                     addLogEntry(`Added ${data.movies_added} new movies to Radarr`, 'success');
                 }
-                if (progressMessage) progressMessage.textContent = '✅ Historical week fetched successfully!';
+                // e.g. "Updated 2 of 3 regions (FR failed)"
+                if (result.summary) {
+                    addLogEntry(result.summary, result.outcome === 'partial' ? 'warning' : 'info');
+                }
+                if (progressMessage) {
+                    progressMessage.textContent = result.outcome === 'partial'
+                        ? `⚠️ ${result.message}`
+                        : '✅ Historical week fetched successfully!';
+                }
                 addLogEntry('Update completed!', 'success');
                 if (progressFooter) progressFooter.style.display = 'block';
-                setTimeout(() => window.location.href = safeUrl(selectedHistoricalWeekUrl), 2000);
+                setTimeout(() => window.location.href = safeUrl(selectedHistoricalWeekUrl), result.outcome === 'partial' ? 4000 : 2000);
+            } else if (result.outcome === 'kept') {
+                // An older stored week was left as it was because a region
+                // failed: nothing was written, but nothing broke either.
+                if (progressMessage) progressMessage.textContent = '⚠️ Week not updated';
+                addLogEntry(result.message, 'warning');
+                if (progressFooter) progressFooter.style.display = 'block';
             } else {
-                const errorMsg = data.message || data.error || 'Unknown error occurred';
+                const errorMsg = result.message || 'Unknown error occurred';
                 if (progressMessage) progressMessage.textContent = '❌ Fetch failed';
                 addLogEntry(`Error: ${errorMsg}`, 'error');
                 
@@ -1123,7 +1177,7 @@ function reloadScheduler() {
         function addLogEntry(message, type = 'info') {
             if (progressLog) {
                 const entry = document.createElement('div');
-                entry.style.color = type === 'error' ? '#f56565' : type === 'success' ? '#48bb78' : '#718096';
+                entry.style.color = type === 'error' ? '#f56565' : type === 'success' ? '#48bb78' : type === 'warning' ? '#ed8936' : '#718096';
                 entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
                 progressLog.appendChild(entry);
                 progressLog.scrollTop = progressLog.scrollHeight;
@@ -1145,17 +1199,32 @@ function reloadScheduler() {
             return response.json();
         })
         .then(data => {
-            if (data.success) {
+            const result = describeUpdateResult(data);
+            if (result.outcome === 'success' || result.outcome === 'partial') {
                 addLogEntry(`Found ${data.movies_found || 0} movies`, 'success');
                 if (data.movies_added && data.movies_added > 0) {
                     addLogEntry(`Added ${data.movies_added} new movies to Radarr`, 'success');
                 }
-                if (progressMessage) progressMessage.textContent = '✅ Historical week updated successfully!';
+                // e.g. "Updated 2 of 3 regions (FR failed)"
+                if (result.summary) {
+                    addLogEntry(result.summary, result.outcome === 'partial' ? 'warning' : 'info');
+                }
+                if (progressMessage) {
+                    progressMessage.textContent = result.outcome === 'partial'
+                        ? `⚠️ ${result.message}`
+                        : '✅ Historical week updated successfully!';
+                }
                 addLogEntry('Update completed!', 'success');
                 if (progressFooter) progressFooter.style.display = 'block';
-                setTimeout(() => window.location.href = makeUrl(`/${year}W${String(week).padStart(2, '0')}`), 2000);
+                setTimeout(() => window.location.href = makeUrl(`/${year}W${String(week).padStart(2, '0')}`), result.outcome === 'partial' ? 4000 : 2000);
+            } else if (result.outcome === 'kept') {
+                // An older stored week was left as it was because a region
+                // failed: nothing was written, but nothing broke either.
+                if (progressMessage) progressMessage.textContent = '⚠️ Week not updated';
+                addLogEntry(result.message, 'warning');
+                if (progressFooter) progressFooter.style.display = 'block';
             } else {
-                const errorMsg = data.message || data.error || 'Unknown error occurred';
+                const errorMsg = result.message || 'Unknown error occurred';
                 if (progressMessage) progressMessage.textContent = '❌ Update failed';
                 addLogEntry(`Error: ${errorMsg}`, 'error');
                 

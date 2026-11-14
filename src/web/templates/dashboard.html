@@ -1066,6 +1066,11 @@
                 <h4>Failed Weeks (<span id="failedCount">0</span>)</h4>
                 <ul id="failedList"></ul>
             </div>
+
+            <div class="failed-weeks" id="partialWeeks" style="display: none;">
+                <h4>Updated With Region Errors (<span id="partialCount">0</span>)</h4>
+                <ul id="partialList"></ul>
+            </div>
             
             <div class="summary-details" id="summaryDetails"></div>
         </div>
@@ -1155,10 +1160,20 @@ class RangeProcessor {
                 });
                 
                 const data = await response.json();
-                this.results.push({year, week, ...data});
+                const result = describeUpdateResult(data, response.ok);
+                this.results.push({year, week, ...data, outcome: result.outcome, outcomeMessage: result.message});
                 
-                // Update progress bar
-                this.updateProgress(i + 1, `Completed ${weekStr}`);
+                // Update progress bar. A week can be written although one of
+                // its regions failed - say so instead of a plain "Completed".
+                let progressText = `Completed ${weekStr}`;
+                if (result.outcome === 'partial') {
+                    progressText = `Completed ${weekStr} - ${result.message}`;
+                } else if (result.outcome === 'kept') {
+                    progressText = `Kept ${weekStr} - ${result.message}`;
+                } else if (result.outcome === 'failed') {
+                    progressText = `Failed ${weekStr} - ${result.message}`;
+                }
+                this.updateProgress(i + 1, progressText);
                 
                 // Small delay between requests
                 if (i < this.weeks.length - 1) {
@@ -1215,6 +1230,8 @@ class RangeProcessor {
         // Calculate summary stats
         const successful = this.results.filter(r => r.success).length;
         const failed = this.results.filter(r => !r.success);
+        // Written, but a region failed (e.g. "Updated 2 of 3 regions (FR failed)")
+        const partial = this.results.filter(r => r.success && r.outcome === 'partial');
         const totalMovies = this.results.reduce((sum, r) => sum + (r.movies_found || 0), 0);
         const totalAdded = this.results.reduce((sum, r) => sum + (r.movies_added || 0), 0);
         
@@ -1231,11 +1248,27 @@ class RangeProcessor {
             failedList.innerHTML = '';
             failed.forEach(f => {
                 const li = document.createElement('li');
-                li.textContent = `${f.year}W${f.week.toString().padStart(2, '0')}: ${f.error || 'Unknown error'}`;
+                // A failed request carries "error"; a failed update "message"
+                // (or FastAPI's "detail"), read through describeUpdateResult.
+                li.textContent = `${f.year}W${f.week.toString().padStart(2, '0')}: ${f.error || f.outcomeMessage || 'Unknown error'}`;
                 failedList.appendChild(li);
             });
         } else {
             document.getElementById('failedWeeks').style.display = 'none';
+        }
+
+        if (partial.length > 0) {
+            document.getElementById('partialWeeks').style.display = 'block';
+            document.getElementById('partialCount').textContent = partial.length;
+            const partialList = document.getElementById('partialList');
+            partialList.replaceChildren();
+            partial.forEach(p => {
+                const li = document.createElement('li');
+                li.textContent = `${p.year}W${p.week.toString().padStart(2, '0')}: ${p.outcomeMessage}`;
+                partialList.appendChild(li);
+            });
+        } else {
+            document.getElementById('partialWeeks').style.display = 'none';
         }
         
         // Show summary modal
@@ -1503,24 +1536,39 @@ function updateCurrentWeek() {
         }
         return response.json();
     })
-    .then(data => {
-        if (data.success) {
-            addToProgressLog(`Update completed successfully! Found ${data.movies_found || 0} movies.`);
-            if (data.movies_added > 0) {
-                addToProgressLog(`Added ${data.movies_added} movies to Radarr.`);
-            }
-            showSuccess(`Updated successfully! Found ${data.movies_found || 0} movies.`);
-            setTimeout(() => location.reload(), 2000);
-        } else {
-            addToProgressLog(`Update failed: ${data.message || 'Unknown error'}`, 'error');
-            showError('Update failed: ' + (data.message || 'Unknown error'));
-        }
-    })
+    .then(data => showUpdateOutcome(data, true))
     .catch(error => {
         const errorMsg = error.message || 'Network error';
         addToProgressLog(`Error: ${errorMsg}`, 'error');
         showError('Update failed: ' + errorMsg);
     });
+}
+
+// Report a /scheduler/trigger or /scheduler/update-week response. A week
+// written although a region failed is a warning ("Updated 2 of 3 regions
+// (FR failed)"), and so is an older stored week kept because a region failed;
+// neither is reported as "Update failed".
+function showUpdateOutcome(data, httpOk) {
+    const result = describeUpdateResult(data, httpOk);
+    if (result.outcome === 'success' || result.outcome === 'partial') {
+        addToProgressLog(`Update completed successfully! Found ${data.movies_found || 0} movies.`);
+        if (data.movies_added > 0) {
+            addToProgressLog(`Added ${data.movies_added} movies to Radarr.`);
+        }
+        if (result.outcome === 'partial') {
+            showWarning(`${result.message}. Found ${data.movies_found || 0} movies.`);
+            setTimeout(() => location.reload(), 4000);
+        } else {
+            if (result.summary) addToProgressLog(result.summary);
+            showSuccess(`Updated successfully! Found ${data.movies_found || 0} movies.`);
+            setTimeout(() => location.reload(), 2000);
+        }
+    } else if (result.outcome === 'kept') {
+        showWarning(`Week not updated: ${result.message}`);
+    } else {
+        addToProgressLog(`Update failed: ${result.message}`, 'error');
+        showError('Update failed: ' + result.message);
+    }
 }
 
 function updateHistoricalWeek() {
@@ -1536,25 +1584,10 @@ function updateHistoricalWeek() {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({year: parseInt(year), week: parseInt(week)})
     })
-    .then(response => {
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        return response.json();
-    })
-    .then(data => {
-        if (data.success) {
-            addToProgressLog(`Update completed successfully! Found ${data.movies_found || 0} movies.`);
-            if (data.movies_added > 0) {
-                addToProgressLog(`Added ${data.movies_added} movies to Radarr.`);
-            }
-            showSuccess(`Updated successfully! Found ${data.movies_found || 0} movies.`);
-            setTimeout(() => location.reload(), 2000);
-        } else {
-            addToProgressLog(`Update failed: ${data.message || 'Unknown error'}`, 'error');
-            showError('Update failed: ' + (data.message || 'Unknown error'));
-        }
-    })
+    .then(response => response.json()
+        // An error body still says why (FastAPI's "detail").
+        .catch(() => { throw new Error(`HTTP error! status: ${response.status}`); })
+        .then(data => showUpdateOutcome(data, response.ok)))
     .catch(error => {
         const errorMsg = error.message || 'Network error';
         addToProgressLog(`Error: ${errorMsg}`, 'error');
@@ -1770,6 +1803,22 @@ function showSuccess(message) {
 
     // Also add to log
     addToProgressLog(message, 'success');
+}
+
+function showWarning(message) {
+    const progressMessage = document.getElementById('progressMessage');
+    const progressFooter = document.getElementById('progressFooter');
+    const progressSpinner = document.getElementById('progressSpinner');
+
+    const span = document.createElement('span');
+    span.style.color = 'var(--warning-color)';
+    span.textContent = `⚠️ ${message}`;
+    progressMessage.replaceChildren(span);
+    progressSpinner.style.display = 'none';
+    progressFooter.style.display = 'block';
+
+    // Also add to log
+    addToProgressLog(message, 'warning');
 }
 
 function showError(message) {
