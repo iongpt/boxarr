@@ -13,6 +13,7 @@ from .models import MovieStatus
 from .radarr import RadarrService
 from .region_charts import (
     chart_sort_key,
+    imdb_ids_conflict,
     lead_row,
     region_order,
     region_rows,
@@ -88,7 +89,9 @@ def collapse_by_tmdb_id(
     resolve to the same film - or to a film another entry already links in
     Radarr. Left apart, both would later be linked to the same Radarr movie.
     Only entries covering different regions, at least one of them not in
-    Radarr, are merged; a single region's chart is never changed.
+    Radarr, are merged; a single region's chart is never changed. Entries
+    whose Mojo IMDb ids differ are different films and stay apart, even when
+    a title lookup fell back to the same TMDB result for both.
 
     Args:
         entries: Stored movie entries in chart order
@@ -112,6 +115,9 @@ def collapse_by_tmdb_id(
                     for index in by_tmdb_id.get(tmdb_id, [])
                     if not (kept[index].get("radarr_id") and entry.get("radarr_id"))
                     and not (codes & row_codes(_entry_rows(kept[index])))
+                    and not imdb_ids_conflict(
+                        entry.get("bom_imdb_id"), kept[index].get("bom_imdb_id")
+                    )
                 ),
                 None,
             )
@@ -133,6 +139,38 @@ def collapse_by_tmdb_id(
             )
         )
     return kept
+
+
+def collapse_stored_week(data: Dict[str, Any]) -> bool:
+    """Merge a stored multi-region week's entries that now share a TMDB film.
+
+    A week is collapsed by TMDB film when it is built, but an entry can get
+    its ``tmdb_id`` later - admin repair, or a week built without Radarr or
+    whose lookup failed. Run before such a week is written again, so two
+    regions' entries for one film do not both get linked to the same Radarr
+    movie. ``total_movies`` and ``matched_movies`` are recounted when
+    anything merged. Weeks of one region, and legacy weeks (no ``regions``),
+    are never changed.
+
+    Args:
+        data: A stored week, changed in place
+
+    Returns:
+        Whether any entries were merged
+    """
+    regions = data.get("regions")
+    movies = data.get("movies")
+    if not isinstance(regions, list) or len(regions) < 2:
+        return False
+    if not isinstance(movies, list) or not all(isinstance(m, dict) for m in movies):
+        return False
+    collapsed = collapse_by_tmdb_id(movies, regions)
+    if len(collapsed) == len(movies):
+        return False
+    data["movies"] = collapsed
+    data["total_movies"] = len(collapsed)
+    data["matched_movies"] = sum(1 for m in collapsed if m.get("radarr_id"))
+    return True
 
 
 class WeeklyDataGenerator:

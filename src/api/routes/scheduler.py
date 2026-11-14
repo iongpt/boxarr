@@ -256,7 +256,10 @@ async def get_scheduler_history():
                         {
                             "timestamp": run_time.isoformat(),
                             "week": parts[0],
-                            "success": result.get("success", False),
+                            # Same default as /status: history files from
+                            # before failed runs were saved hold only
+                            # successful runs and carry no "success" key.
+                            "success": result.get("success", True),
                             "movies_found": result.get(
                                 "total_count", result.get("total_movies")
                             ),

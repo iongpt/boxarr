@@ -136,8 +136,8 @@ class BoxarrScheduler:
         Main job to update box office data.
 
         Every configured region is fetched and merged into the week's one
-        list (see :func:`~src.core.week_builder.build_week`). The run is
-        saved to history whether it succeeds or not.
+        list (see :func:`~src.core.week_builder.build_week`). Every run that
+        reaches the fetch is saved to history, failed ones included.
 
         Args:
             year: Optional year to fetch (defaults to current)
@@ -263,23 +263,48 @@ class BoxarrScheduler:
         except Exception as e:
             logger.error(f"Box office update failed: {e}")
             if actual_year and actual_week:
-                await self._save_to_history(
-                    self._failed_results(
+                if build is not None and build.written:
+                    # The week was written - and films may have been added to
+                    # Radarr - before the run failed: record what it holds.
+                    failed = self._written_then_failed_results(str(e), regions, build)
+                else:
+                    # Nothing was written; a WeekBuildError carries each
+                    # region's status.
+                    failed = self._failed_results(
                         str(e),
                         regions,
-                        getattr(
-                            e,
-                            "region_status",
-                            build.region_status if build is not None else [],
-                        ),
+                        getattr(e, "region_status", []),
                         getattr(e, "errors", [str(e)]),
-                    ),
-                    actual_year,
-                    actual_week,
-                )
+                    )
+                await self._save_to_history(failed, actual_year, actual_week)
             raise SchedulerError(f"Update failed: {e}") from e
         finally:
             WEEKLY_WRITE_LOCK.release()
+
+    def _written_then_failed_results(
+        self, error: str, regions: List[str], build: WeekBuildResult
+    ) -> Dict[str, Any]:
+        """
+        Build the history entry of a run that wrote its week, then failed.
+
+        The counts, movies and added films are those of the written week;
+        ``success`` is False and ``error`` says what failed afterwards.
+        """
+        results = self._process_match_results(build.match_results)
+        results.update(
+            {
+                "data_path": str(build.data_path),
+                "added_movies": list(build.added_movies),
+                "success": False,
+                "partial": build.partial,
+                "error": error,
+                "message": error,
+                "errors": build.errors + [error],
+                "regions": list(regions),
+                "region_status": build.region_status,
+            }
+        )
+        return results
 
     @staticmethod
     def _failed_results(

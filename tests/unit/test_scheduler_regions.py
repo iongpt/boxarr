@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 import src.api.routes.scheduler as scheduler_route
 import src.core.region_charts as region_charts
 import src.core.scheduler as scheduler_core
+import src.core.week_builder as week_builder
 import src.utils.config as cfg_utils
 from src.api.app import create_app
 from src.core.boxoffice import BoxOfficeMovie
@@ -200,6 +201,64 @@ class TestUpdateBoxOffice:
         assert refreshes == []
         assert latest(tmp_path)["success"] is False
 
+    def test_regions_matching_one_radarr_movie_are_one_film(self, env):
+        """'The Odyssey (OV)' only joins the film once both are matched."""
+        tmp_path, _ = env
+        scheduler = make_scheduler(
+            {
+                "": [bom(1, "The Odyssey", "tt1"), bom(2, "Moana")],
+                "DE": [bom(1, "The Odyssey (OV)"), bom(2, "Heimat")],
+            },
+            library=[RadarrMovie(id=11, title="The Odyssey", tmdbId=1, imdbId="tt1")],
+        )
+
+        results = asyncio.run(scheduler.update_box_office(2026, 44))
+
+        assert (results["total_count"], results["matched_count"]) == (3, 1)
+        [matched] = results["matched_movies"]
+        assert (matched["title"], matched["radarr_id"]) == ("The Odyssey", 11)
+
+    def test_run_failing_after_the_week_is_written_records_the_week(
+        self, env, monkeypatch
+    ):
+        """The week was written and films were added before the refresh failed."""
+        tmp_path, _ = env
+        monkeypatch.setattr(scheduler_core.settings, "boxarr_features_auto_add", True)
+        monkeypatch.setattr(
+            week_builder,
+            "auto_add_missing_movies",
+            lambda results, service, year, regions=None: ["Moana"],
+        )
+
+        def broken_refresh(*args, **kwargs):
+            raise RuntimeError("Radarr went away")
+
+        monkeypatch.setattr(
+            scheduler_core, "refresh_weekly_data_from_radarr", broken_refresh
+        )
+        scheduler = make_scheduler(
+            {
+                "": [bom(1, "The Odyssey", "tt1"), bom(2, "Moana")],
+                "DE": [bom(1, "Die Odyssee", "tt1"), bom(2, "Heimat")],
+            },
+            library=[RadarrMovie(id=11, title="The Odyssey", tmdbId=1, imdbId="tt1")],
+        )
+
+        with pytest.raises(SchedulerError, match="Radarr went away"):
+            asyncio.run(scheduler.update_box_office(2026, 44))
+
+        stored = json.loads((tmp_path / "weekly_pages" / "2026W44.json").read_text())
+        run = latest(tmp_path)
+        assert (run["success"], run["partial"]) == (False, False)
+        assert run["error"] == "Radarr went away"
+        assert run["errors"] == ["Radarr went away"]
+        assert run["region_status"] == stored["region_status"]
+        assert [s["status"] for s in run["region_status"]] == ["ok", "ok"]
+        assert (run["total_count"], run["matched_count"]) == (3, 1)
+        assert run["added_movies"] == ["Moana"]
+        assert run["data_path"].endswith("2026W44.json")
+        assert [m["title"] for m in run["unmatched_movies"]] == ["Moana", "Heimat"]
+
 
 class TestTriggerAndStatus:
     @pytest.fixture
@@ -221,6 +280,22 @@ class TestTriggerAndStatus:
             body["message"] == "Box office update completed with errors: DE: HTTP 503"
         )
         assert [s["status"] for s in body["region_status"]] == ["ok", "error"]
+
+    def test_trigger_reports_a_kept_legacy_week_as_failed(self, client, env):
+        tmp_path, _ = env
+        week_file = tmp_path / "weekly_pages" / "2026W44.json"
+        week_file.parent.mkdir(parents=True)
+        week_file.write_text('{"year": 2026, "week": 44, "movies": []}')
+        before = week_file.read_bytes()
+        c = client({"": [bom(1, "The Odyssey")], "DE": BoxOfficeError("HTTP 503")})
+
+        body = c.post("/api/scheduler/trigger").json()
+
+        assert body["success"] is False
+        assert body["message"] == "Kept the existing data for 2026W44; DE failed"
+        assert body["partial"] is True
+        assert [s["status"] for s in body["region_status"]] == ["ok", "error"]
+        assert week_file.read_bytes() == before
 
     def test_trigger_failure_carries_region_status(self, client):
         c = client({"": BoxOfficeError("timeout"), "DE": BoxOfficeError("HTTP 503")})
@@ -254,3 +329,39 @@ class TestTriggerAndStatus:
         c = client({})
         last_run = c.get("/api/scheduler/status").json()["last_run"]
         assert (last_run["success"], last_run["matched_count"]) == (True, 7)
+
+    def test_history_lists_failed_and_successful_runs(self, client, env):
+        tmp_path, _ = env
+        history_dir = tmp_path / "history"
+        history_dir.mkdir()
+        runs = {
+            # Saved before failed runs were: no "success" key, a success.
+            "2026W43_20261026_230000.json": {"total_count": 10},
+            "2026W44_20261102_230000.json": {
+                "success": True,
+                "total_count": 12,
+                "added_movies": ["A", "B"],
+            },
+            "2026W45_20261109_230000.json": {
+                "success": False,
+                "total_count": 0,
+                "added_movies": [],
+                "error": "No box office region could be fetched for 2026W45",
+            },
+            "2026W45_latest.json": {"success": False},
+        }
+        for name, data in runs.items():
+            (history_dir / name).write_text(json.dumps(data))
+        c = client({})
+
+        listed = c.get("/api/scheduler/history").json()["runs"]
+
+        assert [
+            (r["week"], r["success"], r["movies_found"], r["movies_added"])
+            for r in listed
+        ] == [
+            ("2026W45", False, 0, 0),
+            ("2026W44", True, 12, 2),
+            ("2026W43", True, 10, 0),
+        ]
+        assert listed[0]["error"].startswith("No box office region")

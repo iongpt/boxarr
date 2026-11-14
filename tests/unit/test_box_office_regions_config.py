@@ -375,9 +375,15 @@ class TestBoxOfficeService:
             self._build(bad)
 
     def test_several_regions_no_longer_log_that_only_the_first_is_fetched(self, caplog):
-        """The weekly pipeline fetches every configured region now."""
+        """The weekly pipeline fetches every configured region now.
+
+        The old log was written once per region list, so this test builds a
+        list no other test does and also checks the once-only registry is
+        gone: the result cannot depend on which tests ran before.
+        """
+        assert not hasattr(boxoffice_module, "_UNFETCHED_REGIONS_LOGGED")
         with caplog.at_level("INFO", logger="src.core.boxoffice"):
-            self._build("DE,NL")
+            self._build("SE,NO,FI")
         assert not [r for r in caplog.records if "is fetched" in r.getMessage()]
 
 

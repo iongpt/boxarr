@@ -530,7 +530,7 @@ class Settings(BaseSettings):
         default=10,
         ge=1,
         le=30,
-        description="Number of movies to fetch from Box Office Mojo (1-30)",
+        description="Number of movies to fetch per Box Office Mojo region (1-30)",
     )
     # A str, not a List[str]: pydantic-settings JSON-decodes a list field's
     # environment value before any validator runs, so the documented

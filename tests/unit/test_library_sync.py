@@ -337,3 +337,98 @@ def test_refresh_keeps_the_region_keys_of_a_multi_region_week(tmp_path):
         rows,
         "tt2002",
     )
+
+
+def _region_entry(title, region, rank, tmdb_id=None, bom_imdb=None):
+    return {
+        "rank": rank,
+        "title": title,
+        "weekend_gross": None,
+        "total_gross": None,
+        "radarr_id": None,
+        "tmdb_id": tmdb_id,
+        "region": region,
+        "regions": [{"code": region, "title": title, "rank": rank}],
+        "bom_imdb_id": bom_imdb,
+    }
+
+
+def _two_region_week(week_file, *movies):
+    week_file.write_text(
+        json.dumps(
+            {
+                "year": 2026,
+                "week": 44,
+                "total_movies": len(movies),
+                "matched_movies": 0,
+                "data_version": 2,
+                "regions": ["", "DE"],
+                "region_status": [],
+                "movies": list(movies),
+            }
+        )
+    )
+
+
+def _odyssey():
+    return _FakeMovie(
+        11,
+        101,
+        "The Odyssey",
+        has_file=True,
+        status=MovieStatus.RELEASED,
+        is_available=True,
+        quality_profile_id=1,
+        poster_url="https://example.com/11.jpg",
+    )
+
+
+def test_one_film_of_two_regions_is_merged_before_it_is_linked(tmp_path):
+    """Both regions' entries got tmdb 101 after the build (admin repair).
+
+    Linked one by one, both would point at Radarr movie 11: two cards for
+    one film, each counted.
+    """
+    weekly_pages_dir = tmp_path / "weekly_pages"
+    weekly_pages_dir.mkdir()
+    week_file = weekly_pages_dir / "2026W44.json"
+    _two_region_week(
+        week_file,
+        _region_entry("The Odyssey", "", 1, tmdb_id=101, bom_imdb="tt1"),
+        _region_entry("Heimat", "DE", 1, tmdb_id=104),
+        _region_entry("Die Odyssee", "DE", 2, tmdb_id=101),
+    )
+
+    results = refresh_weekly_data_from_radarr(
+        radarr_service=_FakeRadarrService([_odyssey()], [_FakeProfile(1, "HD")]),
+        data_directory=tmp_path,
+    )
+
+    assert results["movies_linked"] == 1
+    stored = json.loads(week_file.read_text())
+    assert [(m["title"], m["radarr_id"]) for m in stored["movies"]] == [
+        ("The Odyssey", 11),
+        ("Heimat", None),
+    ]
+    assert [r["code"] for r in stored["movies"][0]["regions"]] == ["", "DE"]
+    assert (stored["total_movies"], stored["matched_movies"]) == (2, 1)
+
+
+def test_two_films_with_different_mojo_ids_are_not_merged(tmp_path):
+    weekly_pages_dir = tmp_path / "weekly_pages"
+    weekly_pages_dir.mkdir()
+    week_file = weekly_pages_dir / "2026W44.json"
+    _two_region_week(
+        week_file,
+        _region_entry("The Odyssey", "", 1, tmdb_id=101, bom_imdb="tt1"),
+        _region_entry("The Odyssey", "DE", 1, tmdb_id=101, bom_imdb="tt9"),
+    )
+
+    refresh_weekly_data_from_radarr(
+        radarr_service=_FakeRadarrService([_odyssey()], [_FakeProfile(1, "HD")]),
+        data_directory=tmp_path,
+    )
+
+    stored = json.loads(week_file.read_text())
+    assert [m["bom_imdb_id"] for m in stored["movies"]] == ["tt1", "tt9"]
+    assert stored["total_movies"] == 2

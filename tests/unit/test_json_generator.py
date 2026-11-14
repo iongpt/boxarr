@@ -14,7 +14,7 @@ import pytest
 
 from src.core import json_generator
 from src.core.boxoffice import BoxOfficeMovie
-from src.core.json_generator import WeeklyDataGenerator
+from src.core.json_generator import WeeklyDataGenerator, collapse_stored_week
 from src.core.matcher import MatchResult
 from src.core.models import MovieStatus
 from src.core.radarr import RadarrMovie
@@ -197,6 +197,25 @@ class TestTmdbCollapse:
         assert [row["code"] for row in entry["regions"]] == ["", "DE"]
         assert (data["total_movies"], data["matched_movies"]) == (1, 1)
 
+    def test_films_with_different_mojo_ids_stay_apart(self, generator):
+        """The lookup falls back to the same top result; the ids still differ."""
+        films, regions = merged(
+            ("", [BoxOfficeMovie(rank=1, title="Home", imdb_id="ttA")]),
+            ("GB", [BoxOfficeMovie(rank=1, title="Home", imdb_id="ttB")]),
+        )
+        assert len(films) == 2
+        gen, _ = generator({"Home": [tmdb(100, "Home", "ttA")]})
+
+        data = gen.build_weekly_data(unmatched(*films), 2026, 44, regions=regions)
+
+        assert data["total_movies"] == 2
+        assert [
+            (m["region"], m["bom_imdb_id"], m["tmdb_id"]) for m in data["movies"]
+        ] == [
+            ("", "ttA", 100),
+            ("GB", "ttB", 100),
+        ]
+
     def test_one_region_is_never_collapsed(self, generator):
         gen, _ = generator(
             {"Avatar": [tmdb(19995, "Avatar")], "Avatar 3D": [tmdb(19995, "Avatar")]}
@@ -266,3 +285,83 @@ class TestStoredShape:
         stored = json.loads(path.read_text())
         assert stored["regions"] == ["NL"]
         assert stored["movies"][0]["title"] == "A"
+
+
+def stored_entry(title, region, rank, tmdb_id=None, radarr_id=None, bom_imdb=None):
+    return {
+        "rank": rank,
+        "title": title,
+        "weekend_gross": None,
+        "total_gross": None,
+        "radarr_id": radarr_id,
+        "tmdb_id": tmdb_id,
+        "region": region,
+        "regions": [{"code": region, "title": title, "rank": rank}],
+        "bom_imdb_id": bom_imdb,
+    }
+
+
+def stored_week(regions, *movies):
+    return {
+        "year": 2026,
+        "week": 44,
+        "total_movies": len(movies),
+        "matched_movies": sum(1 for m in movies if m["radarr_id"]),
+        "movies": list(movies),
+        "data_version": 2,
+        "regions": regions,
+    }
+
+
+class TestCollapseStoredWeek:
+    """Entries that got a shared tmdb_id after the week was built merge."""
+
+    def test_entries_of_two_regions_sharing_a_tmdb_id_merge(self):
+        data = stored_week(
+            ["", "DE"],
+            stored_entry("The Odyssey", "", 1, tmdb_id=101, bom_imdb="tt1"),
+            stored_entry("Heimat", "DE", 1, tmdb_id=104),
+            stored_entry("Die Odyssee", "DE", 2, tmdb_id=101),
+        )
+
+        assert collapse_stored_week(data) is True
+
+        assert [(m["title"], m["region"]) for m in data["movies"]] == [
+            ("The Odyssey", ""),
+            ("Heimat", "DE"),
+        ]
+        assert [r["code"] for r in data["movies"][0]["regions"]] == ["", "DE"]
+        assert (data["total_movies"], data["matched_movies"]) == (2, 0)
+
+    def test_counts_are_recomputed_from_the_merged_entries(self):
+        data = stored_week(
+            ["", "DE"],
+            stored_entry("The Odyssey", "", 1, tmdb_id=101, radarr_id=11),
+            stored_entry("Die Odyssee", "DE", 2, tmdb_id=101),
+        )
+        assert collapse_stored_week(data) is True
+        assert data["movies"][0]["radarr_id"] == 11
+        assert (data["total_movies"], data["matched_movies"]) == (1, 1)
+
+    def test_different_mojo_ids_stay_apart(self):
+        data = stored_week(
+            ["", "GB"],
+            stored_entry("Home", "", 1, tmdb_id=100, bom_imdb="ttA"),
+            stored_entry("Home", "GB", 1, tmdb_id=100, bom_imdb="ttB"),
+        )
+        before = json.loads(json.dumps(data))
+        assert collapse_stored_week(data) is False
+        assert data == before
+
+    @pytest.mark.parametrize("regions", [None, [""], ["DE"]])
+    def test_legacy_and_one_region_weeks_are_never_changed(self, regions):
+        data = stored_week(
+            regions,
+            stored_entry("Avatar", "", 1, tmdb_id=19995),
+            stored_entry("Avatar 3D", "", 2, tmdb_id=19995),
+        )
+        if regions is None:
+            del data["regions"]
+        before = json.loads(json.dumps(data))
+        assert collapse_stored_week(data) is False
+        assert data == before

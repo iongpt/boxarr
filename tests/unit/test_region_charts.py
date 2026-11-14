@@ -24,6 +24,7 @@ from src.core.region_charts import (
     RegionFetch,
     collapse_match_results,
     fetch_region_charts,
+    imdb_ids_conflict,
     merge_region_charts,
     stored_region_fetch,
 )
@@ -184,19 +185,21 @@ class TestFetchRegionCharts:
 
     def test_weekend_comes_from_the_service_when_it_reports_one(self):
         service = FakeService({"FR": [movie(1, "A")]})
+        # Not the computed FR weekend (2026W43, 2026-10-28 to 2026-11-01):
+        # the printed range the service read wins.
         service.last_chart = {
             "region": "FR",
-            "bom_week": "2026W43",
-            "weekend_start": "2026-10-28",
-            "weekend_end": "2026-11-01",
+            "bom_week": "2026W44",
+            "weekend_start": "2026-10-29",
+            "weekend_end": "2026-11-02",
         }
         [fetch] = fetch_region_charts(service, 2026, 44, ["FR"], 10)
         assert fetch.to_status() == {
             "region": "FR",
             "status": "ok",
-            "bom_week": "2026W43",
-            "weekend_start": "2026-10-28",
-            "weekend_end": "2026-11-01",
+            "bom_week": "2026W44",
+            "weekend_start": "2026-10-29",
+            "weekend_end": "2026-11-02",
             "movies": 1,
         }
 
@@ -476,6 +479,58 @@ class TestCollapseMatchResults:
         ]
         assert collapse_match_results(results, ["", "DE"]) == results
 
+    def test_films_with_different_mojo_ids_are_never_merged(self):
+        """Two films titled 'Home': the matcher's title match is not proof."""
+        merged = merge_region_charts(
+            [
+                ok("", movie(1, "Home", 5_000.0, "ttA")),
+                ok("GB", movie(1, "Home", 2_000.0, "ttB")),
+            ],
+            ["", "GB"],
+        )
+        target = radarr_movie(7, "Home", 100)
+        results = [MatchResult(box_office_movie=m, radarr_movie=target) for m in merged]
+
+        collapsed = collapse_match_results(results, ["", "GB"])
+
+        assert [
+            (r.box_office_movie.region, r.box_office_movie.imdb_id) for r in collapsed
+        ] == [("", "ttA"), ("GB", "ttB")]
+
+    @pytest.mark.parametrize(
+        "first_id, second_id", [("tt1", None), (None, "tt1"), ("tt1", " TT1 ")]
+    )
+    def test_one_missing_or_equal_id_still_merges(self, first_id, second_id):
+        target = radarr_movie(7, "The Odyssey", 101)
+        results = [
+            MatchResult(
+                box_office_movie=movie(1, "The Odyssey", imdb=first_id),
+                radarr_movie=target,
+            ),
+            MatchResult(
+                box_office_movie=movie(2, "Die Odyssee", imdb=second_id, region="DE"),
+                radarr_movie=target,
+            ),
+        ]
+        [result] = collapse_match_results(results, ["", "DE"])
+        assert result.box_office_movie.imdb_id.strip().lower() == "tt1"
+
+
+class TestImdbIdsConflict:
+    @pytest.mark.parametrize(
+        "first, second, conflict",
+        [
+            ("tt1", "tt2", True),
+            ("tt1", "TT1", False),
+            ("tt1", None, False),
+            (None, "tt2", False),
+            ("", "tt2", False),
+            (None, None, False),
+        ],
+    )
+    def test_only_two_known_different_ids_conflict(self, first, second, conflict):
+        assert imdb_ids_conflict(first, second) is conflict
+
 
 STORED_V2 = {
     "generated_at": "2026-11-09T23:00:00",
@@ -564,6 +619,21 @@ class TestStoredRegionFetch:
         stored["region_status"][1]["status"] = "error"
         failed = self.failed()
         assert stored_region_fetch(stored, failed) is failed
+
+    def test_region_without_data_before_is_carried_over_empty(self):
+        """No data counts as a complete chart, so it is kept: an empty one."""
+        stored = json.loads(json.dumps(STORED_V2))
+        stored["regions"] = ["", "DE", "FR"]
+        stored["region_status"].append(
+            {"region": "FR", "status": "no_data", "bom_week": "2026W44", "movies": 0}
+        )
+
+        fetch = stored_region_fetch(stored, self.failed("FR"))
+
+        assert (fetch.status, fetch.movies) == (STATUS_STALE, [])
+        assert fetch.to_status()["movies"] == 0
+        assert fetch.carried_from == "2026-11-09T23:00:00"
+        assert fetch.bom_week == "2026W44"
 
     def test_rebuilt_rows_merge_like_fresh_ones(self):
         fresh = ok("", movie(1, "Film", 9.0, "tt1"))

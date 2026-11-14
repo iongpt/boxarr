@@ -7,9 +7,10 @@ charted in several markets becomes one entry that keeps a row per market.
 
 Two rows are the same film when Mojo's IMDb ids agree, or - when at least one
 side has no IMDb id - when their titles normalize to the same text. Two
-different IMDb ids never merge, and Mojo release URLs are never compared
-(they differ per territory). Two rows of the same market never merge either,
-so a single market's chart comes through exactly as it was fetched.
+different IMDb ids never merge - not here, and not in the merges after
+matching (:func:`imdb_ids_conflict`) - and Mojo release URLs are never
+compared (they differ per territory). Two rows of the same market never merge
+either, so a single market's chart comes through exactly as it was fetched.
 
 The merged film's rank, title, grosses and region come from its lead
 appearance: the best per-market rank, ties going to the market configured
@@ -222,6 +223,19 @@ def _normalized_imdb_id(imdb_id: Optional[str]) -> Optional[str]:
     return imdb_id.strip().lower() or None
 
 
+def imdb_ids_conflict(first: Optional[str], second: Optional[str]) -> bool:
+    """Whether two Mojo IMDb ids are both known and name different films.
+
+    Every merge of two charted films - before matching, by Radarr movie
+    after matching, and by TMDB film in the stored week - refuses such a
+    pair: a title or a fallback lookup can tie two films together, the ids
+    cannot. A missing id never conflicts.
+    """
+    first_key = _normalized_imdb_id(first)
+    second_key = _normalized_imdb_id(second)
+    return bool(first_key and second_key and first_key != second_key)
+
+
 def _describe_weekend(
     fetch: RegionFetch, service: Any, year: int, week: int
 ) -> RegionFetch:
@@ -381,7 +395,7 @@ def merge_region_charts(
                         g
                         for g in by_title.get(title, [])
                         if code not in g.rows
-                        and not (key and g.imdb_key and g.imdb_key != key)
+                        and not imdb_ids_conflict(movie.imdb_id, g.imdb_id)
                     ),
                     None,
                 )
@@ -427,7 +441,9 @@ def collapse_match_results(
     whose titles differ (a localized title). Once both are matched to one
     Radarr movie they are one film: the later result's market rows join the
     earlier one. Results covering a common market are left apart, so a
-    single market's chart is never changed.
+    single market's chart is never changed. So are two results whose Mojo
+    IMDb ids differ: the matcher can match a different film of the same or
+    a similar title, and merging would hide it.
 
     Args:
         results: Match results over a merged list
@@ -451,6 +467,10 @@ def collapse_match_results(
                     for index in by_radarr_id.get(radarr_id, [])
                     if not (
                         codes & row_codes(region_rows(kept[index].box_office_movie))
+                    )
+                    and not imdb_ids_conflict(
+                        result.box_office_movie.imdb_id,
+                        kept[index].box_office_movie.imdb_id,
                     )
                 ),
                 None,

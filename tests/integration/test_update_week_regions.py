@@ -9,6 +9,11 @@ two-region week, the no-Radarr path, and the partial-failure matrix:
 - a stored v2 week: the failed region's rows are carried over as stale;
 - a stored legacy week: kept when a region errors, replaced when the
   regions are ok or report no data.
+
+Also the merges after matching: one film's regions that the chart merge
+could not join are joined once they match one Radarr movie (again after
+auto-add re-matches) or, later, resolve to one TMDB film - and two films
+whose Box Office Mojo IMDb ids differ are never joined.
 """
 
 import json
@@ -19,6 +24,7 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
+import src.api.routes.admin as admin_route
 import src.core.boxoffice as core_boxoffice
 import src.core.radarr as core_radarr
 import src.core.region_charts as region_charts
@@ -26,6 +32,7 @@ import src.utils.config as cfg_utils
 from src.api.app import create_app
 from src.core.boxoffice import BoxOfficeMovie
 from src.core.exceptions import BoxOfficeError, BoxOfficeNoData
+from src.core.library_sync import refresh_weekly_data_from_radarr
 from src.core.models import MovieStatus
 from src.core.radarr import QualityProfile, RadarrMovie
 
@@ -53,9 +60,21 @@ class FakeRadarr:
     library = []
     lookups = {}
     searched = []
+    # tmdb id -> the RadarrMovie add_movie puts in the library
+    addable = {}
+    added = []
 
     def __init__(self, *_, **__):
         pass
+
+    def get_root_folder_paths(self):
+        return ["/movies"]
+
+    def add_movie(self, tmdb_id, *_, **__):
+        movie = FakeRadarr.addable[tmdb_id]
+        FakeRadarr.added.append(tmdb_id)
+        FakeRadarr.library.append(movie)
+        return movie
 
     def get_all_movies(self, ignore_cache=False):
         return list(FakeRadarr.library)
@@ -129,6 +148,8 @@ def harness(tmp_path, monkeypatch):
         FakeRadarr.library = []
         FakeRadarr.lookups = {}
         FakeRadarr.searched = []
+        FakeRadarr.addable = {}
+        FakeRadarr.added = []
         return h
 
     return _make
@@ -478,3 +499,156 @@ class TestPartialFailure:
         assert [m["title"] for m in stored["movies"]] == ["The Odyssey"]
         assert [s["status"] for s in stored["region_status"]] == ["ok", "no_data"]
         assert "error" not in stored["region_status"][1]
+
+
+def odyssey(radarr_id=11):
+    return RadarrMovie(
+        id=radarr_id,
+        title="The Odyssey",
+        tmdbId=101,
+        imdbId="tt1",
+        year=2026,
+        status=MovieStatus.RELEASED,
+    )
+
+
+def films(stored):
+    return [
+        (m["title"], m["radarr_id"], [r["code"] for r in m["regions"]])
+        for m in stored["movies"]
+    ]
+
+
+class TestMergesAfterMatching:
+    def ov_charts(self):
+        """'The Odyssey (OV)' has no IMDb id and normalizes differently, so
+        the chart merge keeps it apart; the matcher still maps it to the
+        film."""
+        return {
+            "": [bom(1, "The Odyssey", 9e7, "tt1"), bom(2, "Moana", 1e7)],
+            "DE": [bom(1, "The Odyssey (OV)", 8e6), bom(2, "Heimat", 1e6)],
+        }
+
+    def test_regions_matching_one_radarr_movie_become_one_film(self, harness):
+        h = harness("domestic,DE")
+        FakeBoxOffice.charts = self.ov_charts()
+        FakeRadarr.library = [odyssey()]
+
+        body = h.update().json()
+
+        assert (body["success"], body["movies_found"]) == (True, 3)
+        stored = h.stored()
+        assert (stored["total_movies"], stored["matched_movies"]) == (3, 1)
+        assert films(stored) == [
+            ("The Odyssey", 11, ["", "DE"]),
+            ("Moana", None, [""]),
+            ("Heimat", None, ["DE"]),
+        ]
+
+    def test_films_added_by_auto_add_are_merged_after_the_rematch(self, harness):
+        h = harness("domestic,DE", auto_add=True)
+        FakeBoxOffice.charts = self.ov_charts()
+        FakeRadarr.lookups = {
+            "The Odyssey": [{"tmdbId": 101, "title": "The Odyssey", "imdbId": "tt1"}],
+            "The Odyssey (OV)": [
+                {"tmdbId": 101, "title": "The Odyssey", "imdbId": "tt1"}
+            ],
+        }
+        FakeRadarr.addable = {101: odyssey()}
+
+        body = h.update().json()
+
+        # Added once: the OV row's lookup finds the film already tried.
+        assert FakeRadarr.added == [101]
+        assert (body["success"], body["movies_added"], body["movies_found"]) == (
+            True,
+            1,
+            3,
+        )
+        stored = h.stored()
+        assert (stored["total_movies"], stored["matched_movies"]) == (3, 1)
+        assert films(stored) == [
+            ("The Odyssey", 11, ["", "DE"]),
+            ("Moana", None, [""]),
+            ("Heimat", None, ["DE"]),
+        ]
+
+    def home_charts(self):
+        """Two different films titled 'Home': Mojo's IMDb ids tell them apart."""
+        return {
+            "": [bom(1, "Home", 5e6, "ttA")],
+            "GB": [bom(1, "Home", 2e6, "ttB")],
+        }
+
+    def test_a_title_match_never_joins_films_with_different_ids(self, harness):
+        h = harness("domestic,GB")
+        FakeBoxOffice.charts = self.home_charts()
+        FakeRadarr.library = [
+            RadarrMovie(id=7, title="Home", tmdbId=100, imdbId="ttA", year=2026)
+        ]
+
+        h.update()
+
+        stored = h.stored()
+        assert stored["total_movies"] == 2
+        assert [(m["region"], m["bom_imdb_id"]) for m in stored["movies"]] == [
+            ("", "ttA"),
+            ("GB", "ttB"),
+        ]
+
+    def test_a_fallback_lookup_never_joins_films_with_different_ids(self, harness):
+        h = harness("domestic,GB")
+        FakeBoxOffice.charts = self.home_charts()
+        # The title search does not list GB's film: both fall back to tmdb 100.
+        FakeRadarr.lookups = {
+            "Home": [{"tmdbId": 100, "title": "Home", "imdbId": "ttA"}]
+        }
+
+        h.update()
+
+        stored = h.stored()
+        assert stored["total_movies"] == 2
+        assert [
+            (m["region"], m["bom_imdb_id"], m["tmdb_id"]) for m in stored["movies"]
+        ] == [("", "ttA", 100), ("GB", "ttB", 100)]
+
+    def test_a_film_linked_after_the_build_is_one_card(self, harness, monkeypatch):
+        """Built without Radarr, repaired, then synced: one card per film."""
+        h = harness("domestic,DE", api_key="")
+        FakeBoxOffice.charts = {
+            "": [bom(1, "The Odyssey", 9e7, "tt1"), bom(2, "Moana", 1e7, "tt2")],
+            "DE": [bom(1, "Heimat", 1e6), bom(2, "Die Odyssee", 8e6)],
+        }
+        assert h.update().json()["movies_found"] == 4
+
+        h = harness("domestic,DE")
+        monkeypatch.setattr(admin_route, "RadarrService", FakeRadarr)
+        ody = {"tmdbId": 101, "title": "The Odyssey", "imdbId": "tt1", "year": 2026}
+        FakeRadarr.lookups = {
+            "The Odyssey": [ody],
+            "Die Odyssee": [ody],
+            "Moana": [{"tmdbId": 102, "title": "Moana", "imdbId": "tt2"}],
+            "Heimat": [{"tmdbId": 104, "title": "Heimat"}],
+        }
+        repair = h.client.post(
+            "/api/admin/repair-missing-metadata",
+            json={"dry_run": False, "rate_limit_delay": 0},
+        )
+        assert '"stage": "complete"' in repair.text
+        stored = h.stored()
+        assert (stored["total_movies"], stored["matched_movies"]) == (3, 0)
+        assert [(m["title"], m["tmdb_id"]) for m in stored["movies"]] == [
+            ("The Odyssey", 101),
+            ("Heimat", 104),
+            ("Moana", 102),
+        ]
+
+        FakeRadarr.library = [odyssey()]
+        sync = refresh_weekly_data_from_radarr(FakeRadarr(), data_directory=h.tmp_path)
+
+        assert sync["movies_linked"] == 1
+        stored = h.stored()
+        assert (stored["total_movies"], stored["matched_movies"]) == (3, 1)
+        assert films(stored)[0] == ("The Odyssey", 11, ["", "DE"])
+        page = h.client.get("/2026W44").text
+        assert page.count('data-movie-id="11"') == 1
