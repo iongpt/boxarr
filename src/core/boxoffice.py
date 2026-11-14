@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
 import httpx
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup, SoupStrainer, Tag
 
 from ..utils.config import settings
 from ..utils.logger import get_logger
@@ -103,6 +103,69 @@ BOX_OFFICE_REGIONS: List[Tuple[str, str]] = [
     ("VE", "Venezuela"),
     ("VN", "Vietnam"),
 ]
+
+# ISO weekday (Monday=1 ... Sunday=7) on which each market's Box Office Mojo
+# weekend starts. Mojo numbers a market's weekends by the calendar year and
+# day of year of that start day, so the start day decides which Mojo weekend
+# number an ISO week maps to. Read from the date range Mojo prints under each
+# chart's title, e.g. "French 2026 Weekend 44" / "November 4-8, 2026":
+# - Friday: domestic, GB, MN, ES, MX, CN, IN, PL ("October 30-November 1,
+#   2026" for 2026W44; ES, MX, CN, IN and PL 2021W01 read "January 1-3, 2021").
+#   RO was observed live with the same ranges.
+# - Thursday: DE, AU, BR, IT, KR, NL ("October 29-November 1, 2026").
+# - Wednesday: FR (2026W43 "October 28-November 1, 2026", 2026W44
+#   "November 4-8, 2026").
+# - Saturday: JP (2021W01 "January 2-3, 2021", 2021W02 "January 9-10, 2021").
+# A Thursday start makes Mojo's numbers equal ISO weeks, so codes not listed
+# here use DEFAULT_WEEKEND_START. fetch_weekend_box_office checks the printed
+# range and corrects a wrong entry at runtime.
+REGION_WEEKEND_START: Dict[str, int] = {
+    "": 5,
+    "GB": 5,
+    "RO": 5,
+    "MN": 5,
+    "ES": 5,
+    "MX": 5,
+    "CN": 5,
+    "IN": 5,
+    "PL": 5,
+    "DE": 4,
+    "AU": 4,
+    "BR": 4,
+    "IT": 4,
+    "KR": 4,
+    "NL": 4,
+    "FR": 3,
+    "JP": 6,
+}
+DEFAULT_WEEKEND_START = 4
+
+# Start days learned at runtime from a chart whose printed weekend did not
+# match the requested ISO week, keyed by region code. They take precedence
+# over REGION_WEEKEND_START for the rest of the process.
+_LEARNED_WEEKEND_START: Dict[str, int] = {}
+
+_MONTHS: Dict[str, int] = {
+    "january": 1,
+    "february": 2,
+    "march": 3,
+    "april": 4,
+    "may": 5,
+    "june": 6,
+    "july": 7,
+    "august": 8,
+    "september": 9,
+    "october": 10,
+    "november": 11,
+    "december": 12,
+}
+
+# "November 4-8, 2026", "October 28-November 1, 2026" and the year-crossing
+# "December 30-January 1, 2017", where only the end date carries the year.
+_WEEKEND_RANGE_RE = re.compile(
+    r"(?P<start_month>[A-Za-z]+)\s+(?P<start_day>\d{1,2})\s*[-\u2013\u2014]\s*"
+    r"(?:(?P<end_month>[A-Za-z]+)\s+)?(?P<end_day>\d{1,2}),\s*(?P<year>\d{4})"
+)
 
 
 @dataclass
@@ -355,72 +418,253 @@ class BoxOfficeService:
             return ""
         return cells[index].get_text(strip=True)
 
-    def _build_weekend_url(self, year: int, week: int) -> str:
+    @staticmethod
+    def _normalize_region(region: Optional[str]) -> str:
         """
-        Build the Box Office Mojo weekend URL for the configured region.
+        Normalize a region setting to a Box Office Mojo area code.
 
         Args:
-            year: Year
-            week: ISO week number
+            region: Configured region, e.g. " fr ", "DE", "domestic" or ""
 
         Returns:
-            Weekend chart URL, with ?area=CODE appended for non-domestic regions
+            Upper-case area code, or "" for the domestic (US & Canada) chart
         """
-        region = (
+        code = (region or "").strip().upper()
+        return "" if code == "DOMESTIC" else code
+
+    @classmethod
+    def _configured_region(cls) -> str:
+        """Return the normalized area code of the configured region."""
+        return cls._normalize_region(
             getattr(settings, "boxarr_features_box_office_region", "") or ""
-        ).strip()
-        if region and region.lower() != "domestic":
-            return f"{self.BASE_URL}/weekend/{year}W{week:02d}/?area={region}"
-        mojo_year, mojo_week = self._domestic_weekend_number(year, week)
-        return f"{self.BASE_URL}/weekend/{mojo_year}W{mojo_week:02d}/"
+        )
+
+    @staticmethod
+    def _weekend_start(region: str) -> int:
+        """
+        Return the ISO weekday on which a market's Mojo weekend starts.
+
+        Args:
+            region: Normalized area code ("" for domestic)
+
+        Returns:
+            A start day learned from Mojo in this process, else the
+            REGION_WEEKEND_START entry, else DEFAULT_WEEKEND_START (Thursday,
+            under which Mojo numbers equal ISO weeks)
+        """
+        learned = _LEARNED_WEEKEND_START.get(region)
+        if learned is not None:
+            return learned
+        return REGION_WEEKEND_START.get(region, DEFAULT_WEEKEND_START)
+
+    def _build_weekend_url(
+        self, year: int, week: int, region: Optional[str] = None
+    ) -> str:
+        """
+        Build the Box Office Mojo weekend URL for an ISO week.
+
+        Args:
+            year: ISO year
+            week: ISO week number
+            region: Area code; None uses the configured region, and "" or
+                "domestic" selects the US & Canada chart
+
+        Returns:
+            Weekend chart URL for the market's Mojo weekend number, with
+            ?area=CODE appended for non-domestic regions
+
+        Raises:
+            BoxOfficeError: If the year has no such ISO week
+        """
+        code = (
+            self._configured_region()
+            if region is None
+            else self._normalize_region(region)
+        )
+        return self._weekend_url(year, week, code, self._weekend_start(code))
+
+    def _weekend_url(self, year: int, week: int, region: str, start: int) -> str:
+        """
+        Build a weekend chart URL for a given market start day.
+
+        Args:
+            year: ISO year
+            week: ISO week number
+            region: Normalized area code ("" for domestic)
+            start: ISO weekday on which the market's weekend starts
+
+        Returns:
+            Weekend chart URL
+
+        Raises:
+            BoxOfficeError: If the year has no such ISO week
+        """
+        mojo_year, mojo_week = self._bom_weekend_number(year, week, start)
+        url = f"{self.BASE_URL}/weekend/{mojo_year}W{mojo_week:02d}/"
+        if region:
+            url += f"?area={region}"
+        return url
+
+    @staticmethod
+    def _bom_weekend_number(
+        year: int, week: int, start_isoweekday: int
+    ) -> Tuple[int, int]:
+        """
+        Map an ISO year/week to a market's Box Office Mojo weekend number.
+
+        Mojo numbers each market's weekends by the calendar year and day of
+        year of the weekend's start day: weekend 1 is the first weekend that
+        starts in January. The ISO week holding that start day therefore maps
+        to (start.year, (day_of_year - 1) // 7 + 1). For a Thursday start this
+        always equals the ISO week. Other start days differ by one week for a
+        whole year depending on the weekday of 1 January: ISO 2026-W44 is
+        French (Wednesday) weekend 43 because 2026 starts on a Thursday, and
+        ISO 2021-W01 is Japanese (Saturday) weekend 2 because 2021 starts on
+        a Friday. ISO week 53 is also weekend 1 of the next year whenever its
+        start day already falls in January: always for a Saturday start, and
+        for a Friday start except in leap years that begin on a Thursday
+        (2032). ISO 2026-W53 is British, Japanese and domestic 2027 weekend 1.
+
+        Args:
+            year: ISO year
+            week: ISO week number
+            start_isoweekday: ISO weekday (Monday=1) the market's weekend
+                starts on
+
+        Returns:
+            Tuple of (Mojo year, Mojo weekend number)
+
+        Raises:
+            BoxOfficeError: If the year has no such ISO week
+        """
+        try:
+            start = date.fromisocalendar(year, week, start_isoweekday)
+        except ValueError as e:
+            raise BoxOfficeError(f"Invalid ISO week {year}W{week:02d}") from e
+        return start.year, (start.timetuple().tm_yday - 1) // 7 + 1
 
     @staticmethod
     def _domestic_weekend_number(year: int, week: int) -> Tuple[int, int]:
         """
         Map an ISO year/week to Box Office Mojo's domestic weekend number.
 
-        Mojo numbers domestic weekends by the calendar year of their Friday:
-        weekend 1 is the first Friday-Sunday whose Friday is in January. When
-        1 January is a Friday (2016, 2021, 2027), that Friday belongs to the
-        previous ISO year, so every ISO week of that year is one Mojo weekend
-        behind. 2021W01 is January 1-3 on Mojo, while ISO 2021-W01 has
-        January 8-10.
+        Domestic weekends start on Friday. When 1 January is a Friday (2016,
+        2021, 2027), that Friday belongs to the previous ISO year, so every
+        ISO week of that year is one Mojo weekend behind. 2021W01 is January
+        1-3 on Mojo, while ISO 2021-W01 has January 8-10.
 
         Raises:
             BoxOfficeError: If the year has no such ISO week
         """
-        try:
-            friday = date.fromisocalendar(year, week, 5)
-        except ValueError as e:
-            raise BoxOfficeError(f"Invalid ISO week {year}W{week:02d}") from e
-        return friday.year, (friday.timetuple().tm_yday - 1) // 7 + 1
+        return BoxOfficeService._bom_weekend_number(
+            year, week, REGION_WEEKEND_START[""]
+        )
 
-    def fetch_weekend_box_office(
-        self,
-        year: Optional[int] = None,
-        week: Optional[int] = None,
-        limit: int = 10,
-    ) -> List[BoxOfficeMovie]:
+    @staticmethod
+    def _parse_weekend_range(text: str) -> Optional[Tuple[date, date]]:
         """
-        Fetch box office data for a specific weekend.
+        Parse the weekend date range Mojo prints under a chart's title.
 
         Args:
-            year: Year (defaults to current year)
-            week: ISO week number (defaults to most recent weekend)
+            text: e.g. "November 4-8, 2026", "October 28-November 1, 2026" or
+                "December 30-January 1, 2017" (the year is printed only at
+                the end, so a range ending in an earlier month started the
+                year before)
 
         Returns:
-            List of BoxOfficeMovie objects
+            Tuple of (first day, last day), or None if the text is not a range
+        """
+        match = _WEEKEND_RANGE_RE.fullmatch(" ".join(text.split()))
+        if not match:
+            return None
+        start_month = _MONTHS.get(match["start_month"].lower())
+        end_month = _MONTHS.get((match["end_month"] or match["start_month"]).lower())
+        if start_month is None or end_month is None:
+            return None
+        end_year = int(match["year"])
+        start_year = end_year - 1 if start_month > end_month else end_year
+        try:
+            start = date(start_year, start_month, int(match["start_day"]))
+            end = date(end_year, end_month, int(match["end_day"]))
+        except ValueError:
+            return None
+        if end < start:
+            return None
+        return start, end
+
+    @classmethod
+    def _printed_weekend(cls, html: str) -> Optional[Tuple[date, date]]:
+        """
+        Read the weekend date range from a chart page's header.
+
+        The page heading is <h1 class="mojo-gutter">French 2026 Weekend
+        44</h1><h4 class="mojo-gutter">November 4-8, 2026</h4>. Mojo prints
+        it on "No data available" pages too.
+
+        Args:
+            html: Weekend chart HTML
+
+        Returns:
+            Tuple of (first day, last day), or None when no h4 holds a range
+        """
+        soup = BeautifulSoup(html, "html.parser", parse_only=SoupStrainer("h4"))
+        for heading in soup.find_all("h4", class_="mojo-gutter"):
+            dates = cls._parse_weekend_range(heading.get_text(" ", strip=True))
+            if dates is not None:
+                return dates
+        return None
+
+    def _week_mismatch(
+        self, html: str, year: int, week: int, url: str
+    ) -> Optional[Tuple[date, date]]:
+        """
+        Check that a chart page shows the weekend of the requested ISO week.
+
+        The weekend's first day must fall inside the ISO week (Monday to
+        Sunday). A page without a readable date range is accepted.
+
+        Args:
+            html: Weekend chart HTML
+            year: Requested ISO year
+            week: Requested ISO week number
+            url: URL the page came from, for logging
+
+        Returns:
+            The printed (first day, last day) when they belong to a different
+            week, otherwise None
+        """
+        printed = self._printed_weekend(html)
+        if printed is None:
+            logger.debug(f"No weekend date range on {url}; week not checked")
+            return None
+        if tuple(printed[0].isocalendar())[:2] == (year, week):
+            return None
+        return printed
+
+    @staticmethod
+    def _week_mismatch_error(
+        year: int, week: int, printed: Tuple[date, date], url: str
+    ) -> BoxOfficeError:
+        """Build the error for a chart that shows the wrong weekend."""
+        return BoxOfficeError(
+            f"Box Office Mojo chart {url} shows the weekend of "
+            f"{printed[0].isoformat()} to {printed[1].isoformat()}, which is not "
+            f"in the requested ISO week {year}W{week:02d}"
+        )
+
+    def _fetch_chart_html(self, url: str) -> str:
+        """
+        GET a weekend chart page, retrying transport failures with backoff.
+
+        Args:
+            url: Weekend chart URL
+
+        Returns:
+            Response body
 
         Raises:
-            BoxOfficeError: If fetching or parsing fails
+            BoxOfficeError: If every attempt fails or Mojo returns an error
         """
-        # Calculate weekend if not specified
-        if year is None or week is None:
-            _, _, year, week = self.get_weekend_dates()
-
-        url = self._build_weekend_url(year, week)
-        logger.info(f"Fetching box office data from: {url}")
-
         response = None
         for attempt in range(1, self.MAX_FETCH_ATTEMPTS + 1):
             try:
@@ -446,7 +690,96 @@ class BoxOfficeService:
             logger.error(f"Failed to fetch box office data: {e}")
             raise BoxOfficeError(f"Failed to fetch box office data: {e}") from e
 
-        movies = self.parse_box_office_html(response.text, limit=limit)
+        return response.text
+
+    def _fetch_checked_chart_html(self, year: int, week: int, region: str) -> str:
+        """
+        Fetch the chart for an ISO week and make sure it shows that week.
+
+        When the printed weekend belongs to another week, the market's start
+        day is taken from the printed first day, remembered for this process,
+        and the chart is fetched once more under the corrected number.
+
+        Args:
+            year: ISO year
+            week: ISO week number
+            region: Normalized area code ("" for domestic)
+
+        Returns:
+            Chart HTML for the requested week
+
+        Raises:
+            BoxOfficeError: If fetching fails or the corrected chart still
+                shows another week
+        """
+        url = self._build_weekend_url(year, week, region)
+        logger.info(f"Fetching box office data from: {url}")
+        html = self._fetch_chart_html(url)
+
+        printed = self._week_mismatch(html, year, week, url)
+        if printed is None:
+            return html
+
+        learned_start = printed[0].isoweekday()
+        retry_url = self._weekend_url(year, week, region, learned_start)
+        if retry_url == url:
+            raise self._week_mismatch_error(year, week, printed, url)
+
+        _LEARNED_WEEKEND_START[region] = learned_start
+        logger.info(
+            f"Box Office Mojo weekends for {region or 'domestic'} start on "
+            f"{printed[0]:%A} (printed {printed[0].isoformat()} to "
+            f"{printed[1].isoformat()} at {url}); consider setting "
+            f'REGION_WEEKEND_START["{region}"] = {learned_start}. '
+            f"Refetching {retry_url}"
+        )
+        try:
+            html = self._fetch_chart_html(retry_url)
+            printed = self._week_mismatch(html, year, week, retry_url)
+            if printed is not None:
+                raise self._week_mismatch_error(year, week, printed, retry_url)
+        except BoxOfficeError:
+            # Keep only a start day that produced the requested week, so a
+            # wrong guess cannot break every later fetch for this region.
+            _LEARNED_WEEKEND_START.pop(region, None)
+            raise
+        return html
+
+    def fetch_weekend_box_office(
+        self,
+        year: Optional[int] = None,
+        week: Optional[int] = None,
+        limit: int = 10,
+    ) -> List[BoxOfficeMovie]:
+        """
+        Fetch box office data for a specific weekend.
+
+        The chart comes from the configured region. Its ISO week is mapped to
+        that market's Mojo weekend number, which depends on the day its
+        weekends start (see REGION_WEEKEND_START), so it can differ from the
+        ISO week. Before the chart is parsed, the date range printed on the
+        page is checked against the ISO week. On a mismatch the market's
+        start day is learned from the page and the chart is fetched once
+        more; a page with no readable date range is accepted as is.
+
+        Args:
+            year: ISO year (defaults to the most recent weekend's)
+            week: ISO week number (defaults to most recent weekend)
+            limit: Maximum number of movies to return
+
+        Returns:
+            List of BoxOfficeMovie objects
+
+        Raises:
+            BoxOfficeError: If fetching or parsing fails, or the chart shows a
+                different week than requested
+        """
+        # Calculate weekend if not specified
+        if year is None or week is None:
+            _, _, year, week = self.get_weekend_dates()
+
+        html = self._fetch_checked_chart_html(year, week, self._configured_region())
+        movies = self.parse_box_office_html(html, limit=limit)
         self.enrich_with_imdb_ids(movies)
         return movies
 
