@@ -32,6 +32,7 @@ from ...utils.config import (
     settings,
 )
 from ...utils.logger import get_logger
+from .weekly_regions import build_region_view, region_movies
 
 logger = get_logger(__name__)
 router = APIRouter(tags=["web"])
@@ -824,6 +825,13 @@ async def serve_weekly_page(request: Request, year: int, week: int):
 
     movies = metadata.get("movies", [])
 
+    # A week of several regions (or one whose region failed) gets a header
+    # line, banners, region tags and tabs; ?region=XX shows that region's
+    # chart. A legacy or plain one-region week is left exactly as it was.
+    region_view = build_region_view(metadata, request.query_params.get("region"))
+    if region_view is not None and isinstance(movies, list):
+        movies = region_movies(movies, region_view["selected"])
+
     # Avoid synchronous full Radarr fetch; client will refresh statuses via AJAX
 
     # Calculate counts (for future use/debugging)
@@ -916,6 +924,8 @@ async def serve_weekly_page(request: Request, year: int, week: int):
             ignored_tmdb_ids=ignored_tmdb_ids,
             summary=summary,
             hidden_count=hidden_count,
+            # None for a legacy or plain one-region week: no region elements.
+            region_view=region_view,
         ),
     )
 
