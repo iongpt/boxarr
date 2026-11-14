@@ -86,3 +86,53 @@ def test_history_propagates_scraper_error(client):
 
     assert resp.status_code == 500
     assert "Box Office Mojo unavailable" in resp.json()["detail"]
+
+
+class _RegionRecordingService(_FakeService):
+    """Records the region each call asked for."""
+
+    regions = []
+
+    def get_current_week_movies(self, limit: int = 10, region=None):
+        _RegionRecordingService.regions.append(region)
+        return super().get_current_week_movies(limit)
+
+    def fetch_weekend_box_office(self, year, week, limit: int = 10, region=None):
+        _RegionRecordingService.regions.append(region)
+        return super().fetch_weekend_box_office(year, week, limit)
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["/api/boxoffice/current", "/api/boxoffice/history/2024/W48"],
+)
+@pytest.mark.parametrize(
+    "query,expected",
+    [("?region=de", "DE"), ("?region=domestic", ""), ("?region=", "")],
+)
+def test_region_query_selects_the_chart(client, path, query, expected):
+    _RegionRecordingService.regions = []
+    with (
+        patch("src.api.routes.boxoffice.BoxOfficeService", _RegionRecordingService),
+        patch("src.api.routes.boxoffice.settings") as mock_settings,
+    ):
+        mock_settings.radarr_api_key = ""
+        resp = client.get(path + query)
+
+    assert resp.status_code == 200
+    assert _RegionRecordingService.regions == [expected]
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["/api/boxoffice/current", "/api/boxoffice/history/2024/W48"],
+)
+@pytest.mark.parametrize("bad", ["NLD", "domestic,DE", "1A"])
+def test_invalid_region_query_is_a_400(client, path, bad):
+    _RegionRecordingService.regions = []
+    with patch("src.api.routes.boxoffice.BoxOfficeService", _RegionRecordingService):
+        resp = client.get(f"{path}?region={bad}")
+
+    assert resp.status_code == 400
+    assert "area code" in resp.json()["detail"]
+    assert _RegionRecordingService.regions == []

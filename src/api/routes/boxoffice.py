@@ -2,12 +2,14 @@
 
 import asyncio
 from datetime import datetime
-from typing import List, Optional
+from functools import partial
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
-from ...core.boxoffice import BoxOfficeService
+from ...core.boxoffice import BoxOfficeService, normalize_region_code
+from ...core.exceptions import BoxOfficeError
 from ...core.matcher import MovieMatcher
 from ...core.radarr import RadarrService
 from ...utils.config import settings
@@ -15,6 +17,28 @@ from ...utils.logger import get_logger
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/api/boxoffice", tags=["boxoffice"])
+
+
+def _region_kwargs(region: Optional[str]) -> Dict[str, Any]:
+    """
+    Validate an optional ``?region=`` and turn it into fetch arguments.
+
+    Args:
+        region: One area code, "domestic" (or "") for US & Canada, or None
+            for the first configured region
+
+    Returns:
+        ``{"region": code}``, or no arguments when no region was given
+
+    Raises:
+        HTTPException: 400 when the region is not one area code
+    """
+    if region is None:
+        return {}
+    try:
+        return {"region": normalize_region_code(region)}
+    except BoxOfficeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 class BoxOfficeMovieResponse(BaseModel):
@@ -33,12 +57,21 @@ class BoxOfficeMovieResponse(BaseModel):
 
 
 @router.get("/current", response_model=List[BoxOfficeMovieResponse])
-async def get_current_box_office():
+async def get_current_box_office(
+    region: Optional[str] = Query(
+        None,
+        description="Box Office Mojo area code (e.g. DE), or 'domestic'; "
+        "defaults to the first configured region",
+    ),
+):
     """Get current week's box office with Radarr matching."""
+    region_kwargs = _region_kwargs(region)
     try:
         # Get current week's box office
         boxoffice_service = BoxOfficeService()
-        movies = await asyncio.to_thread(boxoffice_service.get_current_week_movies)
+        movies = await asyncio.to_thread(
+            partial(boxoffice_service.get_current_week_movies, **region_kwargs)
+        )
 
         # Match with Radarr if configured
         results = []
@@ -104,8 +137,17 @@ async def get_current_box_office():
 
 
 @router.get("/history/{year}/W{week}")
-async def get_historical_box_office(year: int, week: int):
+async def get_historical_box_office(
+    year: int,
+    week: int,
+    region: Optional[str] = Query(
+        None,
+        description="Box Office Mojo area code (e.g. DE), or 'domestic'; "
+        "defaults to the first configured region",
+    ),
+):
     """Get historical box office data for a specific week."""
+    region_kwargs = _region_kwargs(region)
     try:
         # Validate year and week
         if year < 2000 or year > datetime.now().year:
@@ -116,7 +158,12 @@ async def get_historical_box_office(year: int, week: int):
         # Get historical data
         boxoffice_service = BoxOfficeService()
         movies = await asyncio.to_thread(
-            boxoffice_service.fetch_weekend_box_office, year, week
+            partial(
+                boxoffice_service.fetch_weekend_box_office,
+                year,
+                week,
+                **region_kwargs,
+            )
         )
 
         # Return simplified data
