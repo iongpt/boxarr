@@ -1,14 +1,19 @@
 """Shared auto-add logic for adding unmatched movies to Radarr."""
 
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
-from ..utils.config import format_min_gross, settings
+from ..utils.config import (
+    configured_box_office_regions,
+    format_min_gross,
+    settings,
+)
 from ..utils.logger import get_logger
-from .boxoffice import BoxOfficeMovie
+from .boxoffice import BoxOfficeMovie, region_label
 from .ignore_list import IgnoreList
 from .languages import is_known_language, normalize_language
 from .matcher import MatchResult
 from .radarr import RadarrService
+from .region_charts import best_weekend_gross, region_order
 from .root_folder_manager import RootFolderManager
 
 logger = get_logger(__name__)
@@ -111,6 +116,24 @@ def _gross_allowed(weekend_gross: Optional[float], config: Any) -> bool:
     return bool(weekend_gross >= threshold)
 
 
+def _best_weekend_gross(movie: BoxOfficeMovie) -> Optional[float]:
+    """
+    Return the weekend gross the minimum-gross gate compares.
+
+    A film merged across regions is judged by its best weekend: the
+    highest weekend gross in any region it charted in, so a film that took
+    $11.0M domestic is not dropped for its $60.8K in Romania. Without
+    region rows (or with no gross in any of them) the film's own figure is
+    used, None included.
+    """
+    return best_weekend_gross(movie.regions or [], movie.weekend_gross)
+
+
+def _chart_position(movie: BoxOfficeMovie) -> str:
+    """Describe a film's lead chart position for logs, e.g. 'rank #2 DE'."""
+    return f"rank #{movie.rank} {region_label(movie.region)}"
+
+
 def _warn_on_unmatchable_language_whitelist(
     config: Any, radarr_service: Any = None
 ) -> None:
@@ -159,18 +182,26 @@ def _warn_on_unmatchable_language_whitelist(
         )
 
 
-def auto_add_missing_movies(
+def auto_add_missing_movies(  # noqa: C901
     match_results: List[MatchResult],
     radarr_service: RadarrService,
     top_year: int,
+    *,
+    regions: Optional[Sequence[str]] = None,
 ) -> List[str]:
     """
     Add unmatched movies to Radarr with filters and validation.
+
+    The unmatched films of every region are considered in one pass, in
+    chart order: lead rank, then the lead region's configured position
+    (#1 domestic, #1 Romania, #2 domestic, ...). For one region that is
+    simply the rank. The auto-add limit is one cap for the whole run.
 
     Args:
         match_results: Match results from movie matching
         radarr_service: Radarr service instance
         top_year: Year used for re-release filtering
+        regions: Configured area codes, in order; defaults to the setting
 
     Returns:
         List of added movie titles
@@ -181,13 +212,24 @@ def auto_add_missing_movies(
     if not unmatched:
         return []
 
-    # Apply limit if configured
+    order = region_order(
+        regions if regions is not None else configured_box_office_regions(settings)
+    )
+
+    def _chart_order(result: MatchResult) -> Tuple[int, int]:
+        movie = result.box_office_movie
+        return (movie.rank, order.get(movie.region or "", len(order)))
+
+    unmatched = sorted(unmatched, key=_chart_order)
+
+    # Apply limit if configured. It trims the chart before any gate below,
+    # so a film a gate then drops still uses its slot.
     limit = settings.boxarr_features_auto_add_limit
     if limit < len(unmatched):
         logger.info(
             f"Limiting auto-add to top {limit} movies (out of {len(unmatched)} unmatched)"
         )
-        unmatched = sorted(unmatched, key=lambda r: r.box_office_movie.rank)[:limit]
+        unmatched = unmatched[:limit]
 
     if not unmatched:
         logger.info("No movies to auto-add - all top movies are already in Radarr")
@@ -212,16 +254,23 @@ def auto_add_missing_movies(
 
     _warn_on_unmatchable_language_whitelist(settings, radarr_service)
 
+    # TMDB films already tried in this run. Two regions' rows that could not
+    # be merged (a localized title without an IMDb id) can look up the same
+    # film; only the first is considered.
+    seen_tmdb_ids: Set[Any] = set()
+
     for result in unmatched:
         try:
             # Minimum weekend gross filter. _gross_allowed owns the whole
             # policy - disabled, a 0 threshold and an unknown gross all pass -
             # so the loop only logs. It runs before the TMDB lookup below, so a
-            # movie under the threshold costs no Radarr request at all.
-            weekend_gross = result.box_office_movie.weekend_gross
+            # movie under the threshold costs no Radarr request at all. A film
+            # charting in several regions is judged by its best weekend.
+            position = _chart_position(result.box_office_movie)
+            weekend_gross = _best_weekend_gross(result.box_office_movie)
             if not _gross_allowed(weekend_gross, settings):
                 logger.info(
-                    f"Skipping '{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
+                    f"Skipping '{result.box_office_movie.title}' ({position}) - "
                     f"weekend gross ${weekend_gross:,.0f} below minimum "
                     f"${format_min_gross(settings.boxarr_features_auto_add_min_gross)}"
                 )
@@ -235,7 +284,7 @@ def auto_add_missing_movies(
                 # still drop the movie, so "adding anyway" would be denied by
                 # the very next line of the log often enough to mislead.
                 logger.info(
-                    f"'{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
+                    f"'{result.box_office_movie.title}' ({position}) - "
                     f"unknown weekend gross - minimum-gross filter not applied"
                 )
 
@@ -244,17 +293,27 @@ def auto_add_missing_movies(
 
             if not search_results:
                 logger.warning(
-                    f"Movie '{result.box_office_movie.title}' not found in TMDB"
+                    f"Movie '{result.box_office_movie.title}' ({position}) not found "
+                    "in TMDB"
                 )
                 continue
 
             movie_info = _select_search_result(search_results, result.box_office_movie)
 
-            # Skip movies on the ignore list
             movie_tmdb_id = movie_info.get("tmdbId")
+            if movie_tmdb_id:
+                if movie_tmdb_id in seen_tmdb_ids:
+                    logger.info(
+                        f"Skipping '{result.box_office_movie.title}' ({position}) - "
+                        f"TMDB film {movie_tmdb_id} was already considered in this run"
+                    )
+                    continue
+                seen_tmdb_ids.add(movie_tmdb_id)
+
+            # Skip movies on the ignore list
             if movie_tmdb_id and movie_tmdb_id in ignored_ids:
                 logger.info(
-                    f"Skipping '{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
+                    f"Skipping '{result.box_office_movie.title}' ({position}) - "
                     f"movie is on the ignore list"
                 )
                 continue
@@ -271,7 +330,7 @@ def auto_add_missing_movies(
                             movie_year = int(rd[:4])
                     if movie_year and int(movie_year) < (top_year - 1):
                         logger.info(
-                            f"Skipping '{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
+                            f"Skipping '{result.box_office_movie.title}' ({position}) - "
                             f"release year {movie_year} older than cutoff {(top_year - 1)}"
                         )
                         continue
@@ -288,7 +347,7 @@ def auto_add_missing_movies(
                         genre in whitelist for genre in movie_genres
                     ):
                         logger.info(
-                            f"Skipping '{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
+                            f"Skipping '{result.box_office_movie.title}' ({position}) - "
                             f"genres {movie_genres} not in whitelist {whitelist}"
                         )
                         continue
@@ -296,7 +355,7 @@ def auto_add_missing_movies(
                     blacklist = settings.boxarr_features_auto_add_genre_blacklist
                     if blacklist and any(genre in blacklist for genre in movie_genres):
                         logger.info(
-                            f"Skipping '{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
+                            f"Skipping '{result.box_office_movie.title}' ({position}) - "
                             f"contains blacklisted genre(s) from {blacklist}"
                         )
                         continue
@@ -312,7 +371,7 @@ def auto_add_missing_movies(
                     and movie_rating not in rating_whitelist
                 ):
                     logger.info(
-                        f"Skipping '{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
+                        f"Skipping '{result.box_office_movie.title}' ({position}) - "
                         f"rating '{movie_rating}' not in allowed ratings {rating_whitelist}"
                     )
                     continue
@@ -329,12 +388,12 @@ def auto_add_missing_movies(
                     if lang_mode == "whitelist":
                         whitelist = settings.boxarr_features_auto_add_language_whitelist
                         logger.info(
-                            f"Skipping '{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
+                            f"Skipping '{result.box_office_movie.title}' ({position}) - "
                             f"language '{original_language}' not in whitelist {whitelist}"
                         )
                     else:
                         logger.info(
-                            f"Skipping '{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
+                            f"Skipping '{result.box_office_movie.title}' ({position}) - "
                             f"language '{original_language}' blacklisted"
                         )
                     continue
@@ -356,7 +415,7 @@ def auto_add_missing_movies(
                 settings.radarr_search_for_movie,  # search for movie
             )
             logger.info(
-                f"Auto-added movie to Radarr: {added_movie.title} "
+                f"Auto-added movie to Radarr: {added_movie.title} ({position}) "
                 f"with profile '{default_profile.name}' in folder '{root_folder}'"
             )
             added_movies.append(added_movie.title)
