@@ -715,6 +715,18 @@ class SettingsProxy:
     def __setattr__(self, name, value):
         setattr(get_settings(), name, value)
 
+    @property
+    def __dict__(self):  # type: ignore[override]
+        """
+        Expose the live settings' attribute dict.
+
+        pytest's monkeypatch (9.2+) records the value to restore from the
+        target's instance ``__dict__``. The proxy holds no attributes of its
+        own, so without this it records "unset", leaves the patched value in
+        place, and fails at teardown trying to delete the field.
+        """
+        return get_settings().__dict__
+
 
 # Export settings as a proxy for lazy loading
 settings: Settings = SettingsProxy()  # type: ignore
