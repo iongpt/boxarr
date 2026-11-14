@@ -50,7 +50,7 @@ Boxarr ensures your library includes the mainstream movies that dominated theate
 
 ## ✨ Key Features
 
-- **📊 [Weekly Box Office Tracking](https://github.com/iongpt/boxarr/wiki/Box-Office-Tracking)** - Automatically fetches top 10 movies from Box Office Mojo
+- **📊 [Weekly Box Office Tracking](https://github.com/iongpt/boxarr/wiki/Box-Office-Tracking)** - Automatically fetches the weekend's top movies from Box Office Mojo, for up to 5 regions at once
 - **🔄 [Radarr Integration](https://github.com/iongpt/boxarr/wiki/Configuration-Guide#radarr-connection)** - Seamlessly checks and adds movies to your library
 - **🗂️ [Genre‑Based Root Folders](https://github.com/iongpt/boxarr/wiki/Genre-Based-Root-Folders)** - Organize movies into folders by genre
 - **⚡ [Auto-Add Movies](https://github.com/iongpt/boxarr/wiki/Configuration-Guide#automation-settings)** - Automatically add trending movies with smart filters
@@ -129,15 +129,36 @@ environment:
 
 **[View reverse proxy setup guide →](https://github.com/iongpt/boxarr/wiki/Configuration-Guide#reverse-proxy-configuration)**
 
-### Box Office Region & Timeout
+### Box Office Regions & Timeout
 
-By default Boxarr tracks the US & Canada domestic chart. Set a Box Office Mojo `area` code to follow a different region, and tune the scraper timeout for slow connections.
+By default Boxarr tracks the US & Canada domestic chart. Set a Box Office Mojo `area` code to follow a different region, or list up to 5 regions to track several at once, and tune the scraper timeout for slow connections. The setup page offers the same choice as a checkbox list.
 
 ```yaml
 environment:
   - BOXARR_FEATURES_BOX_OFFICE_REGION=NL  # BOM area code (e.g. NL, DE, GB); empty = US & Canada domestic
   - BOXOFFICE_TIMEOUT=120                 # Box Office Mojo request timeout in seconds (default 120, range 5-600)
 ```
+
+The region setting takes any of these forms; `domestic` stands for the US & Canada chart:
+
+| Form | Example | Tracks |
+|------|---------|--------|
+| One code | `NL` | the Netherlands |
+| Comma-separated | `domestic,DE` | US & Canada, then Germany |
+| JSON list | `["NL","DE"]` | the Netherlands, then Germany |
+
+In `local.yaml` the same setting is `boxarr.features.box_office_region`, as a single code or a YAML list (an unquoted `NO`, which YAML reads as `false`, is still taken as Norway).
+
+With several regions:
+
+- **At most 5 regions** are used; a longer list is cut off with a warning, and the setup page will not save more.
+- **`box_office_limit` applies per region**: with a limit of 10 and 3 regions, up to 30 chart rows are read each week.
+- Each week is **one combined list without duplicates**: a film that charted in several regions appears once. The weekly page also shows each region's own chart on its own tab.
+- **`auto_add_limit` stays one cap per run**, across all regions, in chart order.
+- **The minimum-gross filter** compares a film's best weekend gross across its regions.
+- If a region cannot be fetched, the other regions are still saved: the failed region keeps the chart from the week's previous update when there is one, and the weekly page shows a notice for it. A week saved before multi-region support is left unchanged instead.
+
+While `BOXARR_FEATURES_BOX_OFFICE_REGION` is set, it overrides `local.yaml` and the setup page shows the region picker locked.
 
 ### API Access
 
