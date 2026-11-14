@@ -209,6 +209,9 @@
                 <div class="form-group" style="margin-top: 1rem;">
                     <label for="boxOfficeRegion" class="form-label">Box Office Region</label>
                     <select id="boxOfficeRegion" name="boxarr_features_box_office_region" class="form-select">
+                        {% if not box_office_region_listed %}
+                        <option value="{{ box_office_region }}" selected>{{ box_office_region_name }}</option>
+                        {% endif %}
                         {% for code, name in box_office_regions %}
                         <option value="{{ code }}" {% if box_office_region == code %}selected{% endif %}>{{ name }}</option>
                         {% endfor %}

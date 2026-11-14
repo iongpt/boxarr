@@ -12,7 +12,7 @@ Radarr is unreachable or not yet configured; a live fetch
 merged on top of it.
 """
 
-from typing import Dict, Iterable, List
+from typing import Dict, Iterable, List, Union
 
 # Snapshot of Radarr's GET /api/v3/language (Radarr v5), excluding the
 # pseudo-languages Any (-1), Original (-2) and Unknown (0): those are
@@ -241,6 +241,27 @@ def merge_language_options(*groups: Iterable[str]) -> List[str]:
     return sorted(merged.values(), key=str.casefold)
 
 
-def suggested_languages(region_code: str) -> List[str]:
-    """Languages suggested for a Box Office Mojo area code (never auto-applied)."""
-    return list(REGION_DEFAULT_LANGUAGES.get(region_code or "", []))
+def suggested_languages(
+    region_codes: Union[None, str, Iterable[str]],
+) -> List[str]:
+    """Languages suggested for Box Office Mojo area codes (never auto-applied).
+
+    Args:
+        region_codes: One area code, or several in configured order; "" or
+            None is domestic (US & Canada)
+
+    Returns:
+        A new list holding each region's suggestions in region order, every
+        language once
+    """
+    codes = (
+        [region_codes]
+        if region_codes is None or isinstance(region_codes, str)
+        else region_codes
+    )
+    suggested: List[str] = []
+    for code in codes:
+        for name in REGION_DEFAULT_LANGUAGES.get(code or "", []):
+            if name not in suggested:
+                suggested.append(name)
+    return suggested

@@ -3,12 +3,12 @@
 import os
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 import httpx
 import yaml
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from ... import __version__
 from ...core.languages import (
@@ -18,11 +18,15 @@ from ...core.languages import (
 )
 from ...core.radarr import RadarrService
 from ...utils.config import (
+    DOMESTIC_REGION,
     MIN_GROSS_MAX,
     RootFolderConfig,
     RootFolderMapping,
     Settings,
+    configured_box_office_regions,
+    parse_box_office_regions,
     settings,
+    validate_box_office_regions,
     yaml_paths_for_field,
 )
 from ...utils.logger import get_logger
@@ -67,8 +71,11 @@ class SaveConfigRequest(BaseModel):
     boxarr_features_quality_upgrade: bool = True
     # Box office fetch limit
     boxarr_features_box_office_limit: int = 10
-    # Box office region (BOM area code; "" means US & Canada domestic)
-    boxarr_features_box_office_region: str = ""
+    # Box office regions, kept in the order given: Box Office Mojo area codes,
+    # "" or "domestic" meaning US & Canada. A list, or a string - one code, as
+    # setup pages before multi-region post, or comma-joined codes. None
+    # carries over the current value on save; an empty list is rejected.
+    boxarr_features_box_office_region: Optional[Union[List[str], str]] = None
     # HTTP request timeouts (seconds); None carries over the current value on save
     boxoffice_timeout: Optional[float] = Field(default=None, ge=5, le=600)
     radarr_timeout: Optional[float] = Field(default=None, ge=5, le=600)
@@ -102,6 +109,17 @@ class SaveConfigRequest(BaseModel):
     boxarr_ui_theme: str = "light"
     # Hide ignored movies from list views; None carries over the current value
     boxarr_ui_hide_ignored: Optional[bool] = None
+
+    @field_validator("boxarr_features_box_office_region", mode="before")
+    @classmethod
+    def check_box_office_regions(cls, v: Any) -> Optional[str]:
+        """Normalize the region selection, rejecting one that cannot be saved.
+
+        An invalid code or too many regions fails the request with a 422
+        rather than being dropped, so the user never ends up with less than
+        they asked for. Returns the canonical comma-joined form.
+        """
+        return None if v is None else validate_box_office_regions(v)
 
 
 @router.get("/root-folders")
@@ -173,7 +191,7 @@ def get_language_options():
         "languages": languages,
         "source": "radarr" if live else "builtin",
         "suggested": suggested_languages(
-            current_settings.boxarr_features_box_office_region
+            configured_box_office_regions(current_settings)
         ),
     }
 
@@ -245,6 +263,23 @@ def _whole_dollars(value: float) -> int:
 # stored file explicitly - otherwise a cleared upgrade profile could never be
 # cleared.
 _RADARR_KEYS_DROPPED_WHEN_EMPTY = ("quality_profile_upgrade", "minimum_availability")
+
+
+def _box_office_region_yaml(regions: List[str]) -> Union[str, List[str]]:
+    """Return the value saved as ``boxarr.features.box_office_region``.
+
+    One region is saved as its bare code, "" for domestic, exactly as before
+    several regions were possible - so the file stays readable by an older
+    release. Several are saved as a list in the given order, with "domestic"
+    standing for "". ``safe_dump`` quotes NO, which YAML 1.1 would otherwise
+    load as false.
+
+    Args:
+        regions: Area codes in configured order, "" for domestic
+    """
+    if len(regions) == 1:
+        return regions[0]
+    return [code or DOMESTIC_REGION for code in regions]
 
 
 def _read_existing_config(config_path: Path) -> Optional[Dict[Any, Any]]:
@@ -416,6 +451,16 @@ async def save_configuration(config: SaveConfigRequest):
         elif existing_config:
             current_file_settings.load_from_yaml(config_path)
 
+        # An omitted region selection carries the current one over instead
+        # of resetting it to domestic. A posted one is already the canonical
+        # string: the request validator normalizes lists and strings alike.
+        posted_regions = config.boxarr_features_box_office_region
+        box_office_regions = (
+            configured_box_office_regions(settings)
+            if posted_regions is None
+            else parse_box_office_regions(cast(str, posted_regions))
+        )
+
         # Build config dict
         radarr_config: Dict[str, Any] = {
             "url": config.radarr_url,
@@ -517,7 +562,7 @@ async def save_configuration(config: SaveConfigRequest):
                     "auto_add": config.boxarr_features_auto_add,
                     "quality_upgrade": config.boxarr_features_quality_upgrade,
                     "box_office_limit": config.boxarr_features_box_office_limit,
-                    "box_office_region": config.boxarr_features_box_office_region,
+                    "box_office_region": _box_office_region_yaml(box_office_regions),
                     "auto_tag_enabled": config.boxarr_features_auto_tag_enabled,
                     "auto_tag_text": config.boxarr_features_auto_tag_text,
                     "auto_add_options": {

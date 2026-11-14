@@ -4,12 +4,12 @@ import re
 import time
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 import httpx
 from bs4 import BeautifulSoup, SoupStrainer, Tag
 
-from ..utils.config import settings
+from ..utils.config import configured_box_office_regions, settings
 from ..utils.logger import get_logger
 from .exceptions import BoxOfficeError
 
@@ -103,6 +103,12 @@ BOX_OFFICE_REGIONS: List[Tuple[str, str]] = [
     ("VE", "Venezuela"),
     ("VN", "Vietnam"),
 ]
+
+# A Box Office Mojo area code: two letters. Domestic has none ("").
+_AREA_CODE = re.compile(r"[A-Z]{2}")
+
+# Region lists already reported as fetching only their first region.
+_UNFETCHED_REGIONS_LOGGED: Set[Tuple[str, ...]] = set()
 
 # ISO weekday (Monday=1 ... Sunday=7) on which each market's Box Office Mojo
 # weekend starts. Mojo numbers a market's weekends by the calendar year and
@@ -421,23 +427,47 @@ class BoxOfficeService:
     @staticmethod
     def _normalize_region(region: Optional[str]) -> str:
         """
-        Normalize a region setting to a Box Office Mojo area code.
+        Normalize one region to a Box Office Mojo area code.
 
         Args:
-            region: Configured region, e.g. " fr ", "DE", "domestic" or ""
+            region: A single region, e.g. " fr ", "DE", "domestic" or ""
 
         Returns:
             Upper-case area code, or "" for the domestic (US & Canada) chart
+
+        Raises:
+            BoxOfficeError: If the region is not one area code. The region
+                setting can list several, comma-joined; passing it here
+                unsplit would otherwise fetch ?area=DOMESTIC,DE.
         """
         code = (region or "").strip().upper()
-        return "" if code == "DOMESTIC" else code
+        if code == "DOMESTIC":
+            return ""
+        if code and not _AREA_CODE.fullmatch(code):
+            raise BoxOfficeError(
+                f"Invalid Box Office Mojo region {region!r}: expected one "
+                "two-letter area code, or 'domestic'"
+            )
+        return code
 
     @classmethod
     def _configured_region(cls) -> str:
-        """Return the normalized area code of the configured region."""
-        return cls._normalize_region(
-            getattr(settings, "boxarr_features_box_office_region", "") or ""
-        )
+        """
+        Return the area code of the first configured region.
+
+        Reads this module's ``settings`` so tests can patch it here.
+        """
+        regions = configured_box_office_regions(settings)
+        if len(regions) > 1 and tuple(regions) not in _UNFETCHED_REGIONS_LOGGED:
+            # Once per configured list, not on every chart URL built.
+            _UNFETCHED_REGIONS_LOGGED.add(tuple(regions))
+            logger.info(
+                "Box office regions %s are configured; only the first, %s, is "
+                "fetched",
+                ", ".join(code or "domestic" for code in regions),
+                regions[0] or "domestic",
+            )
+        return cls._normalize_region(regions[0])
 
     @staticmethod
     def _weekend_start(region: str) -> int:
@@ -466,15 +496,16 @@ class BoxOfficeService:
         Args:
             year: ISO year
             week: ISO week number
-            region: Area code; None uses the configured region, and "" or
-                "domestic" selects the US & Canada chart
+            region: One area code; None uses the first configured region,
+                and "" or "domestic" selects the US & Canada chart
 
         Returns:
             Weekend chart URL for the market's Mojo weekend number, with
             ?area=CODE appended for non-domestic regions
 
         Raises:
-            BoxOfficeError: If the year has no such ISO week
+            BoxOfficeError: If the year has no such ISO week, or the region
+                is not a single area code
         """
         code = (
             self._configured_region()
@@ -754,10 +785,10 @@ class BoxOfficeService:
         """
         Fetch box office data for a specific weekend.
 
-        The chart comes from the configured region. Its ISO week is mapped to
-        that market's Mojo weekend number, which depends on the day its
-        weekends start (see REGION_WEEKEND_START), so it can differ from the
-        ISO week. Before the chart is parsed, the date range printed on the
+        The chart comes from the first configured region. Its ISO week is
+        mapped to that market's Mojo weekend number, which depends on the day
+        its weekends start (see REGION_WEEKEND_START), so it can differ from
+        the ISO week. Before the chart is parsed, the date range printed on the
         page is checked against the ISO week. On a mismatch the market's
         start day is learned from the page and the chart is fetched once
         more; a page with no readable date range is accepted as is.
