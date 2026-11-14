@@ -1,0 +1,289 @@
+"""Integration tests: the overview, week list and widget over merged weeks.
+
+A week built from several box office regions holds one entry per film, with
+a row per region. The overview lists each film once with every week it
+appeared in - once per week - and its best weekend gross across all its
+appearances, weeks and regions alike. A stored null rank or gross (both are
+written for films Mojo reported without one) must never 500 the page.
+
+GET /api/weeks and the overview's recent weeks keep their shape; a week's
+movie_count is its number of films. The widget JSON names each film's region.
+"""
+
+import asyncio
+import json
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import pytest
+import yaml
+from bs4 import BeautifulSoup
+from fastapi.testclient import TestClient
+
+import src.utils.config as cfg_utils
+from src.api.app import create_app
+from src.api.routes.web import aggregate_all_movies
+
+
+def _movie(
+    title: str,
+    tmdb_id: Optional[int],
+    rank: Any,
+    gross: Any,
+    region: Optional[str] = None,
+    rows: Optional[List[dict]] = None,
+) -> Dict[str, Any]:
+    movie: Dict[str, Any] = {
+        "rank": rank,
+        "title": title,
+        "weekend_gross": gross,
+        "total_gross": None,
+        "radarr_id": None,
+        "status": "Not in Radarr",
+        "has_file": False,
+        "year": 2026,
+        "tmdb_id": tmdb_id,
+    }
+    if region is not None:
+        movie["region"] = region
+        movie["regions"] = rows or [
+            {"code": region, "rank": rank, "weekend_gross": gross}
+        ]
+    return movie
+
+
+def _week(week: int, movies: List[dict], regions: Optional[List[str]] = None):
+    data: Dict[str, Any] = {
+        "year": 2026,
+        "week": week,
+        "generated_at": "2026-11-03T10:00:00",
+        "movies": movies,
+    }
+    if regions is not None:
+        data.update(
+            {
+                "data_version": 2,
+                "regions": regions,
+                "region_status": [{"region": code, "status": "ok"} for code in regions],
+            }
+        )
+    return data
+
+
+@pytest.fixture
+def seed(tmp_path, monkeypatch):
+    for field in cfg_utils.Settings.model_fields:
+        monkeypatch.delenv(field.upper(), raising=False)
+    monkeypatch.setenv("BOXARR_DATA_DIRECTORY", str(tmp_path))
+    (tmp_path / "local.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "radarr": {
+                    "url": "http://localhost:7878",
+                    "api_key": "test-key",
+                    "root_folder": "/movies",
+                    "quality_profile_default": "HD-1080p",
+                },
+                "boxarr": {"scheduler": {"enabled": False}},
+            }
+        )
+    )
+
+    def _seed(*weeks: dict) -> TestClient:
+        pages = tmp_path / "weekly_pages"
+        pages.mkdir(parents=True, exist_ok=True)
+        for data in weeks:
+            name = f"{data['year']}W{data['week']:02d}.json"
+            (pages / name).write_text(json.dumps(data))
+        monkeypatch.setattr(cfg_utils, "_settings", None)
+        return TestClient(create_app())
+
+    return _seed
+
+
+def _aggregate() -> Dict[str, dict]:
+    return {m["title"]: m for m in asyncio.run(aggregate_all_movies())}
+
+
+class TestOverview:
+    def test_null_gross_and_rank_do_not_break_the_page(self, seed):
+        client = seed(
+            _week(
+                44,
+                [
+                    _movie("Has Gross", 1, 1, 5_000_000.0),
+                    _movie("No Gross", 2, None, None),
+                    _movie("String Gross", 3, "x", "n/a"),
+                ],
+            )
+        )
+
+        response = client.get("/overview")
+
+        assert response.status_code == 200
+        soup = BeautifulSoup(response.text, "html.parser")
+        titles = [h.get_text(strip=True) for h in soup.find_all(class_="movie-title")]
+        assert titles == ["Has Gross", "No Gross", "String Gross"]
+        badges = [b.get_text(strip=True) for b in soup.find_all(class_="rank-badge")]
+        assert badges == ["#1", "#999", "#999"]
+
+    def test_null_gross_in_a_merged_week_row(self, seed):
+        client = seed(
+            _week(
+                44,
+                [
+                    _movie(
+                        "Clayface",
+                        1,
+                        1,
+                        None,
+                        region="",
+                        rows=[
+                            {"code": "", "rank": 1, "weekend_gross": None},
+                            {"code": "RO", "rank": 3, "weekend_gross": 60_800.0},
+                        ],
+                    ),
+                    _movie("Other", 2, 2, None, region="RO"),
+                ],
+                regions=["", "RO"],
+            )
+        )
+
+        assert client.get("/overview").status_code == 200
+        movies = _aggregate()
+        assert movies["Clayface"]["best_weekend_gross"] == 60_800.0
+        assert movies["Other"]["best_weekend_gross"] == 0
+
+    def test_a_film_counts_each_week_once(self, seed):
+        # Two entries for one TMDB film in one week: e.g. both already linked
+        # to Radarr, which the merge leaves apart.
+        seed(
+            _week(
+                44,
+                [
+                    _movie("Clayface", 7, 1, 11_000_000.0, region=""),
+                    _movie("Clayface (RO)", 7, 3, 60_800.0, region="RO"),
+                ],
+                regions=["", "RO"],
+            ),
+            _week(45, [_movie("Clayface", 7, 2, 4_000_000.0, region="")], [""]),
+        )
+
+        (movie,) = asyncio.run(aggregate_all_movies())
+
+        assert movie["weeks"] == ["2026W44", "2026W45"]
+        assert movie["best_rank"] == 1
+        assert movie["best_weekend_gross"] == 11_000_000.0
+
+    def test_best_gross_is_the_highest_of_every_appearance(self, seed):
+        seed(
+            # Week 43: #1 in a slow week.
+            _week(43, [_movie("Film", 1, 1, 3_000_000.0)]),
+            # Week 44: led the Romanian chart, but grossed more at #4 domestic.
+            _week(
+                44,
+                [
+                    _movie(
+                        "Film",
+                        1,
+                        1,
+                        200_000.0,
+                        region="RO",
+                        rows=[
+                            {"code": "", "rank": 4, "weekend_gross": 5_000_000.0},
+                            {"code": "RO", "rank": 1, "weekend_gross": 200_000.0},
+                        ],
+                    )
+                ],
+                regions=["", "RO"],
+            ),
+        )
+
+        movie = _aggregate()["Film"]
+
+        assert movie["best_rank"] == 1
+        assert movie["best_weekend_gross"] == 5_000_000.0
+        assert movie["weeks"] == ["2026W43", "2026W44"]
+
+    def test_films_are_sorted_by_best_gross_nulls_last(self, seed):
+        seed(
+            _week(
+                44,
+                [
+                    _movie("Small", 1, 3, 10.0),
+                    _movie("Null", 2, 2, None),
+                    _movie("Big", 3, 1, 1_000.0),
+                ],
+            )
+        )
+
+        titles = [m["title"] for m in asyncio.run(aggregate_all_movies())]
+
+        assert titles == ["Big", "Small", "Null"]
+
+    def test_search_survives_a_null_title(self, seed):
+        client = seed(
+            _week(44, [_movie(None, 1, 1, 10.0), _movie("Wicker", 2, 2, 5.0)])
+        )
+
+        response = client.get("/overview?search=wick")
+
+        assert response.status_code == 200
+        assert "Wicker" in response.text
+
+
+class TestWeekList:
+    def test_shape_is_unchanged_and_counts_films(self, seed):
+        client = seed(
+            _week(
+                44,
+                [
+                    _movie("A", 1, 1, 10.0, region=""),
+                    _movie("B", 2, 1, 5.0, region="RO"),
+                    _movie("C", 3, 2, 4.0, region=""),
+                ],
+                regions=["", "RO"],
+            )
+        )
+
+        (week,) = client.get("/api/weeks").json()
+
+        assert set(week) == {
+            "year",
+            "week",
+            "filename",
+            "date_range",
+            "movie_count",
+            "matched_count",
+            "has_data",
+            "timestamp_str",
+        }
+        assert week["movie_count"] == 3
+
+
+class TestWidget:
+    def test_widget_json_names_each_films_region(self, seed):
+        client = seed(
+            _week(
+                44,
+                [
+                    _movie("A", 1, 1, 10.0, region=""),
+                    _movie("B", 2, 1, 5.0, region="RO"),
+                ],
+                regions=["", "RO"],
+            )
+        )
+
+        movies = client.get("/api/widget/json").json()["movies"]
+
+        assert movies == [
+            {"rank": 1, "title": "A", "gross": 10.0, "region": ""},
+            {"rank": 1, "title": "B", "gross": 5.0, "region": "RO"},
+        ]
+
+    def test_legacy_week_has_no_region(self, seed):
+        client = seed(_week(44, [_movie("A", 1, 1, 10.0)]))
+
+        movies = client.get("/api/widget/json").json()["movies"]
+
+        assert movies == [{"rank": 1, "title": "A", "gross": 10.0, "region": None}]

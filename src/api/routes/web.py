@@ -120,8 +120,53 @@ async def settings_redirect(request: Request):
     return RedirectResponse(url=f"{base}/setup")
 
 
+# Shown for a film whose stored rank is missing, as before.
+_NO_BEST_RANK = 999
+
+
+def _stored_rank(value: object) -> Optional[int]:
+    """A stored rank, or None when it is missing or not a whole number."""
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    return None
+
+
+def _stored_gross(value: object) -> Optional[float]:
+    """A stored gross, or None when it is missing or not a finite number."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        amount = float(value)
+        if math.isfinite(amount):
+            return amount
+    return None
+
+
+def _appearance_best_gross(movie: dict) -> Optional[float]:
+    """A stored film's best weekend gross in one week, across its regions.
+
+    A film of a multi-region week has a row per region it charted in; its
+    top-level gross is only its lead region's. Legacy entries have no rows.
+    """
+    rows = movie.get("regions")
+    grosses = [_stored_gross(movie.get("weekend_gross"))]
+    if isinstance(rows, list):
+        grosses += [
+            _stored_gross(row.get("weekend_gross"))
+            for row in rows
+            if isinstance(row, dict)
+        ]
+    known = [gross for gross in grosses if gross is not None]
+    return max(known) if known else None
+
+
 async def aggregate_all_movies() -> List[dict]:
-    """Aggregate all movies from all weekly JSON files, handling duplicates."""
+    """Aggregate all movies from all weekly JSON files, handling duplicates.
+
+    Each film is listed once, with every week it appeared in (once per week,
+    however many regions it charted in or entries it has there), its best
+    rank and its best weekend gross - the highest of every appearance, in any
+    week and any region. Missing or null ranks and grosses never break the
+    comparison or the sort.
+    """
     weekly_pages_dir = Path(settings.boxarr_data_directory) / "weekly_pages"
     if not weekly_pages_dir.exists():
         return []
@@ -143,36 +188,51 @@ async def aggregate_all_movies() -> List[dict]:
             week_str = f"{year}W{week:02d}"
 
             for movie in metadata.get("movies", []):
+                if not isinstance(movie, dict):
+                    continue
                 # Use TMDB ID as primary key, fallback to title+year
                 if movie.get("tmdb_id"):
                     key = f"tmdb_{movie['tmdb_id']}"
                 else:
                     key = f"{movie.get('title', 'unknown')}_{movie.get('year', 0)}"
 
-                if key in movies_by_key:
-                    # Movie already exists, add this week to its appearances
-                    movies_by_key[key]["weeks"].append(week_str)
-                    # Update with better data if this week has higher rank
-                    if movie.get("rank", 999) < movies_by_key[key]["best_rank"]:
-                        movies_by_key[key]["best_rank"] = movie.get("rank", 999)
-                        movies_by_key[key]["best_weekend_gross"] = movie.get(
-                            "weekend_gross", 0
-                        )
-                else:
+                rank = _stored_rank(movie.get("rank"))
+                gross = _appearance_best_gross(movie)
+                entry = movies_by_key.get(key)
+                if entry is None:
                     # New movie entry
-                    movie_copy = dict(movie)
-                    movie_copy["weeks"] = [week_str]
-                    movie_copy["best_rank"] = movie.get("rank", 999)
-                    movie_copy["best_weekend_gross"] = movie.get("weekend_gross", 0)
-                    movies_by_key[key] = movie_copy
+                    entry = dict(movie)
+                    entry["weeks"] = []
+                    entry["best_rank"] = None
+                    entry["best_weekend_gross"] = None
+                    movies_by_key[key] = entry
+
+                # One week counts once, even if the film has two entries in it.
+                if week_str not in entry["weeks"]:
+                    entry["weeks"].append(week_str)
+                if rank is not None and (
+                    entry["best_rank"] is None or rank < entry["best_rank"]
+                ):
+                    entry["best_rank"] = rank
+                if gross is not None and (
+                    entry["best_weekend_gross"] is None
+                    or gross > entry["best_weekend_gross"]
+                ):
+                    entry["best_weekend_gross"] = gross
 
         except Exception as e:
             logger.warning(f"Error reading {json_file}: {e}")
             continue
 
-    # Convert to list and sort by best weekend gross (highest first)
     movies_list = list(movies_by_key.values())
-    movies_list.sort(key=lambda x: x.get("best_weekend_gross", 0), reverse=True)
+    for entry in movies_list:
+        if entry["best_rank"] is None:
+            entry["best_rank"] = _NO_BEST_RANK
+        if entry["best_weekend_gross"] is None:
+            entry["best_weekend_gross"] = 0
+
+    # Sort by best weekend gross (highest first)
+    movies_list.sort(key=lambda x: x["best_weekend_gross"], reverse=True)
 
     return movies_list
 
@@ -252,7 +312,7 @@ async def movie_overview_page(request: Request):
     # Search filter
     if search_query:
         filtered_movies = [
-            m for m in filtered_movies if search_query in m.get("title", "").lower()
+            m for m in filtered_movies if search_query in (m.get("title") or "").lower()
         ]
 
     # Get unique years for filter buttons
@@ -1094,6 +1154,10 @@ async def get_widget_data() -> WidgetData:
                         "rank": m.get("rank"),
                         "title": m.get("title"),
                         "gross": m.get("weekend_gross"),
+                        # The region of the rank and gross: the film's lead
+                        # region ("" is US & Canada); None for a week stored
+                        # before regions were recorded.
+                        "region": m.get("region"),
                     }
                     for m in metadata.get("movies", [])[:10]
                 ],
