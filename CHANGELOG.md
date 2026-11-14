@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.1] - 2026-11-14
+
+### Fixed
+- **Each market's Box Office Mojo weekend is fetched correctly**: Box Office Mojo numbers every market's weekends by the day that market's weekend starts, which is not always the ISO week Boxarr asks for:
+  - **France** (weekends start on Wednesday) always requested the following weekend. Scheduled runs asked for a weekend that had not happened yet, and historical updates stored the next week's chart.
+  - From **1 January 2027** (a Friday), the domestic chart and every market whose weekend starts on Friday (UK, Romania, Spain, Mexico, China, India, Poland, Mongolia, ...) would have run one week behind all year, and the New Year weekend would have failed.
+  - Boxarr now maps each ISO week to the market's own weekend number and checks the weekend dates printed on the fetched page. For a market whose start day is not known yet, it corrects itself with one extra request.
+  - Weeks already stored for France in 2026 keep the chart they were fetched with until you press Regenerate on that week (#133, #154).
+- **"Add to Radarr" no longer rewrites stored weeks**: after every manual add, the weeks listing that film were fetched again from Box Office Mojo, with only 10 movies and with the region configured at that moment. Weeks with more movies were cut to 10, and weeks fetched under another region were replaced. Adding a movie now only links it in the stored weeks. The button also sends the card's TMDB id, so the exact film shown is added rather than the first title-search result (#153).
+- **Historical range updates request the weeks you picked**:
+  - Ranges crossing New Year sent the wrong year.
+  - Years starting on a Friday to Sunday (such as 2021 and 2027) shifted the whole selection one week earlier.
+  - Week 53 could not be selected. 2026 has one: its weekend is 1-3 January 2027.
+  - The dashboard now uses real ISO-week arithmetic, independent of the browser's time zone (#144, #155).
+
+### Changed
+- **Test suite runs on pytest 9.2**: monkeypatched settings are restored correctly again (#152).
+
 ## [2.1.0] - 2026-08-26
 
 ### Added
