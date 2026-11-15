@@ -6,6 +6,49 @@
 // Get base path from injected variable (set in base.html)
 const BASE_PATH = window.BOXARR_BASE_PATH || '';
 
+// Every state-changing request a Boxarr page sends to Boxarr carries this
+// header (#136). A page on another site cannot add it: a custom header needs a
+// CORS preflight, and Boxarr answers none. So the server takes it as proof that
+// the request came from one of its own pages, which it cannot otherwise tell
+// over plain http behind a reverse proxy that rewrites Host (browsers send
+// Sec-Fetch-Site to https and localhost only). Wrapping fetch() covers every
+// page, inline template scripts included, since every page loads this file
+// before its own scripts (tests/unit/test_state_changing_requests_marked.py).
+// So send requests with fetch(), never XMLHttpRequest, sendBeacon or a form.
+const BOXARR_REQUEST_HEADER = 'X-Boxarr-Request';
+
+(function() {
+    const nativeFetch = window.fetch;
+    if (typeof nativeFetch !== 'function') return;
+    const SAFE_METHODS = ['GET', 'HEAD', 'OPTIONS'];
+
+    function isBoxarrUrl(url) {
+        try {
+            return new URL(url, window.location.href).origin === window.location.origin;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    window.fetch = function(input, init) {
+        const request = typeof Request !== 'undefined' && input instanceof Request ? input : null;
+        const method = String((init && init.method) || (request ? request.method : 'GET')).toUpperCase();
+        if (SAFE_METHODS.includes(method) || !isBoxarrUrl(request ? request.url : String(input))) {
+            return nativeFetch.call(window, input, init);
+        }
+        let headers = (init && init.headers) || (request ? request.headers : {});
+        if (typeof Headers !== 'undefined' && headers instanceof Headers) {
+            headers = new Headers(headers);
+            headers.set(BOXARR_REQUEST_HEADER, '1');
+        } else if (Array.isArray(headers)) {
+            headers = headers.concat([[BOXARR_REQUEST_HEADER, '1']]);
+        } else {
+            headers = Object.assign({}, headers, { [BOXARR_REQUEST_HEADER]: '1' });
+        }
+        return nativeFetch.call(window, input, Object.assign({}, init, { headers: headers }));
+    };
+})();
+
 // URL helper functions
 function makeUrl(path) {
     // Ensure path starts with /
@@ -1429,11 +1472,20 @@ function reloadScheduler() {
     // Setup Page Functions
     // ==========================================
 
+    // The stored Radarr API key never reaches the page (#136): the key field
+    // renders empty, marked data-key-stored="true" when a key is stored. A
+    // blank key then tells the server to use the stored one, which it does
+    // only with the stored Radarr URL.
+    function radarrKeyStored() {
+        const field = document.getElementById('radarrApiKey');
+        return !!field && field.dataset.keyStored === 'true';
+    }
+
     window.testConnection = function() {
         const url = document.getElementById('radarrUrl').value;
         const apiKey = document.getElementById('radarrApiKey').value;
         
-        if (!url || !apiKey) {
+        if (!url || (!apiKey && !radarrKeyStored())) {
             showMessage('Please enter Radarr URL and API Key', 'error');
             return;
         }
@@ -1526,7 +1578,7 @@ function reloadScheduler() {
                 if (testResults) {
                     const errorDiv = document.createElement('div');
                     errorDiv.className = 'error-message';
-                    errorDiv.textContent = `✗ ${data.error || 'Connection failed'}`;
+                    errorDiv.textContent = `✗ ${data.error || data.message || 'Connection failed'}`;
                     testResults.replaceChildren(errorDiv);
                     testResults.classList.add('error');
                 }
@@ -1550,7 +1602,7 @@ function reloadScheduler() {
         const radarrUrl = document.getElementById('radarrUrl');
         const radarrApiKey = document.getElementById('radarrApiKey');
         
-        if (!radarrUrl.value || !radarrApiKey.value) {
+        if (!radarrUrl.value || (!radarrApiKey.value && !radarrKeyStored())) {
             showMessage('Please enter Radarr URL and API Key', 'error');
             return;
         }
@@ -1854,10 +1906,10 @@ function reloadScheduler() {
             // Check if already configured and auto-test
             if (radarrUrl && radarrApiKey && saveBtn) {
                 const url = radarrUrl.value;
-                const apiKey = radarrApiKey.value;
                 
-                // If we have credentials, check if it's a pre-configured setup
-                if (url && apiKey && apiKey.trim().length > 10) {
+                // A stored key means a pre-configured setup. The key field is
+                // empty, and the test posts it blank with the stored URL.
+                if (url && radarrKeyStored()) {
                     // For editing existing config, enable save button but still test to get profiles
                     connectionTested = true;
                     saveBtn.disabled = false;

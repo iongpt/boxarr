@@ -7,7 +7,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -618,7 +618,7 @@ async def setup_page(request: Request):
             is_configured=bool(settings.radarr_api_key),
             # Current settings for prefilling
             radarr_url=str(settings.radarr_url),
-            radarr_api_key=settings.radarr_api_key,  # Show actual API key for editing
+            radarr_api_key_set=bool(settings.radarr_api_key),  # never the key (#136)
             root_folder=str(settings.radarr_root_folder),
             quality_profile_default=settings.radarr_quality_profile_default,
             quality_profile_upgrade=settings.radarr_quality_profile_upgrade,
@@ -905,6 +905,12 @@ async def delete_week(year: int, week: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# The widgets are made to be embedded in other dashboards, so their GET
+# responses stay readable from any origin. They carry nothing but the public
+# chart. No other route sends a CORS header (#136).
+WIDGET_CORS_HEADERS = {"Access-Control-Allow-Origin": "*"}
+
+
 @router.get("/api/widget", response_class=HTMLResponse)
 async def get_widget(request: Request):
     """Get embeddable widget HTML."""
@@ -931,15 +937,18 @@ async def get_widget(request: Request):
             <a href="{full_url_attr}">View Full List</a>
         </div>
         """
-        return HTMLResponse(content=widget_html)
+        return HTMLResponse(content=widget_html, headers=WIDGET_CORS_HEADERS)
     except Exception as e:
         logger.error(f"Error generating widget: {e}")
-        return HTMLResponse(content="<div>Error loading widget</div>")
+        return HTMLResponse(
+            content="<div>Error loading widget</div>", headers=WIDGET_CORS_HEADERS
+        )
 
 
 @router.get("/api/widget/json", response_model=WidgetData)
-async def get_widget_json():
+async def get_widget_json(response: Response):
     """Get widget data as JSON."""
+    response.headers.update(WIDGET_CORS_HEADERS)
     return await get_widget_data()
 
 
