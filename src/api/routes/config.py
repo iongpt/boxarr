@@ -203,14 +203,16 @@ class _ApiKeyRequired(Exception):
     """A blank API key was posted that cannot stand for the stored one."""
 
 
-def _comparable_radarr_url(url: str) -> Optional[Tuple[str, str, Optional[int], str]]:
-    """Return the parts of a Radarr URL that pick the server, or None.
+def _comparable_radarr_url(url: str) -> Optional[Tuple[Any, ...]]:
+    """Return the parts of a Radarr URL to compare with the stored one, or None.
 
     Parsed with httpx - the parser RadarrService connects with - which
     lower-cases the scheme and host and drops a default port. A trailing slash
-    is ignored too. A URL with credentials, a query or a fragment returns None,
-    so it never counts as the stored one: there is no reason to post such a
-    spelling, and each is a place where two parsers can disagree on the host.
+    is ignored too. Everything else counts, credentials and query included: a
+    stored URL with credentials in it (Radarr behind basic auth) matches its
+    own spelling, and a posted URL that adds any of them is another URL. Only
+    ever compared with the stored URL, which is what Boxarr then connects to, so
+    a spelling two parsers read differently cannot send the stored key anywhere.
     """
     try:
         parsed = httpx.URL(url.strip())
@@ -218,9 +220,15 @@ def _comparable_radarr_url(url: str) -> Optional[Tuple[str, str, Optional[int], 
         return None
     if parsed.scheme not in ("http", "https") or not parsed.host:
         return None
-    if parsed.userinfo or parsed.query or parsed.fragment:
-        return None
-    return parsed.scheme, parsed.host, parsed.port, parsed.path.rstrip("/")
+    return (
+        parsed.scheme,
+        parsed.userinfo,
+        parsed.host,
+        parsed.port,
+        parsed.path.rstrip("/"),
+        parsed.query,
+        parsed.fragment,
+    )
 
 
 def _radarr_credentials(posted_url: str, posted_key: str) -> Tuple[str, str]:

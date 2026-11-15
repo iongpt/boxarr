@@ -15,8 +15,8 @@ tests see exactly which URL each request went to and which key it carried. Every
 other outgoing connection is refused: nothing here reaches the network.
 """
 
+import json
 import os
-import re
 import stat
 import types
 from pathlib import Path
@@ -33,12 +33,12 @@ import src.core.radarr as core_radarr
 import src.utils.config as cfg_utils
 from src.api.app import create_app
 from src.core.boxoffice import BoxOfficeService
+from tests.integration.app_js_harness import NODE, run_app_js
 
 STORED_KEY = "SENTINEL-stored-radarr-key-5f2c09"
 STORED_URL = "http://radarr.local:7878"
-APP_JS = (
-    Path(__file__).resolve().parents[2] / "src" / "web" / "static" / "js" / "app.js"
-)
+# Radarr behind basic auth: a working setup, and its URL must match itself.
+USERINFO_URL = "http://user:pw@radarr.local:7878"
 
 
 class Call(NamedTuple):
@@ -61,8 +61,10 @@ _RADARR_ANSWERS: Dict[str, Any] = {
 }
 
 
-def _seed(tmp_path: Path, api_key: Optional[str] = STORED_KEY) -> Path:
-    radarr: Dict[str, Any] = {"url": STORED_URL, "root_folder": "/movies"}
+def _seed(
+    tmp_path: Path, api_key: Optional[str] = STORED_KEY, url: str = STORED_URL
+) -> Path:
+    radarr: Dict[str, Any] = {"url": url, "root_folder": "/movies"}
     if api_key is not None:
         radarr["api_key"] = api_key
     path = tmp_path / "local.yaml"
@@ -124,13 +126,18 @@ def radarr_calls(monkeypatch) -> List[Call]:
     return calls
 
 
-def _app(tmp_path: Path, monkeypatch, api_key: Optional[str] = STORED_KEY):
+def _app(
+    tmp_path: Path,
+    monkeypatch,
+    api_key: Optional[str] = STORED_KEY,
+    url: str = STORED_URL,
+):
     for field in cfg_utils.Settings.model_fields:
         monkeypatch.delenv(field.upper(), raising=False)
     monkeypatch.delenv("TZ", raising=False)
     monkeypatch.delenv("PORT", raising=False)
     monkeypatch.setenv("BOXARR_DATA_DIRECTORY", str(tmp_path))
-    _seed(tmp_path, api_key)
+    _seed(tmp_path, api_key, url)
     # monkeypatch, so the Settings built from tmp_path cannot outlive the test.
     monkeypatch.setattr(cfg_utils, "_settings", None)
     # A stopped scheduler, so a save does not build the module-wide one.
@@ -158,6 +165,11 @@ def _save_payload(url: str = STORED_URL, api_key: str = "") -> Dict[str, Any]:
 
 def _key_field(html: str):
     return BeautifulSoup(html, "html.parser").find(id="radarrApiKey")
+
+
+def _rendered_url(html: str) -> str:
+    """The Radarr URL the setup page posts back: its prefilled value."""
+    return BeautifulSoup(html, "html.parser").find(id="radarrUrl")["value"]
 
 
 # --------------------------------------------------------------------------
@@ -417,18 +429,161 @@ def test_save_with_a_new_key_and_url_replaces_both(client, tmp_path, radarr_call
 
 
 # --------------------------------------------------------------------------
-# The setup page script
+# A stored URL with credentials or a query still matches itself
 # --------------------------------------------------------------------------
 
 
-def test_setup_script_treats_a_stored_key_as_present():
-    """The guards accept a blank field when a key is stored, and the page-load
-    auto-test (which fills the profile and root-folder dropdowns) runs on the
-    stored-key flag, not on a key length it can no longer see."""
-    script = APP_JS.read_text()
+@pytest.mark.parametrize(
+    "stored_url", [USERINFO_URL, "http://radarr.local:7878/radarr?x=1"]
+)
+def test_the_rendered_stored_url_keeps_the_stored_key(
+    tmp_path, monkeypatch, radarr_calls, stored_url
+):
+    client = _app(tmp_path, monkeypatch, url=stored_url)
+    rendered = _rendered_url(client.get("/setup").text)
 
-    assert "field.dataset.keyStored === 'true'" in script
-    guards = re.findall(r"\(!\w+(?:\.value)? && !radarrKeyStored\(\)\)", script)
-    assert len(guards) == 2, guards  # testConnection and saveConfiguration
-    assert "if (url && radarrKeyStored())" in script
-    assert "apiKey.trim().length > 10" not in script
+    tested = client.post("/api/config/test", json={"url": rendered, "api_key": ""})
+    saved = client.post("/api/config/save", json=_save_payload(url=rendered))
+
+    for response in (tested, saved):
+        assert response.status_code == 200, response.text
+        assert "different Radarr URL" not in response.text
+    assert radarr_calls
+    assert {(c.host, c.port, c.api_key) for c in radarr_calls} == {
+        ("radarr.local", 7878, STORED_KEY)
+    }
+    assert (
+        yaml.safe_load((tmp_path / "local.yaml").read_text())["radarr"]["api_key"]
+        == STORED_KEY
+    )
+
+
+def test_basic_auth_radarr_connects_with_the_stored_key(
+    tmp_path, monkeypatch, radarr_calls
+):
+    client = _app(tmp_path, monkeypatch, url=USERINFO_URL)
+    rendered = _rendered_url(client.get("/setup").text)
+
+    body = client.post("/api/config/test", json={"url": rendered, "api_key": ""}).json()
+
+    assert body["success"] is True, body
+    assert [p["name"] for p in body["profiles"]] == ["HD-1080p", "Ultra-HD"]
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        STORED_URL,  # the credentials left out
+        "http://user:other@radarr.local:7878",
+        "http://other:pw@radarr.local:7878",
+        "http://user:pw@evil.example:7878",
+        USERINFO_URL + "?x=1",
+    ],
+)
+def test_a_changed_url_with_credentials_needs_the_key(
+    tmp_path, monkeypatch, radarr_calls, url
+):
+    client = _app(tmp_path, monkeypatch, url=USERINFO_URL)
+
+    response = client.post("/api/config/test", json={"url": url, "api_key": ""})
+
+    assert response.status_code == 400
+    assert "different Radarr URL" in response.json()["message"]
+    assert radarr_calls == []
+
+
+# --------------------------------------------------------------------------
+# The setup page script (the real app.js, run under node)
+# --------------------------------------------------------------------------
+
+needs_node = pytest.mark.skipif(NODE is None, reason="node is not installed")
+
+# The setup page elements the connection test reads and fills.
+_SETUP_IDS = [
+    "setupForm",
+    "testButtonText",
+    "testButtonSpinner",
+    "testResults",
+    "qualitySection",
+    "rootFolder",
+    "defaultProfile",
+    "upgradeProfile",
+]
+
+
+def _run_setup_page(tmp_path: Path, html: str, test_answer: Dict[str, Any]):
+    """Load /setup's script over the rendered key and URL fields."""
+    soup = BeautifulSoup(html, "html.parser")
+    key = soup.find(id="radarrApiKey")
+    save = soup.find(id="saveBtn")
+    elements: Dict[str, Any] = {
+        "radarrUrl": {"value": _rendered_url(html)},
+        "radarrApiKey": {
+            "value": key.get("value", ""),
+            "dataset": {"keyStored": key["data-key-stored"]},
+        },
+        "saveBtn": {"disabled": save.has_attr("disabled")},
+    }
+    for element_id in _SETUP_IDS:
+        assert soup.find(id=element_id) is not None, element_id
+        elements[element_id] = {}
+    return run_app_js(
+        tmp_path,
+        {
+            "kind": "page",
+            "path": "/setup",
+            "elements": elements,
+            "answers": {"/api/config/test": test_answer},
+        },
+    )
+
+
+def _config_tests(report) -> List[Dict[str, Any]]:
+    return [r for r in report["requests"] if r["url"] == "/api/config/test"]
+
+
+@needs_node
+@pytest.mark.parametrize("stored_url", [STORED_URL, USERINFO_URL])
+def test_setup_page_autotests_with_the_stored_key(
+    tmp_path, monkeypatch, radarr_calls, stored_url
+):
+    """With a key stored and the field empty, loading /setup tests the stored
+    URL with a blank key, and the answer fills the dropdowns."""
+    client = _app(tmp_path, monkeypatch, url=stored_url)
+    html = client.get("/setup").text
+
+    first = _run_setup_page(tmp_path, html, {})
+    (request,) = _config_tests(first)
+    assert request["method"] == "POST"
+    assert json.loads(request["body"]) == {"url": _rendered_url(html), "api_key": ""}
+    assert request["headers"]["x-boxarr-request"] == "1"
+
+    # What the server answers that exact request...
+    answer = client.post(
+        "/api/config/test", content=request["body"], headers=request["headers"]
+    )
+    assert answer.status_code == 200
+    assert answer.json()["success"] is True, answer.json()
+    assert {(c.host, c.port, c.api_key) for c in radarr_calls} == {
+        ("radarr.local", 7878, STORED_KEY)
+    }
+
+    # ... is what fills the page.
+    page = _run_setup_page(tmp_path, html, answer.json())["elements"]
+    assert page["defaultProfile"]["options"] == ["HD-1080p", "Ultra-HD"]
+    assert page["upgradeProfile"]["options"] == ["HD-1080p", "Ultra-HD"]
+    assert page["rootFolder"]["options"] == ["/movies"]
+    assert "Connected successfully" in page["testResults"]["innerHTML"]
+    assert page["saveBtn"]["disabled"] is False
+
+
+@needs_node
+def test_first_run_setup_page_does_not_test_without_a_key(
+    tmp_path, monkeypatch, radarr_calls
+):
+    client = _app(tmp_path, monkeypatch, api_key=None)
+
+    report = _run_setup_page(tmp_path, client.get("/setup").text, {"success": True})
+
+    assert _config_tests(report) == []
+    assert report["elements"]["saveBtn"]["disabled"] is True
