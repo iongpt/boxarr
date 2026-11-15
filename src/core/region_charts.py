@@ -276,6 +276,10 @@ def _fetch_region(
     except BoxOfficeNoData as e:
         logger.info(f"No {label} box office data for {year}W{week:02d}")
         fetch = RegionFetch(region=code, status=STATUS_NO_DATA, exception=e)
+    except BoxOfficeUnknownMarket as e:
+        logger.warning(f"Could not fetch the {label} chart for {year}W{week:02d}: {e}")
+        # No such market, so no weekend of its own: none is described.
+        return RegionFetch(region=code, status=STATUS_ERROR, error=str(e), exception=e)
     except Exception as e:
         logger.warning(f"Could not fetch the {label} chart for {year}W{week:02d}: {e}")
         fetch = RegionFetch(region=code, status=STATUS_ERROR, error=str(e), exception=e)
