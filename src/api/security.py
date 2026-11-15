@@ -158,7 +158,13 @@ class CrossSiteRequestGuard:
             _for_log(headers.get("host")),
             _for_log(headers.get("x-forwarded-host")),
         )
+        # "message" is what the setup page's connection test displays.
         response = JSONResponse(
-            {"success": False, "detail": REJECTION_MESSAGE}, status_code=403
+            {
+                "success": False,
+                "message": REJECTION_MESSAGE,
+                "detail": REJECTION_MESSAGE,
+            },
+            status_code=403,
         )
         await response(scope, receive, send)

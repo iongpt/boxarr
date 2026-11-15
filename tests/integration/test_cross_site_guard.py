@@ -17,6 +17,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List
 
+import httpx
 import pytest
 import yaml
 from fastapi.testclient import TestClient
@@ -93,6 +94,17 @@ def env(tmp_path, monkeypatch):
             return None  # the route answers 404, after reaching Radarr
 
     monkeypatch.setattr(movies_route, "RadarrService", _FakeRadarrService)
+
+    # Routes not faked above (/api/health probes Radarr) must not reach the
+    # network either: every real connection fails at once.
+    def refuse(self, request):
+        raise httpx.ConnectError("network disabled in tests", request=request)
+
+    async def refuse_async(self, request):
+        raise httpx.ConnectError("network disabled in tests", request=request)
+
+    monkeypatch.setattr(httpx.HTTPTransport, "handle_request", refuse)
+    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", refuse_async)
 
     return {
         "client": TestClient(create_app()),
@@ -217,6 +229,7 @@ def test_cross_site_scheduler_trigger_is_refused(env, headers, extra, body):
     assert response.status_code == 403
     assert response.json()["success"] is False
     assert "Cross-site request blocked" in response.json()["detail"]
+    assert response.json()["message"] == response.json()["detail"]
     assert env["scheduler"].runs == 0
 
 
