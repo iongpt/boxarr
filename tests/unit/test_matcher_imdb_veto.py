@@ -330,8 +330,8 @@ class TestOnlyTheConflictingCandidateIsSkipped:
         assert result == MatchResult(box_office_movie=result.box_office_movie)
 
     def test_shared_index_is_left_for_the_next_entries(self):
-        """A scheduler reuses one matcher: the narrowed search must not
-        change what later entries match."""
+        """A scheduler reuses one matcher: skipping the film with another
+        IMDb id must not change what later entries match."""
         old = _lib("Superman", 1978, "tt0078346")
         new = _lib("Superman", 2025, None)
         wicked = _lib("Wicked", 2024, "tt1262426")
