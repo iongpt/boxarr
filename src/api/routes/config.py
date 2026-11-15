@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union, cast
 import httpx
 import yaml
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
 from ... import __version__
@@ -49,14 +50,16 @@ class TestConfigRequest(BaseModel):
     """Test configuration request model."""
 
     url: str
-    api_key: str
+    # Blank uses the stored key, for the stored URL only (_radarr_credentials).
+    api_key: str = ""
 
 
 class SaveConfigRequest(BaseModel):
     """Save configuration request model."""
 
     radarr_url: str
-    radarr_api_key: str
+    # Blank keeps the stored key, for the stored URL only (_radarr_credentials).
+    radarr_api_key: str = ""
     radarr_root_folder: str = "/movies"
     radarr_quality_profile_default: str = "HD-1080p"
     radarr_quality_profile_upgrade: str = ""  # Optional, empty string means no upgrade
@@ -196,6 +199,69 @@ def get_language_options():
     }
 
 
+class _ApiKeyRequired(Exception):
+    """A blank API key was posted that cannot stand for the stored one."""
+
+
+def _comparable_radarr_url(url: str) -> Optional[Tuple[str, str, Optional[int], str]]:
+    """Return the parts of a Radarr URL that pick the server, or None.
+
+    Parsed with httpx - the parser RadarrService connects with - which
+    lower-cases the scheme and host and drops a default port. A trailing slash
+    is ignored too. A URL with credentials, a query or a fragment returns None,
+    so it never counts as the stored one: there is no reason to post such a
+    spelling, and each is a place where two parsers can disagree on the host.
+    """
+    try:
+        parsed = httpx.URL(url.strip())
+    except (httpx.InvalidURL, TypeError, ValueError):
+        return None
+    if parsed.scheme not in ("http", "https") or not parsed.host:
+        return None
+    if parsed.userinfo or parsed.query or parsed.fragment:
+        return None
+    return parsed.scheme, parsed.host, parsed.port, parsed.path.rstrip("/")
+
+
+def _radarr_credentials(posted_url: str, posted_key: str) -> Tuple[str, str]:
+    """Return the Radarr URL and API key a test or save connects with.
+
+    The setup page never receives the stored key (#136): its key field renders
+    empty, and leaving it blank means "keep the stored key". That shortcut is
+    only safe for the Radarr the key belongs to. Honouring it for any posted URL
+    let a caller make Boxarr send the stored key to a server of their choosing,
+    so a blank key is accepted only together with the stored URL. Boxarr then
+    connects to - and a save writes - the stored URL itself, not the posted
+    spelling of it.
+
+    Raises:
+        _ApiKeyRequired: The key is blank and no key is stored, or the URL is
+            not the stored one
+    """
+    api_key = posted_key.strip()
+    if api_key:
+        return posted_url, api_key
+
+    stored_key = settings.radarr_api_key
+    if not stored_key:
+        raise _ApiKeyRequired("Enter your Radarr API key.")
+    stored_url = str(settings.radarr_url)
+    stored = _comparable_radarr_url(stored_url)
+    if stored is None or _comparable_radarr_url(posted_url) != stored:
+        raise _ApiKeyRequired(
+            "Enter the Radarr API key to use a different Radarr URL. The stored "
+            "key is only used with the Radarr URL it was saved for."
+        )
+    return stored_url, stored_key
+
+
+def _api_key_required(error: _ApiKeyRequired) -> JSONResponse:
+    """Return the 400 answering a blank key that cannot be used."""
+    return JSONResponse(
+        status_code=400, content={"success": False, "message": str(error)}
+    )
+
+
 @router.post("/test")
 def test_configuration(config: TestConfigRequest):
     """Test Radarr connection and return profiles/folders.
@@ -205,7 +271,12 @@ def test_configuration(config: TestConfigRequest):
     the event loop.
     """
     try:
-        test_service = RadarrService(url=config.url, api_key=config.api_key)
+        url, api_key = _radarr_credentials(config.url, config.api_key)
+    except _ApiKeyRequired as e:
+        return _api_key_required(e)
+
+    try:
+        test_service = RadarrService(url=url, api_key=api_key)
 
         if not test_service.test_connection():
             return {
@@ -421,10 +492,15 @@ async def save_configuration(config: SaveConfigRequest):
                     "message": f"Invalid cron expression: {str(e)}",
                 }
 
-        # Test connection first
-        test_service = RadarrService(
-            url=config.radarr_url, api_key=config.radarr_api_key
-        )
+        # Test connection first. A blank key keeps the stored one, but only
+        # with the stored URL, so the stored key never goes anywhere else.
+        try:
+            radarr_url, radarr_api_key = _radarr_credentials(
+                config.radarr_url, config.radarr_api_key
+            )
+        except _ApiKeyRequired as e:
+            return _api_key_required(e)
+        test_service = RadarrService(url=radarr_url, api_key=radarr_api_key)
 
         if not test_service.test_connection():
             return {
@@ -463,8 +539,8 @@ async def save_configuration(config: SaveConfigRequest):
 
         # Build config dict
         radarr_config: Dict[str, Any] = {
-            "url": config.radarr_url,
-            "api_key": config.radarr_api_key,
+            "url": radarr_url,
+            "api_key": radarr_api_key,
             "root_folder": config.radarr_root_folder,
             "quality_profile_default": config.radarr_quality_profile_default,
         }

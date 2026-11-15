@@ -1429,11 +1429,20 @@ function reloadScheduler() {
     // Setup Page Functions
     // ==========================================
 
+    // The stored Radarr API key never reaches the page (#136): the key field
+    // renders empty, marked data-key-stored="true" when a key is stored. A
+    // blank key then tells the server to use the stored one, which it does
+    // only with the stored Radarr URL.
+    function radarrKeyStored() {
+        const field = document.getElementById('radarrApiKey');
+        return !!field && field.dataset.keyStored === 'true';
+    }
+
     window.testConnection = function() {
         const url = document.getElementById('radarrUrl').value;
         const apiKey = document.getElementById('radarrApiKey').value;
         
-        if (!url || !apiKey) {
+        if (!url || (!apiKey && !radarrKeyStored())) {
             showMessage('Please enter Radarr URL and API Key', 'error');
             return;
         }
@@ -1526,7 +1535,7 @@ function reloadScheduler() {
                 if (testResults) {
                     const errorDiv = document.createElement('div');
                     errorDiv.className = 'error-message';
-                    errorDiv.textContent = `✗ ${data.error || 'Connection failed'}`;
+                    errorDiv.textContent = `✗ ${data.error || data.message || 'Connection failed'}`;
                     testResults.replaceChildren(errorDiv);
                     testResults.classList.add('error');
                 }
@@ -1550,7 +1559,7 @@ function reloadScheduler() {
         const radarrUrl = document.getElementById('radarrUrl');
         const radarrApiKey = document.getElementById('radarrApiKey');
         
-        if (!radarrUrl.value || !radarrApiKey.value) {
+        if (!radarrUrl.value || (!radarrApiKey.value && !radarrKeyStored())) {
             showMessage('Please enter Radarr URL and API Key', 'error');
             return;
         }
@@ -1854,10 +1863,10 @@ function reloadScheduler() {
             // Check if already configured and auto-test
             if (radarrUrl && radarrApiKey && saveBtn) {
                 const url = radarrUrl.value;
-                const apiKey = radarrApiKey.value;
                 
-                // If we have credentials, check if it's a pre-configured setup
-                if (url && apiKey && apiKey.trim().length > 10) {
+                // A stored key means a pre-configured setup. The key field is
+                // empty, and the test posts it blank with the stored URL.
+                if (url && radarrKeyStored()) {
                     // For editing existing config, enable save button but still test to get profiles
                     connectionTested = true;
                     saveBtn.disabled = false;

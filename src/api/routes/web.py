@@ -618,7 +618,7 @@ async def setup_page(request: Request):
             is_configured=bool(settings.radarr_api_key),
             # Current settings for prefilling
             radarr_url=str(settings.radarr_url),
-            radarr_api_key=settings.radarr_api_key,  # Show actual API key for editing
+            radarr_api_key_set=bool(settings.radarr_api_key),  # never the key (#136)
             root_folder=str(settings.radarr_root_folder),
             quality_profile_default=settings.radarr_quality_profile_default,
             quality_profile_upgrade=settings.radarr_quality_profile_upgrade,

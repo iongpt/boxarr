@@ -48,10 +48,15 @@
                     
                     <div class="form-group">
                         <label for="radarrApiKey" class="form-label">Radarr API Key</label>
-                        <input type="text" id="radarrApiKey" name="radarr_api_key" class="form-input"
-                               value="{{ radarr_api_key }}" 
-                               placeholder="Your Radarr API key" required>
-                        <small class="text-muted">Found in Radarr → Settings → General → Security</small>
+                        {# The stored key is never sent to the browser (#136). The field
+                           renders empty; left blank, it keeps the stored key, which the
+                           server uses with the stored Radarr URL only. #}
+                        <input type="password" id="radarrApiKey" name="radarr_api_key" class="form-input"
+                               value="" autocomplete="new-password" spellcheck="false"
+                               data-key-stored="{{ 'true' if radarr_api_key_set else 'false' }}"
+                               placeholder="{{ 'Stored - leave blank to keep' if radarr_api_key_set else 'Your Radarr API key' }}"
+                               {% if not radarr_api_key_set %}required{% endif %}>
+                        <small class="text-muted">Found in Radarr → Settings → General → Security{% if radarr_api_key_set %}. Enter it again to change it or to use a different Radarr URL.{% endif %}</small>
                     </div>
                 </div>
                 
@@ -687,7 +692,7 @@
     </div>
 
 <script src="{{ request.scope.get('root_path', '') }}/static/js/theme-manager.js?v=1"></script>
-<script src="{{ request.scope.get('root_path', '') }}/static/js/app.js?v=8"></script>
+<script src="{{ request.scope.get('root_path', '') }}/static/js/app.js?v=9"></script>
 <script>
 // Sync theme select with current preference
 document.addEventListener('DOMContentLoaded', function() {
