@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.2] - 2026-11-15
+
+### Security
+- **Other websites can no longer read your Radarr API key or change Boxarr**: Boxarr allowed requests from any origin (wildcard CORS) and put the stored Radarr API key into the setup page. Any website open in a browser that could reach Boxarr could read the key and change settings, start runs or upgrade movies. Now:
+  - The wildcard CORS policy is gone. Only the embeddable widgets (`GET /api/widget`, `GET /api/widget/json`) can still be read from other origins.
+  - Every request that is not GET, HEAD or OPTIONS is checked first and refused with 403 when a browser sent it from another site. Boxarr's own pages mark their requests with an `X-Boxarr-Request` header, so they keep working behind any reverse proxy, over http or https, with no proxy changes. curl, scripts and other server-side callers are not affected.
+  - The API key is never sent to the browser. The setup page shows an empty field ("Stored - leave blank to keep"). A blank key on Test or Save uses the stored key, but only with the stored Radarr URL; any other URL needs the key typed in.
+  - The interactive API docs at `/api/docs` add the header themselves.
+  - (#136, #163; part of #151. The web UI still has no login.)
+
+### Fixed
+- **New sequels, spin-offs and remakes are no longer shown as an older film you already have**: when the chart film and the library film both have an IMDb id and the ids differ, they no longer match by title. "Wicked: For Good" no longer matches "Wicked", and "Superman" (2025) no longer matches the 1978 film. With auto-add on, the new film can now be added. Weeks already stored keep their old links until you press Update Week (#135, #161).
+- **A slow or unreachable Radarr no longer freezes Boxarr**: requests that talk to Radarr no longer block the whole server, so `/setup` and the other pages stay usable while Radarr hangs and you can save a working URL. The Docker healthcheck answers at once instead of timing out, and the container no longer turns unhealthy. Connecting to Radarr gives up after at most 10 seconds (the read timeout is unchanged), requests that arrive together share one library download, and startup no longer waits for Radarr (#138 part 1, #164).
+- **Saving the setup page keeps the settings it does not show**: a plain Save rebuilt `local.yaml` from the form and deleted every other key, such as `radarr.search_for_movie`, `radarr.monitor_option` and the cache TTL. Saving now merges into the existing file. A file that cannot be read is backed up to `local.yaml.broken` first (#142, #157).
+- **Auto-add honours `radarr.search_for_movie`**: auto-added movies always triggered a Radarr search, even with the setting off (#146).
+- **Films with "Pictures", "Studios", "Films", "Entertainment", "Company"... in the title stay on the chart**: a leftover filter removed them and renumbered the rows below (#143).
+- **`PORT=8889` (or `BOXARR_PORT=8889`) no longer crashes startup**: an unused `boxarr_api_port` setting rejected it. The Docker healthcheck now follows `BOXARR_PORT` / `PORT` instead of always probing 8888 (#147).
+- **Log level settings work**: `BOXARR_LOG_LEVEL`, `log_level` in `local.yaml` and `--log-level` now change Boxarr's own logging, and `log_format` is applied. Level names accept any case and `WARN`; an unknown name logs a warning and uses INFO instead of crashing (#148).
+- **The weekly page counter for films not in Radarr is labelled "Not in Radarr"** instead of "Missing", which the page's badges use for films in Radarr without a file (#149).
+
+### Changed
+- **`BOXARR_LOG_LEVEL` now takes precedence over `LOG_LEVEL`**: it was silently ignored before. Order: `--log-level` > `BOXARR_LOG_LEVEL` > `LOG_LEVEL` > `local.yaml` > INFO. If you set both variables, remove one (#148).
+- **`docker-compose.yml` no longer defines its own healthcheck**: it was hard-coded to port 8888 and overrode the image's, which now follows the configured port (#147).
+- **`radarr_connected` in `/api/health` is a cached value**: it can be up to about 30 seconds old and reads `false` until the first check answers (#164).
+- **`box_office_region` accepts a list of regions**: this is groundwork for multi-region support in 2.2.0. In this release only the first configured region is fetched, and the setup page keeps its single selector (#158).
+
 ## [2.1.1] - 2026-11-14
 
 ### Fixed
