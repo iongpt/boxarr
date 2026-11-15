@@ -1741,7 +1741,9 @@ function reloadScheduler() {
             const cronString = `0 ${schedulerTime.value} * * ${apschedulerDay}`;
             config.boxarr_scheduler_cron = cronString;
         } else {
-            // Default: Tuesday at 11 PM (APScheduler day 1)
+            // Fallback for a page without the day and time selects: Tuesday
+            // at 11 PM (APScheduler day 1). Not the default schedule, which
+            // is "0 23 * * 2", Wednesday at 11 PM.
             config.boxarr_scheduler_cron = "0 23 * * 1";
         }
         
