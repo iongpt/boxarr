@@ -263,3 +263,20 @@ def test_a_save_during_a_run_leaves_that_run_on_its_own_radarr(
 
     assert during and {(c.host, c.api_key) for c in during} == {("radarr-a", KEY_A)}
     assert after and {(c.host, c.api_key) for c in after} == {("radarr-b", KEY_B)}
+
+
+def test_auto_add_after_a_save_uses_the_new_radarr_quality_profile(
+    app, radarrs, tmp_path
+):
+    """The quality profile ids cached from Radarr A are not Radarr B's.
+
+    A run against A caches A's profiles; within their cache lifetime, the
+    run against B used to add the film to B with A's profile id.
+    """
+    with app(auto_add=True) as client:
+        _run(client, radarrs["calls"])
+        _save_radarr_b(client, auto_add=True)
+        _run(client, radarrs["calls"])
+
+    assert [movie["qualityProfileId"] for movie in radarrs["a"].added] == [1]
+    assert [movie["qualityProfileId"] for movie in radarrs["b"].added] == [7]
