@@ -17,5 +17,8 @@ pydantic-settings>=2.0.0
 pyyaml>=6.0
 
 # Scheduling
-apscheduler>=3.10.0
+# APScheduler 4 removes the API the scheduler uses (AsyncIOScheduler,
+# CronTrigger.from_crontab); src/core/scheduler.py imports tzlocal directly.
+apscheduler>=3.10.0,<4
+tzlocal>=4.0
 pytz>=2024.1
