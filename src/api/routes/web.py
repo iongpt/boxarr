@@ -34,6 +34,7 @@ from ...utils.config import (
 from ...utils.logger import get_logger
 from .weekly_regions import (
     build_region_view,
+    lead_region_tag,
     region_movies,
     region_name,
     stored_gross,
@@ -212,6 +213,13 @@ async def aggregate_all_movies() -> List[dict]:
                     entry["best_rank"] = rank
                     gross = _appearance_best_gross(movie)
                     entry["best_weekend_gross"] = 0 if gross is None else gross
+                    # The region of that rank, for its badge ("#2 FR"); None
+                    # for a rank from a week of one region.
+                    entry["best_rank_region_tag"] = (
+                        lead_region_tag(metadata, movie)
+                        if rank != _NO_BEST_RANK
+                        else None
+                    )
 
         except Exception as e:
             logger.warning(f"Error reading {json_file}: {e}")
@@ -1052,7 +1060,8 @@ async def get_widget(request: Request):
         # Simple widget HTML — escape all dynamic values to prevent stored XSS
         # from scraped movie titles persisted into weekly JSON.
         list_items = "".join(
-            f"<li>{html.escape(str(m['title']))}</li>" for m in widget_data.movies[:5]
+            f"<li>{html.escape(str(m['title']))}{_widget_region_tag(m)}</li>"
+            for m in widget_data.movies[:5]
         )
         widget_html = f"""
         <div class="boxarr-widget">
@@ -1069,6 +1078,12 @@ async def get_widget(request: Request):
         return HTMLResponse(
             content="<div>Error loading widget</div>", headers=WIDGET_CORS_HEADERS
         )
+
+
+def _widget_region_tag(movie: dict) -> str:
+    """A widget item's region tag as HTML (" <small>FR</small>"), or ""."""
+    tag = movie.get("region_tag")
+    return f" <small>{html.escape(str(tag))}</small>" if tag else ""
 
 
 @router.get("/api/widget/json", response_model=WidgetData)
@@ -1153,21 +1168,27 @@ async def get_widget_data() -> WidgetData:
         try:
             with open(json_file) as f:
                 metadata = json.load(f)
+            movies = []
+            for m in metadata.get("movies", [])[:10]:
+                item = {
+                    "rank": m.get("rank"),
+                    "title": m.get("title"),
+                    "gross": m.get("weekend_gross"),
+                    # The region of the rank and gross: the film's lead
+                    # region ("" is US & Canada); None for a week stored
+                    # before regions were recorded.
+                    "region": m.get("region"),
+                }
+                # A week of several regions also tags each film with that
+                # region ("DOM", "FR"), as the weekly page's rank badges do.
+                tag = lead_region_tag(metadata, m)
+                if tag is not None:
+                    item["region_tag"] = tag
+                movies.append(item)
             return WidgetData(
                 current_week=metadata["week"],
                 current_year=metadata["year"],
-                movies=[
-                    {
-                        "rank": m.get("rank"),
-                        "title": m.get("title"),
-                        "gross": m.get("weekend_gross"),
-                        # The region of the rank and gross: the film's lead
-                        # region ("" is US & Canada); None for a week stored
-                        # before regions were recorded.
-                        "region": m.get("region"),
-                    }
-                    for m in metadata.get("movies", [])[:10]
-                ],
+                movies=movies,
             )
         except (json.JSONDecodeError, OSError, KeyError) as exc:
             logger.warning(f"Skipping unreadable widget data file {json_file}: {exc}")

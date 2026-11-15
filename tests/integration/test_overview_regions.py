@@ -304,6 +304,61 @@ class TestOverview:
         assert "Wicker" in response.text
 
 
+class TestOverviewRankBadge:
+    """The badge of a best rank from a week of several regions names its region."""
+
+    def _badges(self, client) -> Dict[str, str]:
+        soup = BeautifulSoup(client.get("/overview").text, "html.parser")
+        return {
+            card.find(class_="movie-title")
+            .get_text(strip=True): card.find(class_="rank-badge")
+            .get_text(" ", strip=True)
+            for card in soup.find_all(class_="movie-card")
+        }
+
+    def test_the_rank_names_the_region_it_is_from(self, seed):
+        client = seed(
+            _week(
+                44,
+                [
+                    _movie("Dom", 1, 1, 9_000_000.0, region=""),
+                    _movie(
+                        "Both",
+                        2,
+                        2,
+                        500_000.0,
+                        region="FR",
+                        rows=[
+                            {"code": "", "rank": 7, "weekend_gross": 1_000_000.0},
+                            {"code": "FR", "rank": 2, "weekend_gross": 500_000.0},
+                        ],
+                    ),
+                ],
+                regions=["", "FR"],
+            )
+        )
+
+        assert self._badges(client) == {"Dom": "#1 DOM", "Both": "#2 FR"}
+
+    def test_the_tag_follows_the_week_of_the_best_rank(self, seed):
+        client = seed(
+            _week(44, [_movie("Film", 1, 3, 1_000.0, region="FR")], ["", "FR"]),
+            _week(45, [_movie("Film", 1, 1, 2_000.0, region="FR")], ["FR"]),
+            _week(46, [_movie("Other", 2, 1, 3_000.0, region="FR")], ["FR"]),
+            _week(47, [_movie("Other", 2, 4, 4_000.0, region="DE")], ["DE", "FR"]),
+        )
+
+        # The best rank of each came from a week of one region: no tag.
+        assert self._badges(client) == {"Film": "#1", "Other": "#1"}
+
+    def test_a_page_of_one_region_weeks_is_unchanged(self, seed):
+        client = seed(_week(44, [_movie("Film", 1, 1, 1_000.0, region="FR")], ["FR"]))
+
+        soup = BeautifulSoup(client.get("/overview").text, "html.parser")
+
+        assert str(soup.find(class_="rank-badge")) == '<div class="rank-badge">#1</div>'
+
+
 class TestWeekList:
     def test_shape_is_unchanged_and_counts_films(self, seed):
         client = seed(
@@ -349,9 +404,52 @@ class TestWidget:
         movies = client.get("/api/widget/json").json()["movies"]
 
         assert movies == [
-            {"rank": 1, "title": "A", "gross": 10.0, "region": ""},
-            {"rank": 1, "title": "B", "gross": 5.0, "region": "RO"},
+            {"rank": 1, "title": "A", "gross": 10.0, "region": "", "region_tag": "DOM"},
+            {"rank": 1, "title": "B", "gross": 5.0, "region": "RO", "region_tag": "RO"},
         ]
+
+    def test_widget_html_tags_each_film_with_its_region(self, seed):
+        client = seed(
+            _week(
+                44,
+                [
+                    _movie("A", 1, 1, 10.0, region=""),
+                    _movie("B", 2, 1, 5.0, region="RO"),
+                ],
+                regions=["", "RO"],
+            )
+        )
+
+        soup = BeautifulSoup(client.get("/api/widget").text, "html.parser")
+
+        items = [li.get_text(" ", strip=True) for li in soup.find_all("li")]
+        assert items == ["A DOM", "B RO"]
+
+    def test_a_hand_edited_region_is_escaped_in_the_widget_html(self, seed):
+        client = seed(
+            _week(
+                44,
+                [
+                    _movie("A", 1, 1, 10.0, region=""),
+                    _movie("B", 2, 1, 5.0, region="<img src=x onerror=alert(1)>"),
+                ],
+                regions=["", "<img src=x onerror=alert(1)>"],
+            )
+        )
+
+        widget = client.get("/api/widget").text
+
+        assert "<img" not in widget
+        assert "&lt;img src=x onerror=alert(1)&gt;" in widget
+
+    def test_a_week_of_one_region_is_unchanged(self, seed):
+        client = seed(_week(44, [_movie("A", 1, 1, 10.0, region="FR")], ["FR"]))
+
+        movies = client.get("/api/widget/json").json()["movies"]
+        soup = BeautifulSoup(client.get("/api/widget").text, "html.parser")
+
+        assert movies == [{"rank": 1, "title": "A", "gross": 10.0, "region": "FR"}]
+        assert str(soup.find("li")) == "<li>A</li>"
 
     def test_legacy_week_has_no_region(self, seed):
         client = seed(_week(44, [_movie("A", 1, 1, 10.0)]))
