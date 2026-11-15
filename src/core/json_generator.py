@@ -406,10 +406,17 @@ class WeeklyDataGenerator:
                 if self.radarr_service:
                     try:
                         # Look the film up on TMDB via Radarr and pick the
-                        # result with Box Office Mojo's IMDb id.
+                        # result with Box Office Mojo's IMDb id. A fallback
+                        # with another IMDb id is another film: its poster,
+                        # TMDB id and Ignore id are not the charted film's.
                         tmdb_movie = resolve_tmdb_pick(
                             self.radarr_service, result.box_office_movie
                         )
+                        if tmdb_movie and imdb_ids_conflict(
+                            result.box_office_movie.imdb_id,
+                            tmdb_movie.get("imdbId"),
+                        ):
+                            tmdb_movie = None
                         if tmdb_movie:
                             movie_data.update(
                                 {

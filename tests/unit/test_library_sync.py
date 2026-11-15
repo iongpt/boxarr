@@ -2,6 +2,8 @@
 
 import json
 
+import pytest
+
 from src.core.library_sync import refresh_weekly_data_from_radarr
 from src.core.models import MovieStatus
 
@@ -524,16 +526,52 @@ class TestMojoImdbIdNamesTheFilm:
         assert results["movies_refreshed"] == 1
         assert json.loads(week_file.read_text())["matched_movies"] == 0
 
-    def test_lookup_fallback_to_an_older_film_is_not_linked(self, tmp_path):
-        """The TMDB pick fell back to the 1978 film, which is in Radarr."""
+    @pytest.mark.parametrize(
+        "library, stored_imdb_id",
+        [
+            pytest.param([SUPERMAN_1978], "tt0078346", id="in-radarr"),
+            pytest.param([], "tt0078346", id="not-in-radarr"),
+            # The stored pick lacks its IMDb id; Radarr's copy names it.
+            pytest.param([SUPERMAN_1978], None, id="in-radarr-pick-without-id"),
+        ],
+    )
+    def test_lookup_fallback_to_an_older_film_is_cleared_not_linked(
+        self, tmp_path, library, stored_imdb_id
+    ):
+        """The TMDB pick fell back to the 1978 film: never linked, and its
+        TMDB id, year and poster leave the card, in Radarr or not."""
         week_file = _week(tmp_path)
-        _superman_week(week_file, tmdb_id=1924, imdb_id="tt0078346", year=1978)
+        _superman_week(
+            week_file,
+            tmdb_id=1924,
+            imdb_id=stored_imdb_id,
+            year=1978,
+            poster="https://example.com/1924.jpg",
+        )
+
+        results = _refresh(tmp_path, *library)
+
+        entry = _stored(week_file)
+        assert (entry["radarr_id"], entry["status"]) == (None, "Not in Radarr")
+        assert (entry["tmdb_id"], entry["imdb_id"], entry["year"]) == (None, None, None)
+        assert entry["poster"] is None
+        assert (entry["title"], entry["bom_imdb_id"]) == ("Superman", "tt5950044")
+        assert (results["movies_refreshed"], results["movies_linked"]) == (1, 0)
+
+        cleared = week_file.read_bytes()
+        assert _refresh(tmp_path, *library)["weeks_updated"] == 0
+        assert week_file.read_bytes() == cleared
+
+    def test_pick_of_the_charted_film_is_kept(self, tmp_path):
+        """A pick with Mojo's id (or none) is the card's film: kept as is."""
+        week_file = _week(tmp_path)
+        _superman_week(week_file, tmdb_id=1061474, imdb_id="tt5950044", year=2025)
         before = week_file.read_bytes()
 
         results = _refresh(tmp_path, SUPERMAN_1978)
 
         assert week_file.read_bytes() == before
-        assert results["movies_linked"] == 0
+        assert results["weeks_updated"] == 0
 
     def test_film_with_the_mojo_imdb_id_is_linked(self, tmp_path):
         """Once the 2025 film is in Radarr, the entry links to it - also when

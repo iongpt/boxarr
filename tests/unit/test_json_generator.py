@@ -130,16 +130,29 @@ class TestTmdbPick:
         assert (entry["tmdb_id"], entry["imdb_id"], entry["year"]) == (2, "tt42", 2026)
         assert entry["bom_imdb_id"] == "tt42"
 
-    @pytest.mark.parametrize("bom_imdb", [None, "tt404"])
-    def test_first_result_without_a_matching_id(self, generator, bom_imdb):
+    def test_first_result_without_a_mojo_imdb_id(self, generator):
         gen, _ = generator({"Heat": [tmdb(1, "Heat", "tt1"), tmdb(2, "Heat", "tt2")]})
         data = gen.build_weekly_data(
-            unmatched(BoxOfficeMovie(rank=1, title="Heat", imdb_id=bom_imdb)),
+            unmatched(BoxOfficeMovie(rank=1, title="Heat", imdb_id=None)),
             2026,
             44,
             regions=[""],
         )
         assert data["movies"][0]["tmdb_id"] == 1
+
+    def test_results_that_are_all_other_films_are_not_stored(self, generator):
+        """Every result has another IMDb id than Mojo's: the card keeps none
+        of their TMDB id, poster or year (#141)."""
+        gen, _ = generator({"Heat": [tmdb(1, "Heat", "tt1"), tmdb(2, "Heat", "tt2")]})
+        data = gen.build_weekly_data(
+            unmatched(BoxOfficeMovie(rank=1, title="Heat", imdb_id="tt404")),
+            2026,
+            44,
+            regions=[""],
+        )
+        [entry] = data["movies"]
+        assert (entry["tmdb_id"], entry["poster"], entry["year"]) == (None, None, None)
+        assert (entry["imdb_id"], entry["bom_imdb_id"]) == (None, "tt404")
 
 
 class TestTmdbCollapse:
@@ -204,7 +217,7 @@ class TestTmdbCollapse:
             ("GB", [BoxOfficeMovie(rank=1, title="Home", imdb_id="ttB")]),
         )
         assert len(films) == 2
-        gen, _ = generator({"Home": [tmdb(100, "Home", "ttA")]})
+        gen, _ = generator({"Home": [tmdb(100, "Home")]})
 
         data = gen.build_weekly_data(unmatched(*films), 2026, 44, regions=regions)
 

@@ -780,9 +780,7 @@ class TestMergesAfterMatching:
         h = harness("domestic,GB")
         FakeBoxOffice.charts = self.home_charts()
         # The title search does not list GB's film: both fall back to tmdb 100.
-        FakeRadarr.lookups = {
-            "Home": [{"tmdbId": 100, "title": "Home", "imdbId": "ttA"}]
-        }
+        FakeRadarr.lookups = {"Home": [{"tmdbId": 100, "title": "Home"}]}
 
         h.update()
 

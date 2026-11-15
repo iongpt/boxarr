@@ -2,8 +2,8 @@
 
 A title search can list several films of one title. The pick goes by Box
 Office Mojo's IMDb id: the result carrying it, else Radarr's ``imdb:<id>``
-lookup, else the first result that does not name another film, and only
-when every result names another film, the first result.
+lookup, else the first result - or, when that one names another film, a
+later result without an IMDb id that is newer than it.
 """
 
 import pytest
@@ -155,6 +155,27 @@ class TestFallback:
 
         assert picked == LILO_2025
         assert lookup.terms == ["Lilo & Stitch", "imdb:tt11655566"]
+
+    @pytest.mark.parametrize("other_year", [2019, 2025])
+    def test_result_without_an_id_that_is_not_newer_does_not_replace_the_first(
+        self, other_year
+    ):
+        """Mojo and TMDB disagree on the charted 2025 "Eden"'s IMDb id, and
+        the search also lists an unrelated film without an id, older or of
+        the same year: that one is not taken for the charted film."""
+        eden_2025 = {"tmdbId": 500, "title": "Eden", "year": 2025, "imdbId": "tt2"}
+        other = {"tmdbId": 501, "title": "Eden", "year": other_year}
+        lookup = _Lookup({"Eden": [eden_2025, other]})
+
+        assert resolve_tmdb_pick(lookup, _chart("Eden", "tt1")) == eden_2025
+
+    def test_result_without_an_id_or_a_year_does_not_replace_the_first(self):
+        undated = dict(LILO_2025, year=0)
+        lookup = _Lookup({"Lilo & Stitch": [LILO_2002, undated]})
+
+        picked = resolve_tmdb_pick(lookup, _chart("Lilo & Stitch", "tt11655566"))
+
+        assert picked == LILO_2002
 
     def test_every_result_naming_another_film_falls_back_to_the_first(self, caplog):
         with caplog.at_level("WARNING"):

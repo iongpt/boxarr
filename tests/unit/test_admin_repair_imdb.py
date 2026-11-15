@@ -115,6 +115,20 @@ def test_film_missing_from_the_title_search_is_found_by_its_imdb_id(weeks):
     assert _FakeRadarr.terms == ["Superman", "imdb:tt5950044"]
 
 
+def test_lookup_finding_only_another_film_repairs_nothing(weeks):
+    """TMDB lists only the 1978 film: the 2025 entry does not get its TMDB
+    id, poster or year (the status refresh would only clear them again)."""
+    _FakeRadarr.lookups = {"Superman": [SUPERMAN_1978]}
+    new = weeks("2025W28", _entry("Superman", "tt5950044"))
+    before = new.read_text()
+
+    stream = _repair()
+
+    assert '"stage": "complete"' in stream
+    assert new.read_text() == before
+    assert _FakeRadarr.terms == ["Superman", "imdb:tt5950044"]
+
+
 def test_entry_without_a_mojo_imdb_id_keeps_the_poster_then_newest_pick(weeks):
     no_poster = dict(SUPERMAN_2025, tmdbId=99, year=2030, remotePoster=None)
     _FakeRadarr.lookups = {"Superman": [SUPERMAN_1978, no_poster, SUPERMAN_2025]}

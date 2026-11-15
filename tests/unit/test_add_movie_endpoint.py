@@ -160,15 +160,51 @@ def test_title_only_request_prefers_the_cards_year(radarr, year, added):
     assert radarr["added"] == [added]
 
 
-def test_card_tmdb_id_wins_over_its_imdb_id(radarr):
+@pytest.mark.parametrize("in_radarr", [False, True], ids=["not-in-radarr", "in-radarr"])
+@pytest.mark.parametrize(
+    "payload, lookups",
+    [
+        pytest.param(
+            {"tmdb_id": 1924},
+            ["tmdb:1924"],
+            id="card-showing-the-1978-film",
+        ),
+        pytest.param(
+            {},
+            ["Superman", "imdb:tt5950044"],
+            id="title-search-finding-only-the-1978-film",
+        ),
+    ],
+)
+def test_film_with_another_imdb_id_is_never_added_or_reported(
+    radarr, payload, lookups, in_radarr
+):
+    """The card is the 2025 "Superman" (Mojo tt5950044); the lookup gives
+    only the 1978 film. It is not added, and when Radarr has it, it is not
+    reported as the charted film already being there (#141)."""
     radarr["lookup_results"]["tmdb:1924"] = [SUPERMAN_1978]
+    radarr["lookup_results"]["Superman"] = [SUPERMAN_1978]
+    if in_radarr:
+        radarr["library"] = [_FakeAddedMovie(7, 1924, "Superman")]
+
+    result = _add(title="Superman", imdb_id="tt5950044", **payload)
+
+    assert result["success"] is False
+    assert "tt5950044" in result["error"] and "tt0078346" in result["error"]
+    assert radarr["lookups"] == lookups
+    assert radarr["added"] == []
+    assert radarr["relinks"] == []
+
+
+def test_card_tmdb_id_of_the_charted_film_wins_over_the_title_search(radarr):
+    radarr["lookup_results"]["tmdb:1061474"] = [SUPERMAN_2025]
     radarr["lookup_results"]["Superman"] = [SUPERMAN_1978, SUPERMAN_2025]
 
-    result = _add(title="Superman", tmdb_id=1924, imdb_id="tt5950044")
+    result = _add(title="Superman", tmdb_id=1061474, imdb_id="tt5950044")
 
     assert result["success"] is True
-    assert radarr["lookups"] == ["tmdb:1924"]
-    assert radarr["added"] == [1924]
+    assert radarr["lookups"] == ["tmdb:1061474"]
+    assert radarr["added"] == [1061474]
 
 
 def test_film_already_in_radarr_relinks_with_its_identity(radarr):

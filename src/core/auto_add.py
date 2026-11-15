@@ -16,7 +16,7 @@ from .ignore_list import IgnoreList
 from .languages import is_known_language, normalize_language
 from .matcher import MatchResult
 from .radarr import RadarrService
-from .region_charts import best_weekend_gross, region_order
+from .region_charts import best_weekend_gross, imdb_ids_conflict, region_order
 from .root_folder_manager import RootFolderManager
 from .tmdb_pick import resolve_tmdb_pick
 
@@ -207,8 +207,9 @@ def auto_add_missing_movies(  # noqa: C901
     stops once the limit is reached. It also stops after
     ``MAX_RADARR_FAILURES_IN_A_ROW`` failures in a row that mean Radarr is
     not answering (a timeout, a refused connection, a 5xx). A film whose
-    TMDB pick is already in the Radarr library is counted as present: no add
-    is attempted.
+    TMDB pick is already in the Radarr library is counted as present, and a
+    pick with another IMDb id than Box Office Mojo's is another film: no add
+    is attempted for either.
 
     Args:
         match_results: Match results from movie matching
@@ -327,22 +328,40 @@ def auto_add_missing_movies(  # noqa: C901
                 continue
 
             movie_tmdb_id = movie_info.get("tmdbId")
-            if movie_tmdb_id:
-                if movie_tmdb_id in seen_tmdb_ids:
-                    logger.info(
-                        f"Skipping '{result.box_office_movie.title}' ({position}) - "
-                        f"TMDB film {movie_tmdb_id} was already considered in this run"
-                    )
-                    continue
-                seen_tmdb_ids.add(movie_tmdb_id)
+            if movie_tmdb_id and movie_tmdb_id in seen_tmdb_ids:
+                logger.info(
+                    f"Skipping '{result.box_office_movie.title}' ({position}) - "
+                    f"TMDB film {movie_tmdb_id} was already considered in this run"
+                )
+                continue
 
             if movie_tmdb_id and movie_tmdb_id in library_tmdb_ids:
+                seen_tmdb_ids.add(movie_tmdb_id)
                 already_present += 1
                 logger.info(
                     f"Skipping '{result.box_office_movie.title}' ({position}) - "
                     f"TMDB film {movie_tmdb_id} is already in Radarr"
                 )
                 continue
+
+            # The lookup fell back to a film with another IMDb id (the
+            # charted film is not on TMDB yet, or its imdb: lookup failed):
+            # that is not the charted film. It uses no slot and is not
+            # remembered, so the next run, or another region's row of that
+            # film, tries again.
+            if imdb_ids_conflict(
+                result.box_office_movie.imdb_id, movie_info.get("imdbId")
+            ):
+                logger.warning(
+                    f"Skipping '{result.box_office_movie.title}' ({position}) - "
+                    f"TMDB has no film with its IMDb id "
+                    f"{result.box_office_movie.imdb_id}; the lookup found "
+                    f"'{movie_info.get('title')}' ({movie_info.get('year')}), "
+                    f"which has IMDb id {movie_info.get('imdbId')}"
+                )
+                continue
+            if movie_tmdb_id:
+                seen_tmdb_ids.add(movie_tmdb_id)
 
             # Skip movies on the ignore list
             if movie_tmdb_id and movie_tmdb_id in ignored_ids:

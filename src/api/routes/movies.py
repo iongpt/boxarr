@@ -485,6 +485,28 @@ def _add_movie_to_radarr(request: AddMovieRequest) -> Dict[str, Any]:
         if not movie_data:
             return {"success": False, "message": "Movie not found on TMDB"}
 
+        # Box Office Mojo's IMDb id names the charted film: a lookup result
+        # with another IMDb id (the title search's fallback, or a card still
+        # showing such a pick) is another film. Neither add it nor report a
+        # film of that title already in Radarr as the charted one.
+        if imdb_ids_conflict(request.imdb_id, movie_data.get("imdbId")):
+            logger.warning(
+                f"Not adding '{req_title}' ({request.imdb_id}): the lookup found "
+                f"'{movie_data.get('title')}' ({movie_data.get('year')}), which "
+                f"has IMDb id {movie_data.get('imdbId')}"
+            )
+            return {
+                "success": False,
+                "message": "Charted film not found on TMDB",
+                "error": (
+                    f"TMDB has no film with IMDb id {request.imdb_id}. Its "
+                    f"lookup for '{req_title}' found "
+                    f"'{movie_data.get('title')}' ({movie_data.get('year')}), "
+                    f"another film by its IMDb id ({movie_data.get('imdbId')}), "
+                    "so nothing was added."
+                ),
+            }
+
         # Determine root folder based on genres
         root_folder_manager = RootFolderManager(radarr_service)
 

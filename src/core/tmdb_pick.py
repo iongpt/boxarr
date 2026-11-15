@@ -1,17 +1,26 @@
 """Pick the TMDB film a chart entry is from Radarr's movie lookup.
 
-Every path that turns a Box Office Mojo title into a TMDB film goes through
-:func:`resolve_tmdb_pick`: the weekly page's metadata for films not in
-Radarr, auto-add, the admin metadata repair and "Add to Radarr" without a
-TMDB id. A title search can list several films of that title (a remake, the
-original, an unrelated film), so the pick goes by Mojo's IMDb id:
+Every path that turns a Box Office Mojo title into a TMDB film picks through
+:func:`pick_tmdb_film` (:func:`resolve_tmdb_pick` for a chart entry): the
+weekly page's metadata for films not in Radarr, auto-add, "Add to Radarr"
+without a TMDB id, and the admin metadata repair of entries that store
+Mojo's IMDb id (older entries without one keep the repair's own "poster,
+then newest" pick). A title search can list several films of that title (a
+remake, the original, an unrelated film), so the pick goes by Mojo's IMDb
+id:
 
 1. the title search result carrying that IMDb id;
 2. if none does, Radarr's ``imdb:<id>`` lookup, taken only when it returns
    the film with that id;
-3. otherwise the first title search result whose IMDb id does not name
-   another film (preferring the given year, when there is one), and only
-   when every result names another film, the first result.
+3. otherwise the first title search result (one of the given year first,
+   when there is one). When the first result has another IMDb id, a later
+   result without one is preferred if it is newer: the new film, listed
+   before TMDB has its IMDb id.
+
+The fallback can still be a film with another IMDb id. Every caller refuses
+such a film (see :func:`imdb_ids_conflict`): the weekly page and the
+metadata repair do not store it, and auto-add and "Add to Radarr" do not
+add it.
 """
 
 from typing import Any, Dict, List, Optional
@@ -52,10 +61,14 @@ def _fallback(
 ) -> Optional[Dict[str, Any]]:
     """The pick when no result carries the chart's IMDb id.
 
-    A result whose IMDb id differs from the chart's is another film, so the
-    first result that is not (no IMDb id, or none to compare) is preferred,
-    one of ``year`` first when a year is given. Only when every result names
-    another film is the first result taken, as before.
+    One of ``year`` without another IMDb id first, when a year is given;
+    else the first result. A first result whose IMDb id differs from the
+    chart's is another film: a later result without that conflict is taken
+    instead, but only when it is newer than the first result (a new film
+    listed after the older film of its title, before TMDB has its IMDb id).
+    One of the same year or older is as likely an unrelated film of the
+    title as the charted one, so the first result stays, and callers refuse
+    it as another film.
     """
     if not results:
         return None
@@ -68,7 +81,18 @@ def _fallback(
         same_year = next((r for r in eligible if _year_of(r) == year), None)
         if same_year is not None:
             return same_year
-    return eligible[0] if eligible else results[0]
+    first = results[0]
+    if not imdb_ids_conflict(imdb_id, first.get("imdbId")):
+        return first
+    first_year = _year_of(first)
+    return next(
+        (
+            result
+            for result in eligible
+            if first_year is None or (_year_of(result) or 0) > first_year
+        ),
+        first,
+    )
 
 
 def pick_tmdb_film(

@@ -224,3 +224,85 @@ def test_title_only_add_with_the_mojo_imdb_id_adds_the_charted_film(
 
     assert result["success"] is True
     assert radarr.added == [film["tmdbId"]]
+
+
+# TMDB has no film with the charted "Superman"'s IMDb id yet: the title
+# search lists only the 1978 film, and the imdb: lookup finds nothing.
+ONLY_THE_OTHER_FILM = {"Superman": [SUPERMAN_1978]}
+MOANA = _film(1241982, "Moana", 2026, "tt2")
+
+
+class _FailingImdbLookup(_FakeRadarr):
+    """Radarr's imdb: lookup fails (a timeout); the title search answers."""
+
+    def search_movie(self, term):
+        if term.startswith("imdb:"):
+            raise RuntimeError("Radarr lookup timed out")
+        return super().search_movie(term)
+
+
+def test_card_never_shows_another_film_of_the_title(env):
+    """No TMDB id, poster or year of the 1978 film: the card has no Ignore
+    button (it needs a tmdb_id) and its Add sends Mojo's IMDb id."""
+    entry = _card(env(ONLY_THE_OTHER_FILM), "Superman", "tt5950044")
+
+    assert (entry["tmdb_id"], entry["poster"], entry["year"]) == (None, None, None)
+    assert (entry["imdb_id"], entry["bom_imdb_id"]) == (None, "tt5950044")
+
+
+def test_add_to_radarr_never_adds_another_film_of_the_title(env):
+    radarr = env(ONLY_THE_OTHER_FILM)
+
+    request = movies_route.AddMovieRequest(title="Superman", imdb_id="tt5950044")
+    result = asyncio.run(movies_route.add_movie_to_radarr(request))
+
+    assert result["success"] is False
+    assert radarr.added == []
+
+
+@pytest.mark.parametrize("radarr_class", [_FakeRadarr, _FailingImdbLookup])
+def test_auto_add_never_adds_another_film_and_uses_no_slot(
+    env, monkeypatch, radarr_class
+):
+    monkeypatch.setattr(
+        auto_add,
+        "settings",
+        Settings(radarr_api_key="test", boxarr_features_auto_add_limit=1),
+    )
+    radarr = radarr_class({**ONLY_THE_OTHER_FILM, "Moana": [MOANA]})
+    results = [
+        MatchResult(
+            box_office_movie=BoxOfficeMovie(
+                rank=1, title="Superman", imdb_id="tt5950044"
+            )
+        ),
+        MatchResult(
+            box_office_movie=BoxOfficeMovie(rank=2, title="Moana", imdb_id="tt2")
+        ),
+    ]
+
+    added = auto_add_missing_movies(results, radarr, 2026, regions=[""])
+
+    assert added == ["Moana"]
+    assert radarr.added == [MOANA["tmdbId"]]
+
+
+def test_another_regions_fallback_does_not_block_the_film(env):
+    """GB's "Home" (ttB) is not on TMDB, so its lookup falls back to the US
+    "Home" (ttA). Considered first, it must not use up that TMDB film."""
+    radarr = env({"Home": [_film(100, "Home", 2026, "ttA")]})
+    results = [
+        MatchResult(
+            box_office_movie=BoxOfficeMovie(
+                rank=1, title="Home", imdb_id="ttB", region="GB"
+            )
+        ),
+        MatchResult(
+            box_office_movie=BoxOfficeMovie(rank=2, title="Home", imdb_id="ttA")
+        ),
+    ]
+
+    added = auto_add_missing_movies(results, radarr, 2026, regions=["", "GB"])
+
+    assert added == ["Home"]
+    assert radarr.added == [100]
