@@ -223,20 +223,26 @@ async def repair_missing_metadata(request: RepairRequest):
                     )
                     yield f"data: {json.dumps({'stage': 'fetching', 'progress': idx, 'total': total_movies, 'message': message})}\n\n"
 
-                    # Search for movie in TMDB via Radarr. Mojo's IMDb id,
-                    # when stored, names the film: pick the result with it,
-                    # and never a fallback with another IMDb id (another
+                    # Search for movie in TMDB via Radarr, on a worker thread:
+                    # RadarrService is synchronous, and a Radarr that hangs
+                    # must not freeze every other request (#138). Mojo's IMDb
+                    # id, when stored, names the film: pick the result with
+                    # it, and never a fallback with another IMDb id (another
                     # film, which the status refresh would clear again).
                     bom_imdb_id = unique_movies[key]["sample_data"].get("bom_imdb_id")
                     tmdb_movie: Optional[Dict[str, Any]]
                     if key[1]:
-                        tmdb_movie = pick_tmdb_film(radarr_service, title, bom_imdb_id)
+                        tmdb_movie = await asyncio.to_thread(
+                            pick_tmdb_film, radarr_service, title, bom_imdb_id
+                        )
                         if tmdb_movie and imdb_ids_conflict(
                             bom_imdb_id, tmdb_movie.get("imdbId")
                         ):
                             tmdb_movie = None
                     else:
-                        search_results = radarr_service.search_movie(title)
+                        search_results = await asyncio.to_thread(
+                            radarr_service.search_movie, title
+                        )
                         tmdb_movie = (
                             _poster_then_newest(search_results)
                             if search_results

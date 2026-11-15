@@ -96,8 +96,10 @@ async def get_current_box_office(
             radarr_service = RadarrService()
             matcher = MovieMatcher()
 
-            # Get all Radarr movies and build index
-            radarr_movies = radarr_service.get_all_movies()
+            # Get all Radarr movies and build index. On a worker thread, like
+            # the chart fetch: RadarrService is synchronous, and a Radarr that
+            # hangs must not freeze every other request for radarr_timeout.
+            radarr_movies = await asyncio.to_thread(radarr_service.get_all_movies)
             matcher.build_movie_index(radarr_movies)
 
             # Match each movie
