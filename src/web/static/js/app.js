@@ -702,9 +702,21 @@ function refreshSchedulerStatus() {
             if (lastRun) {
                 if (data.last_run) {
                     const lastTime = new Date(data.last_run.timestamp);
-                    lastRun.innerHTML = `${lastTime.toLocaleString()} <small>(${data.last_run.matched_count}/${data.last_run.total_count} matched)</small>`;
+                    const note = document.createElement('small');
+                    if (data.last_run.success === false) {
+                        // Failed runs are saved too, with no films: say the
+                        // run failed, with its first error on hover.
+                        note.textContent = '(failed)';
+                        lastRun.title = data.last_run.error || '';
+                    } else {
+                        note.textContent = `(${data.last_run.matched_count}/${data.last_run.total_count} matched)`;
+                        lastRun.title = '';
+                    }
+                    lastRun.textContent = `${lastTime.toLocaleString()} `;
+                    lastRun.appendChild(note);
                 } else {
                     lastRun.innerHTML = 'No previous runs';
+                    lastRun.title = '';
                 }
             }
             

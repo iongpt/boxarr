@@ -35,6 +35,25 @@ def get_scheduler() -> BoxarrScheduler:
     return _scheduler
 
 
+def _first_error(run: Dict[str, Any]) -> Optional[str]:
+    """What a saved run failed with, or None.
+
+    A failed run's ``error`` is what failed it - when no region could be
+    fetched, it names each region's error - even when a region failed
+    first (its ``errors`` lists the regions' errors before it). A run
+    without one falls back to the first of its ``errors``.
+    """
+    error = run.get("error")
+    if isinstance(error, str) and error:
+        return error
+    errors = run.get("errors")
+    if isinstance(errors, list):
+        for error in errors:
+            if isinstance(error, str) and error:
+                return error
+    return None
+
+
 class TriggerResponse(BaseModel):
     """Trigger response model."""
 
@@ -192,6 +211,8 @@ async def get_scheduler_status():
                                 # older files: one region, never partial.
                                 "partial": data.get("partial", False),
                                 "region_status": data.get("region_status", []),
+                                # Shown on hover in the setup page's Last Run row.
+                                "error": _first_error(data),
                                 "matched_count": data.get("matched_count", 0),
                                 "total_count": data.get("total_count", 0),
                             }
