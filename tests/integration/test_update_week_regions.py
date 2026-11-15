@@ -17,8 +17,10 @@ whose Box Office Mojo IMDb ids differ are never joined.
 """
 
 import json
+import re
 from dataclasses import replace
 from pathlib import Path
+from unittest.mock import MagicMock, Mock
 
 import pytest
 import yaml
@@ -31,12 +33,17 @@ import src.core.region_charts as region_charts
 import src.utils.config as cfg_utils
 from src.api.app import create_app
 from src.core.boxoffice import BoxOfficeMovie
+from src.core.boxoffice import BoxOfficeService as RealBoxOfficeService
 from src.core.exceptions import BoxOfficeError, BoxOfficeNoData
 from src.core.library_sync import refresh_weekly_data_from_radarr
 from src.core.models import MovieStatus
 from src.core.radarr import QualityProfile, RadarrMovie
 
 DATA = Path(__file__).parent / "data"
+# What Mojo returned for ?area=ZZ: the domestic 2026W44 chart.
+UNKNOWN_MARKET_PAGE = (
+    Path(__file__).parent.parent / "fixtures" / "bom" / "unknown_ZZ_2026W44.html"
+)
 
 
 class FakeBoxOffice:
@@ -520,6 +527,79 @@ def films(stored):
         (m["title"], m["radarr_id"], [r["code"] for r in m["regions"]])
         for m in stored["movies"]
     ]
+
+
+class TestUnknownMarket:
+    """Mojo answers an area code it does not know with the domestic chart.
+
+    Stored as that region's chart, it listed every domestic film twice.
+    """
+
+    def use_mojo_pages(self, monkeypatch, pages):
+        """Fetch through the real service; ``pages`` maps area code to page."""
+
+        def get(url):
+            response = Mock()
+            response.raise_for_status = Mock()
+            match = re.search(r"[?&]area=([A-Z]{2})", url)
+            if "/weekend/" in url:
+                response.text = pages[match.group(1) if match else ""]
+            else:
+                response.text = ""  # release pages: no IMDb ids
+            return response
+
+        client = MagicMock()
+        client.get.side_effect = get
+        monkeypatch.setattr(
+            core_boxoffice,
+            "BoxOfficeService",
+            lambda *_, **__: RealBoxOfficeService(http_client=client),
+        )
+
+    def test_an_unknown_market_fails_instead_of_repeating_domestic(
+        self, harness, monkeypatch
+    ):
+        h = harness("domestic,ZZ")
+        page = UNKNOWN_MARKET_PAGE.read_text()
+        self.use_mojo_pages(monkeypatch, {"": page, "ZZ": page})
+
+        resp = h.update()
+
+        body = resp.json()
+        assert (body["success"], body["partial"]) == (True, True)
+        assert body["message"] == "Updated week 2026W44; ZZ failed"
+        stored = h.stored()
+        assert stored["total_movies"] == 2
+        assert {r["code"] for m in stored["movies"] for r in m["regions"]} == {""}
+        zz = stored["region_status"][1]
+        assert (zz["region"], zz["status"], zz["movies"]) == ("ZZ", "error", 0)
+        assert zz["error"] == (
+            "Box Office Mojo has no market 'ZZ': it returned the domestic "
+            "chart instead"
+        )
+
+    def test_rows_an_older_run_stored_for_it_are_dropped(self, harness, monkeypatch):
+        h = harness("domestic,UK")
+        # An earlier build stored the domestic chart as UK's own.
+        films = [bom(1, "Film A", 9.0), bom(2, "Film B", 8.0)]
+        FakeBoxOffice.charts = {
+            "": films,
+            "UK": [replace(f, region="UK") for f in films],
+        }
+        assert h.update().json()["success"] is True
+        assert h.stored()["region_status"][1]["status"] == "ok"
+
+        page = UNKNOWN_MARKET_PAGE.read_text()
+        self.use_mojo_pages(monkeypatch, {"": page, "UK": page})
+        resp = h.update()
+
+        assert resp.json()["partial"] is True
+        stored = h.stored()
+        uk = stored["region_status"][1]
+        assert uk["status"] == "error"
+        assert "carried_from" not in uk
+        assert "(did you mean GB?)" in uk["error"]
+        assert {r["code"] for m in stored["movies"] for r in m["regions"]} == {""}
 
 
 class TestMergesAfterMatching:

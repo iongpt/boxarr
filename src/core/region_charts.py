@@ -30,7 +30,7 @@ from .boxoffice import (
     normalize_region_code,
     region_label,
 )
-from .exceptions import BoxOfficeError, BoxOfficeNoData
+from .exceptions import BoxOfficeError, BoxOfficeNoData, BoxOfficeUnknownMarket
 from .matcher import MatchResult, MovieMatcher
 
 logger = get_logger(__name__)
@@ -516,10 +516,14 @@ def stored_region_fetch(stored: Dict[str, Any], failed: RegionFetch) -> RegionFe
 
     Returns:
         A ``stale`` fetch carrying the market's stored rows, or ``failed``
-        unchanged when the stored week did not hold that market's chart
+        unchanged when the stored week did not hold that market's chart, or
+        when Mojo has no such market (rows stored for it were the domestic
+        chart Mojo answers an unknown area code with)
     """
     code = failed.region
     if code not in (stored.get("regions") or []):
+        return failed
+    if isinstance(failed.exception, BoxOfficeUnknownMarket):
         return failed
     previous = next(
         (

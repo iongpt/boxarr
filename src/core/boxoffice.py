@@ -11,7 +11,7 @@ from bs4 import BeautifulSoup, SoupStrainer, Tag
 
 from ..utils.config import configured_box_office_regions, settings
 from ..utils.logger import get_logger
-from .exceptions import BoxOfficeError, BoxOfficeNoData
+from .exceptions import BoxOfficeError, BoxOfficeNoData, BoxOfficeUnknownMarket
 
 logger = get_logger(__name__)
 
@@ -176,6 +176,13 @@ _WEEKEND_RANGE_RE = re.compile(
 # available.</p>, under the usual title and date range.
 _NO_DATA_TEXT = re.compile(r"no\s+data\s+available", re.IGNORECASE)
 
+# The heading over the US & Canada chart: "Domestic 2026 Weekend 44". Every
+# other market's names the market: "French 2026 Weekend 44", "British ...".
+_DOMESTIC_HEADING = re.compile(r"domestic\b", re.IGNORECASE)
+
+# Area codes people use for a market Mojo files under another code.
+_AREA_CODE_HINTS: Dict[str, str] = {"UK": "GB"}
+
 
 def normalize_region_code(region: Optional[str]) -> str:
     """
@@ -201,6 +208,37 @@ def normalize_region_code(region: Optional[str]) -> str:
             "two-letter area code, or 'domestic'"
         )
     return code
+
+
+def shows_domestic_chart(html: str) -> bool:
+    """
+    Tell whether a chart page is Mojo's domestic (US & Canada) chart.
+
+    Mojo serves the domestic chart for an area code it does not know, so a
+    non-domestic region whose page passes this check does not exist on Mojo.
+
+    Args:
+        html: Weekend chart HTML
+
+    Returns:
+        True when the page heading (<h1 class="mojo-gutter">) starts with
+        "Domestic"; False for every other market and for a page without one
+    """
+    soup = BeautifulSoup(html or "", "html.parser", parse_only=SoupStrainer("h1"))
+    heading = soup.find("h1", class_="mojo-gutter")
+    if heading is None:
+        return False
+    return bool(_DOMESTIC_HEADING.match(heading.get_text(" ", strip=True)))
+
+
+def unknown_market_message(region: str) -> str:
+    """Explain that Mojo has no such market, e.g. for UK: "... (did you mean GB?)"."""
+    hint = _AREA_CODE_HINTS.get(region)
+    suggestion = f" (did you mean {hint}?)" if hint else ""
+    return (
+        f"Box Office Mojo has no market '{region}'{suggestion}: it returned "
+        "the domestic chart instead"
+    )
 
 
 def region_label(region: Optional[str]) -> str:
@@ -801,12 +839,18 @@ class BoxOfficeService:
             Chart HTML for the requested week
 
         Raises:
+            BoxOfficeUnknownMarket: If Mojo answered a non-domestic region
+                with the domestic chart, as it does for a code it does not
+                know. Checked before the week, so no start day is learned
+                from the domestic chart.
             BoxOfficeError: If fetching fails or the corrected chart still
                 shows another week
         """
         url = self._build_weekend_url(year, week, region)
         logger.info(f"Fetching box office data from: {url}")
         html = self._fetch_chart_html(url)
+        if region and shows_domestic_chart(html):
+            raise BoxOfficeUnknownMarket(unknown_market_message(region))
 
         printed = self._week_mismatch(html, year, week, url)
         if printed is None:
@@ -873,6 +917,8 @@ class BoxOfficeService:
             BoxOfficeNoData: If the chart shows the requested week but Mojo
                 has no data for it ("No data available"). The message keeps
                 the parser's "No movies found" wording.
+            BoxOfficeUnknownMarket: If Mojo has no market for the region and
+                returned the domestic chart instead
             BoxOfficeError: If fetching or parsing fails, or the chart shows a
                 different week than requested
         """
