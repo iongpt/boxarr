@@ -5,7 +5,8 @@ the others are written. Every page that runs an update words its message from
 this helper, so a partial success reads e.g. "Updated 2 of 3 regions (FR
 failed)" instead of a failure, and an older stored week that was kept says
 so instead of "Regeneration failed". Skipped when node is not installed; the
-call-site guard at the end needs no node.
+call-site guard at the end needs no node. Each page's handlers are run on
+such responses in tests/integration/test_update_outcome_js.py.
 """
 
 import json
@@ -233,13 +234,21 @@ class TestDescribe:
         assert isinstance(result["message"], str)
 
 
-# Every client call of the two update endpoints.
+# Every client call of the two update endpoints. Each is run on a partial,
+# kept and failed response in tests/integration/test_update_outcome_js.py;
+# this count makes a new call site fail here until it is added there.
 UPDATE_CALL = re.compile(r"""['"`][^'"`]*/scheduler/(?:trigger|update-week)['"`]""")
 SITES = {
     STATIC_JS / "app.js": 4,
     TEMPLATES / "dashboard.html": 3,
     TEMPLATES / "weekly.html": 1,
 }
+# Where a call's own response handling ends: the next fetch, or the next
+# function (a declaration, or a `window.name = function` assignment).
+NEXT_CALL = re.compile(
+    r"\bfetch\(|\n[ \t]*(?:async[ \t]+)?function[ \t]"
+    r"|\n[ \t]*window\.\w+[ \t]*=[ \t]*(?:async[ \t]+)?function\b"
+)
 
 
 @pytest.mark.parametrize("path, count", SITES.items(), ids=lambda v: str(v)[-20:])
@@ -249,22 +258,11 @@ def test_every_update_call_reads_its_response_through_the_helper(path, count):
 
     assert len(starts) == count, path.name
     for start in starts:
-        # The response handling follows the fetch within a few lines.
-        window = text[start : start + 2500]
+        end = NEXT_CALL.search(text, start)
+        window = text[start : end.start() if end else len(text)]
         assert (
             "describeUpdateResult(" in window or "showUpdateOutcome(" in window
         ), f"{path.name}: an update call does not use describeUpdateResult"
-
-
-def test_weekly_page_says_regeneration_failed_only_for_failures():
-    text = (TEMPLATES / "weekly.html").read_text(encoding="utf-8")
-    regenerate = text[text.index("async function regenerateWeek") :]
-    regenerate = regenerate[: regenerate.index("</script>")]
-
-    for match in re.finditer(r"Regeneration failed", regenerate):
-        branch = regenerate[: match.start()]
-        last_branch = branch.rsplit("} else", 1)[-1]
-        assert "partial" not in last_branch and "kept" not in last_branch
 
 
 @pytest.mark.parametrize("template", ["base.html", "setup.html"])

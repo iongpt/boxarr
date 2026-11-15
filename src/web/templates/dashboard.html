@@ -1071,6 +1071,11 @@
                 <h4>Updated With Region Errors (<span id="partialCount">0</span>)</h4>
                 <ul id="partialList"></ul>
             </div>
+
+            <div class="failed-weeks" id="keptWeeks" style="display: none;">
+                <h4>Not Updated - Kept Existing Data (<span id="keptCount">0</span>)</h4>
+                <ul id="keptList"></ul>
+            </div>
             
             <div class="summary-details" id="summaryDetails"></div>
         </div>
@@ -1229,7 +1234,10 @@ class RangeProcessor {
         
         // Calculate summary stats
         const successful = this.results.filter(r => r.success).length;
-        const failed = this.results.filter(r => !r.success);
+        // An older stored week left as it was because a region failed: a
+        // warning, not a failure. A request that threw has no outcome.
+        const kept = this.results.filter(r => r.outcome === 'kept');
+        const failed = this.results.filter(r => !r.success && r.outcome !== 'kept');
         // Written, but a region failed (e.g. "Updated 2 of 3 regions (FR failed)")
         const partial = this.results.filter(r => r.success && r.outcome === 'partial');
         const totalMovies = this.results.reduce((sum, r) => sum + (r.movies_found || 0), 0);
@@ -1269,6 +1277,20 @@ class RangeProcessor {
             });
         } else {
             document.getElementById('partialWeeks').style.display = 'none';
+        }
+
+        if (kept.length > 0) {
+            document.getElementById('keptWeeks').style.display = 'block';
+            document.getElementById('keptCount').textContent = kept.length;
+            const keptList = document.getElementById('keptList');
+            keptList.replaceChildren();
+            kept.forEach(k => {
+                const li = document.createElement('li');
+                li.textContent = `${k.year}W${k.week.toString().padStart(2, '0')}: ${k.outcomeMessage}`;
+                keptList.appendChild(li);
+            });
+        } else {
+            document.getElementById('keptWeeks').style.display = 'none';
         }
         
         // Show summary modal
