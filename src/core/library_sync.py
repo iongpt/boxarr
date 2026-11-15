@@ -137,6 +137,13 @@ def refresh_weekly_data_from_radarr(
     it was built (admin repair, a lookup that failed at build time): those
     entries are merged first, so the film is linked once, not once per region.
 
+    An entry's Box Office Mojo IMDb id (``bom_imdb_id``) names its film: the
+    library film with that id is linked, and a film with another IMDb id is
+    never linked, by its Radarr id or its TMDB id. An existing link to such a
+    film is dropped together with that film's metadata (TMDB id, IMDb id,
+    year, poster, overview, genres, language). Entries without a Mojo id link
+    as before.
+
     Args:
         radarr_service: Service to read quality profiles (and the library) from.
         data_directory: Data root holding ``weekly_pages``; defaults to settings.
