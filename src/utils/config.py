@@ -198,6 +198,10 @@ def _coerce_box_office_regions(
     for token in ",".join(tokens).split(","):
         if not token.strip():
             continue
+        if not token.isascii():
+            # Upper-casing would turn "ß" into "SS" and "ıt" into "IT".
+            rejected.append(repr(token.strip()))
+            continue
         # One token parses to exactly one code.
         code = parse_box_office_regions(token)[0]
         if code and not _REGION_CODE.fullmatch(code):

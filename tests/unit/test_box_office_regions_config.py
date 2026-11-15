@@ -157,6 +157,9 @@ class TestNormalize:
             (True, "", "True"),
             (5, "", "5"),
             ({"a": 1}, "", "'a'"),
+            # Upper-cased, these would pass as SS and IT.
+            ("ß,DE", "DE", "ß"),
+            (["ıt"], "", "ıt"),
         ],
     )
     def test_invalid_tokens_are_dropped_with_a_warning(
@@ -210,7 +213,19 @@ class TestValidate:
 
     @pytest.mark.parametrize(
         "value",
-        [["NLD"], "NL,X", [5], ["NL", "N-L"], False, True, [False, "DE"]],
+        [
+            ["NLD"],
+            "NL,X",
+            [5],
+            ["NL", "N-L"],
+            False,
+            True,
+            [False, "DE"],
+            # Non-ASCII that upper-cases to two letters: SS, IT, FI.
+            "ß",
+            ["ıt"],
+            "ﬁ,DE",
+        ],
     )
     def test_rejects_invalid_codes(self, value):
         with pytest.raises(ValueError, match="two-letter"):
