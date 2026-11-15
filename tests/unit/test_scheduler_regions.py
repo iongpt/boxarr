@@ -235,6 +235,26 @@ class TestUpdateBoxOffice:
         assert [s["status"] for s in run["region_status"]] == ["error", "error"]
         assert (run["total_count"], run["matched_count"]) == (0, 0)
 
+    def test_no_region_with_data_fails_as_no_data_found(self, env):
+        tmp_path, refreshes = env
+        scheduler = make_scheduler(
+            {
+                "": BoxOfficeNoData("No movies found"),
+                "DE": BoxOfficeNoData("No movies found"),
+            }
+        )
+
+        with pytest.raises(
+            SchedulerError, match=r"^Update failed: No data found for week 2026W44$"
+        ):
+            asyncio.run(scheduler.update_box_office(2026, 44))
+
+        run = latest(tmp_path)
+        assert run["success"] is False
+        assert [s["status"] for s in run["region_status"]] == ["no_data", "no_data"]
+        assert run["errors"] == []
+        assert refreshes == []
+
     def test_one_region_error_keeps_its_message(self, env, monkeypatch):
         tmp_path, _ = env
         monkeypatch.setattr(

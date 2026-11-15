@@ -444,6 +444,28 @@ class TestPartialFailure:
         )
         assert h.week_file.read_bytes() == before
 
+    @pytest.mark.parametrize(
+        "domestic",
+        [BoxOfficeNoData("No movies found"), []],
+        ids=["no-data page", "empty chart"],
+    )
+    def test_no_region_with_data_is_no_data_found(self, harness, domestic):
+        h = harness("domestic,DE")
+        before = h.seed({"year": 2026, "week": 44, "movies": [{"title": "Old"}]})
+        FakeBoxOffice.charts = {
+            "": domestic,
+            "DE": BoxOfficeNoData("No movies found"),
+        }
+
+        resp = h.update()
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert (body["success"], body["partial"]) == (False, False)
+        assert body["message"] == "No data found for week 2026W44"
+        assert [s["status"] for s in body["region_status"]] == ["no_data", "no_data"]
+        assert h.week_file.read_bytes() == before
+
     def test_stored_v2_week_carries_the_failed_region_over(self, harness):
         h = harness("domestic,DE")
         FakeBoxOffice.charts = two_region_charts()

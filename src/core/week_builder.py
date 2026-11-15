@@ -10,7 +10,9 @@ weekly-JSON write lock, which its callers hold for the whole run.
 Failure handling, per region status (ok, no_data, error):
 
 - no region ok: raise :class:`WeekBuildError`; the stored file is untouched.
-  With one region its message is that region's own error, as before.
+  With one region its message is that region's own error, as before. When
+  several regions all report no data, it is "No data found for week ..."
+  and ``WeekBuildError.empty`` is true.
 - no stored file yet: write what succeeded; failed regions are flagged.
 - stored file of data version 2: a failed region is rebuilt from its stored
   rows and marked ``stale``.
@@ -85,6 +87,18 @@ def _region_notes(fetches: Sequence[RegionFetch]) -> str:
     return "; ".join(part for part in parts if part)
 
 
+def _no_region_has_data(fetches: Sequence[RegionFetch]) -> bool:
+    """Whether every region answered without a chart, and none failed.
+
+    Mojo's no-data page (BoxOfficeNoData) and an empty chart both count.
+    With one region, a no-data page keeps its own error as before several
+    regions could be configured; only an empty chart is "no data found".
+    """
+    if not all(fetch.status == STATUS_NO_DATA for fetch in fetches):
+        return False
+    return len(fetches) > 1 or all(fetch.exception is None for fetch in fetches)
+
+
 class WeekBuildError(BoxOfficeError):
     """No configured region produced a chart for the week."""
 
@@ -104,11 +118,8 @@ class WeekBuildError(BoxOfficeError):
 
     @property
     def empty(self) -> bool:
-        """Whether every region answered, with no rows and no error at all."""
-        return all(
-            fetch.status == STATUS_NO_DATA and fetch.exception is None
-            for fetch in self.fetches
-        )
+        """Whether every region answered with no data and none failed."""
+        return _no_region_has_data(self.fetches)
 
 
 @dataclass
@@ -156,7 +167,7 @@ def _no_region_error(
     if len(fetches) == 1 and fetches[0].exception is not None:
         # One region: exactly the error a one-chart fetch raised before.
         message = str(fetches[0].exception)
-    elif all(f.status == STATUS_NO_DATA and f.exception is None for f in fetches):
+    elif _no_region_has_data(fetches):
         message = f"No data found for week {year}W{week:02d}"
     else:
         message = (
