@@ -92,8 +92,12 @@ class RadarrMovie:
         return None
 
 
-_movies_cache: Dict[str, Any] = {"ts": 0.0, "data": []}
-_profiles_cache: Dict[str, Any] = {"ts": 0.0, "data": []}
+# Each holds one Radarr's data at a time, with the (url, api_key) it came from
+# as "source": it is served only to that Radarr (#137). After the URL or key
+# changes in /setup, the previous Radarr's library or quality profiles - whose
+# ids the new one does not know - are never handed out as the new one's.
+_movies_cache: Dict[str, Any] = {"ts": 0.0, "data": [], "source": None}
+_profiles_cache: Dict[str, Any] = {"ts": 0.0, "data": [], "source": None}
 
 # Longest wait for a TCP connection to Radarr. The read timeout stays at
 # radarr_timeout, which large libraries need for /api/v3/movie (#62), but an
@@ -137,10 +141,14 @@ _library_cached_number = 0
 _library_generation = 0
 
 
-def _cached_library(ttl: float) -> Optional[List[RadarrMovie]]:
-    """Return the cached library while it is fresh, else None."""
+def _cached_library(source: Tuple[str, str], ttl: float) -> Optional[List[RadarrMovie]]:
+    """Return the cached library of ``source`` while it is fresh, else None."""
     cache = _movies_cache
-    if cache["data"] and (time.time() - cache["ts"]) < ttl:
+    if (
+        cache["data"]
+        and cache.get("source") == source
+        and (time.time() - cache["ts"]) < ttl
+    ):
         return cast(List[RadarrMovie], cache["data"])
     return None
 
@@ -160,7 +168,8 @@ def _claim_library_download(
     after it asked), but only the movies of a download that began after it
     asked; no caller takes the movies of a download that began before the
     cache was last invalidated. A download of another Radarr is neither waited
-    for nor taken (the cache itself is not yet kept per Radarr, #137).
+    for nor taken, and a library cached from another Radarr is not served
+    (#137).
 
     With ``wait``, a download under way is waited for until ``wait`` seconds
     after it began, then LibraryDownloadPending is raised: a status poll then
@@ -172,7 +181,7 @@ def _claim_library_download(
     while True:
         with _library_lock:
             # A fresh cache is served at once, even while a bypass downloads.
-            cached = None if ignore_cache else _cached_library(ttl)
+            cached = None if ignore_cache else _cached_library(source, ttl)
             if cached is not None:
                 return cached
             download = _library_downloads.get(source)
@@ -213,6 +222,7 @@ def _finish_library_download(download: _LibraryDownload) -> None:
         ):
             _movies_cache["data"] = download.movies
             _movies_cache["ts"] = download.started
+            _movies_cache["source"] = download.source
             _library_cached_number = download.number
         if _library_downloads.get(download.source) is download:
             del _library_downloads[download.source]
@@ -705,9 +715,11 @@ class RadarrService:
             ttl = 120
 
         now = __import__("time").time()
+        source = (self.url, self.api_key)
         if (
             not ignore_cache
             and _profiles_cache["data"]
+            and _profiles_cache.get("source") == source
             and (now - _profiles_cache["ts"]) < ttl
         ):
             return cast(List[QualityProfile], _profiles_cache["data"])
@@ -732,6 +744,7 @@ class RadarrService:
 
         _profiles_cache["data"] = profiles
         _profiles_cache["ts"] = now
+        _profiles_cache["source"] = source
         self._quality_profiles = profiles
         return profiles
 

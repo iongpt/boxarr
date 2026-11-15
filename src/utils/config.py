@@ -4,10 +4,12 @@ import json
 import os
 import re
 import shutil
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
+from typing import Any, Dict, Iterable, Iterator, List, Optional, Tuple, Union
 
 import yaml
 from pydantic import (
@@ -513,10 +515,13 @@ class Settings(BaseSettings):
     )
     boxarr_scheduler_cron: str = Field(
         default="0 23 * * 2",
-        description="Cron expression for updates (default: Tuesday 11 PM)",
+        # APScheduler numbers the days of the week from Monday=0 (crontab
+        # starts at Sunday=0), so 2 is Wednesday.
+        description="Cron expression for updates (default: Wednesday 11 PM)",
     )
     boxarr_scheduler_timezone: str = Field(
-        default_factory=lambda: os.environ.get("TZ", "America/New_York"),
+        # A blank TZ counts as unset, like a blank BOXARR_LOG_LEVEL.
+        default_factory=lambda: os.environ.get("TZ", "").strip() or "America/New_York",
         description="Timezone for scheduler",
     )
 
@@ -778,6 +783,9 @@ class Settings(BaseSettings):
             if field_name.upper() in os.environ:
                 env_set.add(field_name)
         for env_var, field_name in special_env_map.items():
+            # A blank TZ counts as unset, so local.yaml's timezone still applies.
+            if env_var == "TZ" and not os.environ.get("TZ", "").strip():
+                continue
             if env_var in os.environ:
                 env_set.add(field_name)
         # A blank BOXARR_LOG_LEVEL counts as unset, so local.yaml still applies.
@@ -1035,6 +1043,11 @@ class Settings(BaseSettings):
 # Lazy-loaded settings to avoid import-time side effects
 _settings: Optional[Settings] = None
 
+# The settings a scheduler run holds on to; see pinned_settings().
+_pinned_settings: ContextVar[Optional[Settings]] = ContextVar(
+    "boxarr_pinned_settings", default=None
+)
+
 
 def load_settings() -> Settings:
     """Load settings with configuration file support."""
@@ -1065,11 +1078,36 @@ def load_settings() -> Settings:
 
 
 def get_settings() -> Settings:
-    """Get settings instance (lazy-loaded to avoid import side effects)."""
+    """Get settings instance (lazy-loaded to avoid import side effects).
+
+    Inside :func:`pinned_settings`, the settings it pinned.
+    """
+    pinned = _pinned_settings.get()
+    if pinned is not None:
+        return pinned
     global _settings
     if _settings is None:
         _settings = load_settings()
     return _settings
+
+
+@contextmanager
+def pinned_settings() -> Iterator[Settings]:
+    """
+    Keep reading the settings of this moment, whatever is saved meanwhile.
+
+    A save loads a new Settings object and leaves the old one as it was. In
+    this context - and in threads run with a copy of it - ``settings`` and
+    get_settings() keep answering with the one current on entry, so a
+    scheduler run does not send one Radarr's root folder or quality profile
+    to another Radarr saved while it runs (#137).
+    """
+    current = get_settings()
+    token = _pinned_settings.set(current)
+    try:
+        yield current
+    finally:
+        _pinned_settings.reset(token)
 
 
 # Create a settings proxy that lazy-loads on first access

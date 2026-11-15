@@ -114,7 +114,9 @@ def app(tmp_path, monkeypatch, hung_radarr):
     # monkeypatch, so the Settings built from tmp_path cannot outlive the test.
     monkeypatch.setattr(cfg_utils, "_settings", None)
     monkeypatch.setattr(
-        scheduler_route, "_scheduler", types.SimpleNamespace(_running=False)
+        scheduler_route,
+        "_scheduler",
+        types.SimpleNamespace(_running=False, apply_settings=lambda: "unchanged"),
     )
     monkeypatch.setattr(core_radarr, "_movies_cache", {"ts": 0.0, "data": []})
     monkeypatch.setattr(core_radarr, "_profiles_cache", {"ts": 0.0, "data": []})

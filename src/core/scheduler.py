@@ -1,20 +1,24 @@
 """Scheduler service for automated box office updates."""
 
 import asyncio
+import contextvars
 import json
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, tzinfo
 from functools import partial
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 import pytz
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
+from apscheduler.jobstores.base import JobLookupError
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.util import astimezone
+from tzlocal import get_localzone
 
 from ..utils.atomic import atomic_write_json
-from ..utils.config import configured_box_office_regions, settings
+from ..utils.config import configured_box_office_regions, pinned_settings, settings
 from ..utils.logger import get_logger
 from .boxoffice import BoxOfficeService
 from .exceptions import SchedulerError
@@ -25,6 +29,82 @@ from .radarr import RadarrService
 from .week_builder import WeekBuildError, WeekBuildResult, build_week
 
 logger = get_logger(__name__)
+
+WEEKLY_JOB_ID = "box_office_update"
+
+
+def _zone_name(value: Optional[str]) -> str:
+    """
+    Return the zone name in a TZ-style value.
+
+    TZ also takes a leading ':' (":Europe/Berlin") and a zoneinfo file
+    ("/usr/share/zoneinfo/Asia/Tokyo"); both name the zone after it.
+    """
+    name = (value or "").strip()
+    if name.startswith(":"):
+        name = name[1:].strip()
+    if "zoneinfo/" in name:
+        name = name.rsplit("zoneinfo/", 1)[1]
+    return name
+
+
+def scheduler_timezone() -> tzinfo:
+    """
+    Return the configured scheduler timezone.
+
+    A value that names no zone - blank, a path such as /etc/localtime, or not
+    a known zone - means the host's timezone, the one the job fired in before
+    the configured one was honoured (#145); UTC when even that is unknown.
+    """
+    configured = settings.boxarr_scheduler_timezone
+    name = _zone_name(configured)
+    if name and not name.startswith("/"):
+        try:
+            return pytz.timezone(name)
+        except pytz.exceptions.UnknownTimeZoneError:
+            pass
+    try:
+        host = get_localzone()
+    except Exception as e:
+        # tzlocal rejects a TZ it cannot read, like a typo or a POSIX rule.
+        logger.warning(f"Unknown timezone: {configured!r}, using UTC ({e})")
+        return pytz.UTC
+    if name and not name.startswith("/"):
+        logger.warning(
+            f"Unknown timezone: {configured!r}, using the host's timezone: {host}"
+        )
+    return host
+
+
+def cron_trigger(cron: str, timezone: Optional[tzinfo] = None) -> CronTrigger:
+    """
+    Build the trigger for a cron expression, in the scheduler's timezone.
+
+    Every trigger the weekly job runs on is built here (#145). APScheduler
+    applies the scheduler's own timezone only to a trigger given by name: a
+    CronTrigger built without one fires in the host's zone - UTC in the Docker
+    image, which sets no TZ - whatever boxarr.scheduler.timezone says.
+
+    The day of the week uses APScheduler's numbering, Monday=0 ... Sunday=6,
+    not crontab's Sunday=0: the default "0 23 * * 2" fires on Wednesday at
+    23:00.
+
+    Args:
+        cron: Five-field cron expression
+        timezone: Zone to fire in (default: the configured scheduler timezone)
+
+    Raises:
+        ValueError: The expression is not valid
+    """
+    return CronTrigger.from_crontab(
+        cron, timezone=scheduler_timezone() if timezone is None else timezone
+    )
+
+
+def _same_trigger(current: Any, wanted: CronTrigger) -> bool:
+    """Return whether the job's trigger fires when and where ``wanted`` does."""
+    current_zone = str(getattr(current, "timezone", None))
+    return str(current) == str(wanted) and current_zone == str(wanted.timezone)
 
 
 class BoxarrScheduler:
@@ -40,20 +120,13 @@ class BoxarrScheduler:
         Initialize scheduler.
 
         Args:
-            boxoffice_service: Box office service instance
-            radarr_service: Radarr service instance
+            boxoffice_service: Box office service every run uses (tests).
+                Without one, each run builds its own from the settings.
+            radarr_service: Radarr service every run uses (tests). Without
+                one, each run builds its own from the settings.
             matcher: Movie matcher instance
         """
-        # Convert timezone string to tzinfo object for strict compatibility
-        try:
-            tz = pytz.timezone(settings.boxarr_scheduler_timezone)
-        except pytz.exceptions.UnknownTimeZoneError:
-            logger.warning(
-                f"Unknown timezone: {settings.boxarr_scheduler_timezone}, using UTC"
-            )
-            tz = pytz.UTC
-
-        self.scheduler = AsyncIOScheduler(timezone=tz)
+        self.scheduler = AsyncIOScheduler(timezone=scheduler_timezone())
 
         self.boxoffice_service = boxoffice_service
         self.radarr_service = radarr_service
@@ -74,22 +147,8 @@ class BoxarrScheduler:
 
         if settings.boxarr_scheduler_enabled:
             try:
-                # Remove any existing job first to prevent duplicates
-                existing_job = self.scheduler.get_job("box_office_update")
-                if existing_job:
-                    self.scheduler.remove_job("box_office_update")
-                    logger.info("Removed existing job before adding new one")
-
                 # Schedule the main job
-                job = self.scheduler.add_job(
-                    self.update_box_office,
-                    CronTrigger.from_crontab(settings.boxarr_scheduler_cron),
-                    id="box_office_update",
-                    name="Box Office Update",
-                    replace_existing=True,  # This is a safety net
-                    max_instances=1,  # Prevent overlapping runs
-                    misfire_grace_time=3600,  # Allow 1 hour grace period for misfires
-                )
+                job = self._add_weekly_job(settings.boxarr_scheduler_cron)
 
                 self.scheduler.start()
                 self._running = True
@@ -97,8 +156,9 @@ class BoxarrScheduler:
                 # Log detailed information about the scheduled job
                 logger.info(
                     f"Scheduler started successfully with cron: {settings.boxarr_scheduler_cron}"
+                    " (day of week: Monday=0 ... Sunday=6)"
                 )
-                logger.info(f"Timezone: {settings.boxarr_scheduler_timezone}")
+                logger.info(f"Timezone: {self.scheduler.timezone}")
                 if job and job.next_run_time:
                     logger.info(f"Next scheduled run: {job.next_run_time}")
                     # Calculate time until next run
@@ -115,6 +175,12 @@ class BoxarrScheduler:
             except Exception as e:
                 logger.error(f"Failed to start scheduler: {e}", exc_info=True)
                 self._running = False
+                # The job added above stays pending in a scheduler that did
+                # not start; a later start adds it again.
+                try:
+                    self.scheduler.remove_job(WEEKLY_JOB_ID)
+                except JobLookupError:
+                    pass
                 raise
         else:
             logger.info("Scheduler is disabled in configuration")
@@ -129,7 +195,7 @@ class BoxarrScheduler:
         self._running = False
         logger.info("Scheduler stopped")
 
-    async def update_box_office(  # noqa: C901
+    async def update_box_office(
         self, year: Optional[int] = None, week: Optional[int] = None
     ) -> Dict[str, Any]:
         """
@@ -154,6 +220,16 @@ class BoxarrScheduler:
                 fetched (the week's file is then left as it was), or anything
                 else failed.
         """
+        # The whole run reads the settings as they are when it starts (#137):
+        # a save made meanwhile - to another Radarr, say - cannot mix that
+        # Radarr's root folder or quality profile into this run's adds.
+        with pinned_settings():
+            return await self._update_box_office(year, week)
+
+    async def _update_box_office(  # noqa: C901
+        self, year: Optional[int], week: Optional[int]
+    ) -> Dict[str, Any]:
+        """Run one update, as :meth:`update_box_office` describes."""
         if year and week:
             logger.info(f"Starting box office update for {year} Week {week:02d}")
         else:
@@ -173,21 +249,33 @@ class BoxarrScheduler:
         actual_year: Optional[int] = None
         actual_week: Optional[int] = None
         build: Optional[WeekBuildResult] = None
+        # This run's own clients, built from the settings as they are now
+        # (#137): a Radarr URL, API key or timeout saved since the last run
+        # applies to this one, and a save made during it changes neither the
+        # clients it holds nor the settings it reads. Only the clients built
+        # here are closed at the end.
+        built: List[Any] = []
         try:
-            # Initialize services if needed
-            if not self.boxoffice_service:
-                self.boxoffice_service = BoxOfficeService()
-            if not self.radarr_service:
-                self.radarr_service = RadarrService()
+            boxoffice_service = self.boxoffice_service
+            if boxoffice_service is None:
+                boxoffice_service = BoxOfficeService()
+                built.append(boxoffice_service)
+            radarr_service = self.radarr_service
+            if radarr_service is None:
+                radarr_service = RadarrService()
+                built.append(radarr_service)
 
             # Determine target (top) year/week for this run
             if year and week:
                 actual_year = year
                 actual_week = week
             else:
-                # get_weekend_dates() returns the most recent complete weekend
-                _, _, actual_year, actual_week = (
-                    self.boxoffice_service.get_weekend_dates()
+                # get_weekend_dates() returns the most recent complete weekend,
+                # as of the date in the scheduler's timezone: the job fires in
+                # that zone (#145), where the host's clock (UTC in Docker) can
+                # already be on Monday and pick the weekend still under way.
+                _, _, actual_year, actual_week = boxoffice_service.get_weekend_dates(
+                    self._scheduler_now()
                 )
 
             # Fetch every region, merge, match, auto-add and write the week.
@@ -199,8 +287,8 @@ class BoxarrScheduler:
                     actual_week,
                     regions=regions,
                     limit=settings.boxarr_features_box_office_limit,
-                    boxoffice_service=self.boxoffice_service,
-                    radarr_service=self.radarr_service,
+                    boxoffice_service=boxoffice_service,
+                    radarr_service=radarr_service,
                     matcher=self.matcher,
                     auto_add=settings.boxarr_features_auto_add,
                 )
@@ -208,7 +296,7 @@ class BoxarrScheduler:
 
             # Refresh all stored weekly pages against current Radarr
             # status/details - also when this week's legacy file was kept.
-            refresh_results = await self._refresh_stored_weeks()
+            refresh_results = await self._refresh_stored_weeks(radarr_service)
 
             if not build.written:
                 # A stored legacy (pre-multi-region) week was kept: a region failed.
@@ -280,14 +368,30 @@ class BoxarrScheduler:
                 await self._save_to_history(failed, actual_year, actual_week)
             raise SchedulerError(f"Update failed: {e}") from e
         finally:
+            self._close_services(built)
             WEEKLY_WRITE_LOCK.release()
 
-    async def _refresh_stored_weeks(self) -> Dict[str, Any]:
+    @staticmethod
+    def _close_services(services: List[Any]) -> None:
+        """Close the clients a run built; a failure to close is only logged."""
+        for service in services:
+            try:
+                service.close()
+            except Exception as e:
+                logger.debug(f"Could not close {type(service).__name__}: {e}")
+
+    def _scheduler_now(self) -> datetime:
+        """Return the time now in the scheduler's timezone, naive like now()."""
+        return datetime.now(self.scheduler.timezone).replace(tzinfo=None)
+
+    async def _refresh_stored_weeks(
+        self, radarr_service: RadarrService
+    ) -> Dict[str, Any]:
         """Refresh every stored week against Radarr's current status."""
         refresh_results: Dict[str, Any] = await self._run_in_executor(
             partial(
                 refresh_weekly_data_from_radarr,
-                radarr_service=self.radarr_service,
+                radarr_service=radarr_service,
                 ignore_cache=True,
             )
         )
@@ -373,9 +477,11 @@ class BoxarrScheduler:
         }
 
     async def _run_in_executor(self, func: Callable, *args) -> Any:
-        """Run blocking function in executor."""
+        """Run blocking function in executor, with the run's pinned settings."""
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(self._executor, func, *args)
+        # run_in_executor does not carry the context into the worker thread.
+        context = contextvars.copy_context()
+        return await loop.run_in_executor(self._executor, context.run, func, *args)
 
     def _process_match_results(
         self, match_results: List[MatchResult]
@@ -516,6 +622,36 @@ class BoxarrScheduler:
         """Handle job error event."""
         logger.error(f"Job {event.job_id} failed with error: {event.exception}")
 
+    def _add_weekly_job(self, cron: str) -> Any:
+        """
+        Schedule the weekly update on ``cron``, replacing the job scheduled.
+
+        The trigger fires in the configured timezone, which also becomes the
+        scheduler's own (it dates the runs, and the status reports it).
+
+        Raises:
+            ValueError: ``cron`` is not valid; the job scheduled is kept
+        """
+        timezone = scheduler_timezone()
+        trigger = cron_trigger(cron, timezone)
+
+        # Remove any existing job first to prevent duplicates
+        if self.scheduler.get_job(WEEKLY_JOB_ID):
+            self.scheduler.remove_job(WEEKLY_JOB_ID)
+            logger.info("Removed existing scheduler job")
+
+        # Normalized the way APScheduler does with the zone it is given.
+        self.scheduler.timezone = astimezone(timezone)
+        return self.scheduler.add_job(
+            self.update_box_office,
+            trigger,
+            id=WEEKLY_JOB_ID,
+            name="Box Office Update",
+            replace_existing=True,  # This is a safety net
+            max_instances=1,  # Prevent overlapping runs
+            misfire_grace_time=3600,  # Allow 1 hour grace period for misfires
+        )
+
     def reload_schedule(self, new_cron: str = None) -> bool:
         """
         Reload the scheduler with a new cron expression.
@@ -529,24 +665,14 @@ class BoxarrScheduler:
         try:
             cron_expr = new_cron or settings.boxarr_scheduler_cron
 
-            # Remove existing job if it exists
-            existing_job = self.scheduler.get_job("box_office_update")
-            if existing_job:
-                self.scheduler.remove_job("box_office_update")
-                logger.info("Removed existing scheduler job")
+            # Replace the job with one on the new cron
+            job = self._add_weekly_job(cron_expr)
 
-            # Add new job with updated cron
-            job = self.scheduler.add_job(
-                self.update_box_office,
-                CronTrigger.from_crontab(cron_expr),
-                id="box_office_update",
-                name="Box Office Update",
-                replace_existing=True,
-                max_instances=1,  # Prevent overlapping runs
-                misfire_grace_time=3600,  # Allow 1 hour grace period for misfires
+            logger.info(
+                f"Scheduler reloaded with new cron: {cron_expr} "
+                f"(day of week: Monday=0 ... Sunday=6), timezone: "
+                f"{self.scheduler.timezone}"
             )
-
-            logger.info(f"Scheduler reloaded with new cron: {cron_expr}")
 
             if job and job.next_run_time:
                 logger.info(f"Next scheduled run: {job.next_run_time}")
@@ -561,6 +687,58 @@ class BoxarrScheduler:
             logger.error(f"Failed to reload scheduler: {e}", exc_info=True)
             return False
 
+    def apply_settings(self) -> str:
+        """
+        Apply the current scheduler settings without a restart (#137).
+
+        Called after every settings save, and by the setup page's Reload:
+
+        - automatic updates off: the weekly job is removed. The scheduler
+          itself keeps running, so Run Now still works and turning updates
+          back on needs no restart either;
+        - on, while the scheduler never started (updates were off when Boxarr
+          started): it is started;
+        - on and running: the job is rescheduled when its cron or timezone
+          changed, and added again when it had been removed.
+
+        Call it on the event loop: a scheduler started here runs on that loop.
+
+        Returns:
+            What it did: "disabled", "started", "rescheduled" or "unchanged"
+
+        Raises:
+            SchedulerError: The settings could not be applied
+        """
+        try:
+            # Manual runs date their weekend in this zone too.
+            self.scheduler.timezone = astimezone(scheduler_timezone())
+
+            if not settings.boxarr_scheduler_enabled:
+                if self.scheduler.get_job(WEEKLY_JOB_ID) is None:
+                    return "unchanged"
+                self.scheduler.remove_job(WEEKLY_JOB_ID)
+                logger.info("Automatic updates turned off: weekly job removed")
+                return "disabled"
+
+            if not self._running:
+                self.start()
+                return "started"
+
+            cron = settings.boxarr_scheduler_cron
+            job = self.scheduler.get_job(WEEKLY_JOB_ID)
+            if job is not None and _same_trigger(job.trigger, cron_trigger(cron)):
+                return "unchanged"
+            job = self._add_weekly_job(cron)
+            logger.info(
+                f"Scheduler rescheduled with cron: {cron} (day of week: Monday=0 "
+                f"... Sunday=6), timezone: {self.scheduler.timezone}; next run: "
+                f"{job.next_run_time}"
+            )
+            return "rescheduled"
+        except Exception as e:
+            logger.error(f"Could not apply the scheduler settings: {e}")
+            raise SchedulerError(str(e) or type(e).__name__) from e
+
     def get_next_run_time(self) -> Optional[datetime]:
         """
         Get next scheduled run time.
@@ -568,9 +746,10 @@ class BoxarrScheduler:
         Returns:
             Next run datetime or None
         """
-        job = self.scheduler.get_job("box_office_update")
+        job = self.scheduler.get_job(WEEKLY_JOB_ID)
         if job is not None:
-            next_time = job.next_run_time
+            # A job of a scheduler not started has no next_run_time yet.
+            next_time = getattr(job, "next_run_time", None)
             return next_time if isinstance(next_time, datetime) else None
         return None
 

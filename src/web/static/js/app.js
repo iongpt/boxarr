@@ -677,6 +677,21 @@ function describeLastRun(run) {
     return { note: `(${note})`, title: '' };
 }
 
+// A scheduler time (ISO, with its offset) in the scheduler's own timezone,
+// the one the Update Day and Time are in and the job fires in (#145), rather
+// than the browser's. A zone this browser does not know falls back to its own.
+function formatSchedulerTime(iso, timeZone) {
+    const time = new Date(iso);
+    if (timeZone) {
+        try {
+            return time.toLocaleString(undefined, { timeZone, timeZoneName: 'short' });
+        } catch (e) {
+            // RangeError: not a timezone this browser knows
+        }
+    }
+    return time.toLocaleString();
+}
+
 function refreshSchedulerStatus() {
     fetch(apiUrl('/scheduler/status'))
         .then(response => response.json())
@@ -711,12 +726,12 @@ function refreshSchedulerStatus() {
             const nextRun = document.getElementById('debugNextRun');
             if (nextRun) {
                 if (data.next_run_time) {
-                    const nextTime = new Date(data.next_run_time);
+                    const nextTime = formatSchedulerTime(data.next_run_time, data.timezone);
                     const timeUntil = data.time_until_next;
                     if (timeUntil) {
-                        nextRun.innerHTML = `${nextTime.toLocaleString()} <small>(in ${timeUntil.days}d ${timeUntil.hours}h ${timeUntil.minutes}m)</small>`;
+                        nextRun.innerHTML = `${nextTime} <small>(in ${timeUntil.days}d ${timeUntil.hours}h ${timeUntil.minutes}m)</small>`;
                     } else {
-                        nextRun.innerHTML = nextTime.toLocaleString();
+                        nextRun.innerHTML = nextTime;
                     }
                 } else {
                     nextRun.innerHTML = 'No scheduled runs';
@@ -805,7 +820,10 @@ function reloadScheduler() {
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                alert(`Scheduler reloaded! Next run: ${new Date(data.next_run).toLocaleString()}`);
+                // No next run while automatic updates are off: say that instead.
+                alert(data.next_run
+                    ? `Scheduler reloaded! Next run: ${formatSchedulerTime(data.next_run, data.timezone)}`
+                    : data.message);
                 refreshSchedulerStatus();
             } else {
                 alert(`Reload failed: ${data.message}`);
@@ -1723,7 +1741,9 @@ function reloadScheduler() {
             const cronString = `0 ${schedulerTime.value} * * ${apschedulerDay}`;
             config.boxarr_scheduler_cron = cronString;
         } else {
-            // Default: Tuesday at 11 PM (APScheduler day 1)
+            // Fallback for a page without the day and time selects: Tuesday
+            // at 11 PM (APScheduler day 1). Not the default schedule, which
+            // is "0 23 * * 2", Wednesday at 11 PM.
             config.boxarr_scheduler_cron = "0 23 * * 1";
         }
         
@@ -1737,6 +1757,12 @@ function reloadScheduler() {
         .then(response => response.json())
         .then(data => {
             if (data.success) {
+                if (data.warning) {
+                    // Saved, but the running scheduler did not take the new
+                    // schedule (#137). An alert, so it is read before the
+                    // redirect below leaves the page.
+                    alert(data.warning);
+                }
                 showMessage('✓ Configuration saved successfully! Redirecting...', 'success');
                 setTimeout(() => {
                     window.location.href = makeUrl('/dashboard');

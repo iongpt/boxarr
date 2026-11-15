@@ -10,9 +10,7 @@ from datetime import datetime, timedelta
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.utils.config import settings
-from src.core.scheduler import BoxarrScheduler
-from apscheduler.triggers.cron import CronTrigger
-import pytz
+from src.core.scheduler import BoxarrScheduler, cron_trigger, scheduler_timezone
 
 
 def check_configuration():
@@ -42,12 +40,13 @@ def parse_cron_schedule():
     print(f"Cron expression: {cron}")
     
     try:
-        # Parse cron expression
-        trigger = CronTrigger.from_crontab(cron, timezone=settings.boxarr_scheduler_timezone)
+        # Parse cron expression, in the timezone the scheduler fires in
+        timezone = scheduler_timezone()
+        trigger = cron_trigger(cron, timezone)
         
         # Get next 5 run times
-        print(f"\nNext 5 scheduled runs (in {settings.boxarr_scheduler_timezone}):")
-        next_time = datetime.now(pytz.timezone(settings.boxarr_scheduler_timezone))
+        print(f"\nNext 5 scheduled runs (in {timezone}):")
+        next_time = datetime.now(timezone)
         
         for i in range(5):
             next_time = trigger.get_next_fire_time(None, next_time)
@@ -61,16 +60,18 @@ def parse_cron_schedule():
         if len(parts) >= 5:
             minute, hour, day_of_month, month, day_of_week = parts[:5]
             
-            days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+            # APScheduler numbering: Monday=0 ... Sunday=6 (not crontab's Sunday=0)
+            days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
             
             print(f"\nSchedule breakdown:")
             print(f"  Minute: {minute}")
             print(f"  Hour: {hour}")
             print(f"  Day of month: {day_of_month}")
             print(f"  Month: {month}")
-            print(f"  Day of week: {day_of_week} ({days[int(day_of_week)] if day_of_week.isdigit() else day_of_week})")
+            known_day = day_of_week.isdigit() and int(day_of_week) < len(days)
+            print(f"  Day of week: {day_of_week} ({days[int(day_of_week)] if known_day else day_of_week})")
             
-            if day_of_week.isdigit():
+            if known_day:
                 print(f"\n📅 Runs every {days[int(day_of_week)]} at {hour}:{minute.zfill(2)}")
         
         return True
@@ -78,10 +79,11 @@ def parse_cron_schedule():
     except Exception as e:
         print(f"❌ Error parsing cron expression: {e}")
         print("\nValid cron format: 'minute hour day_of_month month day_of_week'")
+        print("Day of week uses APScheduler numbering: Monday=0 ... Sunday=6")
         print("Examples:")
-        print("  0 23 * * 2  - Every Tuesday at 23:00 (11 PM)")
-        print("  0 20 * * 5  - Every Friday at 20:00 (8 PM)")
-        print("  30 14 * * 1 - Every Monday at 14:30 (2:30 PM)")
+        print("  0 23 * * 2  - Every Wednesday at 23:00 (11 PM)")
+        print("  0 20 * * 4  - Every Friday at 20:00 (8 PM)")
+        print("  30 14 * * 0 - Every Monday at 14:30 (2:30 PM)")
         return False
 
 
@@ -92,14 +94,8 @@ def check_scheduler_instance():
     print("="*60)
     
     try:
-        from src.core.boxoffice import BoxOfficeService
-        from src.core.radarr import RadarrService
-        
         print("Creating scheduler instance...")
-        scheduler = BoxarrScheduler(
-            boxoffice_service=BoxOfficeService(),
-            radarr_service=RadarrService() if settings.radarr_api_key else None,
-        )
+        scheduler = BoxarrScheduler()
         
         print("✓ Scheduler instance created successfully")
         
@@ -107,7 +103,7 @@ def check_scheduler_instance():
         print("Testing scheduler startup...")
         scheduler.scheduler.add_job(
             lambda: print("Test job executed"),
-            CronTrigger.from_crontab(settings.boxarr_scheduler_cron),
+            cron_trigger(settings.boxarr_scheduler_cron),
             id="test_job",
             name="Test Job",
             replace_existing=True,

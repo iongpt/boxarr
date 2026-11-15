@@ -60,3 +60,29 @@ def test_history_lists_each_run_once_and_marks_failures(
     assert "✓ 2026-11-10 23:00:00" in out
     assert out.count("Matched 7/10 movies") == 1
     assert "Matched 0/0" not in out
+
+
+def test_schedule_analysis_names_the_day_as_apscheduler_numbers_it(
+    monkeypatch, capsys, check_scheduler
+):
+    """APScheduler counts Monday=0: the default "0 23 * * 2" is Wednesday (#145).
+
+    The script named the days from Sunday=0, so it printed Tuesday for the
+    default - one day before the job actually runs.
+    """
+    import src.core.scheduler as scheduler_core
+
+    configured = SimpleNamespace(
+        boxarr_scheduler_cron="0 23 * * 2",
+        boxarr_scheduler_timezone="America/New_York",
+    )
+    monkeypatch.setattr(check_scheduler, "settings", configured)
+    monkeypatch.setattr(scheduler_core, "settings", configured)
+
+    assert check_scheduler.parse_cron_schedule() is True
+
+    out = capsys.readouterr().out
+    assert "Next 5 scheduled runs (in America/New_York)" in out
+    assert "Day of week: 2 (Wednesday)" in out
+    assert "Runs every Wednesday at 23:00" in out
+    assert "Tuesday" not in out

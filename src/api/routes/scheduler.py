@@ -27,13 +27,13 @@ def get_scheduler() -> BoxarrScheduler:
     """Get the scheduler instance."""
     global _scheduler
     if not _scheduler:
-        from ...core.boxoffice import BoxOfficeService
-        from ...core.radarr import RadarrService
+        # Its runs build their own clients from the current settings (#137).
+        _scheduler = BoxarrScheduler()
+    return _scheduler
 
-        _scheduler = BoxarrScheduler(
-            boxoffice_service=BoxOfficeService(),
-            radarr_service=RadarrService() if settings.radarr_api_key else None,
-        )
+
+def current_scheduler() -> Optional[BoxarrScheduler]:
+    """Return the app's scheduler, or None when it runs none (none is built)."""
     return _scheduler
 
 
@@ -116,30 +116,28 @@ async def trigger_update():
 
 @router.post("/reload")
 async def reload_scheduler():
-    """Manually reload the scheduler with current settings."""
+    """Apply the current settings to the scheduler, as a settings save does.
+
+    Starts a scheduler that was off at startup, removes the job when
+    automatic updates are off, and reschedules it on a new cron or timezone
+    (#137).
+    """
     try:
         scheduler = get_scheduler()
+        scheduler.apply_settings()
 
-        if not scheduler._running:
-            return {
-                "success": False,
-                "message": "Scheduler is not running",
-            }
-
-        # Reload with current settings
-        if scheduler.reload_schedule():
-            next_run = scheduler.get_next_run_time()
-            return {
-                "success": True,
-                "message": f"Scheduler reloaded with cron: {settings.boxarr_scheduler_cron}",
-                "next_run": next_run.isoformat() if next_run else None,
-                "cron": settings.boxarr_scheduler_cron,
-            }
+        next_run = scheduler.get_next_run_time()
+        if not settings.boxarr_scheduler_enabled:
+            message = "Automatic updates are turned off: nothing is scheduled"
         else:
-            return {
-                "success": False,
-                "message": "Failed to reload scheduler",
-            }
+            message = f"Scheduler reloaded with cron: {settings.boxarr_scheduler_cron}"
+        return {
+            "success": True,
+            "message": message,
+            "next_run": next_run.isoformat() if next_run else None,
+            "cron": settings.boxarr_scheduler_cron,
+            "timezone": str(scheduler.scheduler.timezone),
+        }
     except Exception as e:
         logger.error(f"Error reloading scheduler: {e}")
         return {
@@ -159,12 +157,14 @@ async def get_scheduler_status():
         job_info = []
 
         for job in jobs:
+            # A job of a scheduler not started has no next_run_time yet.
+            job_next_run = getattr(job, "next_run_time", None)
             job_info.append(
                 {
                     "id": job.id,
                     "name": job.name,
                     "next_run_time": (
-                        job.next_run_time.isoformat() if job.next_run_time else None
+                        job_next_run.isoformat() if job_next_run else None
                     ),
                     "pending": job.pending,
                 }
@@ -176,11 +176,7 @@ async def get_scheduler_status():
         # Calculate time until next run
         time_until_next = None
         if next_run:
-            from datetime import datetime
-
-            import pytz
-
-            now = datetime.now(pytz.timezone(settings.boxarr_scheduler_timezone))
+            now = datetime.now(next_run.tzinfo)
             delta = next_run - now
             time_until_next = {
                 "days": delta.days,
@@ -200,8 +196,6 @@ async def get_scheduler_status():
                         data = json.load(f)
                         timestamp = data.get("timestamp")
                         if timestamp:
-                            from datetime import datetime
-
                             last_run_time = datetime.fromisoformat(
                                 timestamp.replace("Z", "+00:00")
                             )
@@ -229,7 +223,9 @@ async def get_scheduler_status():
             "enabled": settings.boxarr_scheduler_enabled,
             "running": scheduler._running if scheduler else False,
             "cron_expression": settings.boxarr_scheduler_cron,
-            "timezone": settings.boxarr_scheduler_timezone,
+            # The zone the job fires in and next_run_time is given in: the
+            # configured one, or the host's when that names no known zone.
+            "timezone": str(scheduler.scheduler.timezone),
             "next_run_time": next_run.isoformat() if next_run else None,
             "time_until_next": time_until_next,
             "last_run": last_run_info,

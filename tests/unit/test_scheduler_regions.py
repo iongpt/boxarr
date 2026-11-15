@@ -31,7 +31,7 @@ class FakeBoxOffice:
     def __init__(self, charts):
         self.charts = charts
 
-    def get_weekend_dates(self):
+    def get_weekend_dates(self, date=None):
         """The trigger updates the latest weekend: 2026W44 here."""
         return None, None, 2026, 44
 

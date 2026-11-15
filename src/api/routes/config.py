@@ -79,6 +79,7 @@ class SaveConfigRequest(BaseModel):
     # Root folder mapping configuration
     radarr_root_folder_config: Optional[RootFolderConfig] = None
     boxarr_scheduler_enabled: bool = True
+    # Wednesday 11 PM: APScheduler numbers the days from Monday=0
     boxarr_scheduler_cron: str = "0 23 * * 2"
     boxarr_features_auto_add: bool = True
     boxarr_features_quality_upgrade: bool = True
@@ -485,6 +486,31 @@ def _drop_other_spellings(
     return removed
 
 
+def _apply_scheduler_settings() -> Optional[str]:
+    """Apply the settings just saved to the app's scheduler (#137).
+
+    Returns:
+        None, or a warning for the setup page when the scheduler could not
+        take them. The file is saved all the same; a restart applies it.
+    """
+    from .scheduler import current_scheduler
+
+    scheduler = current_scheduler()
+    if scheduler is None:
+        return None  # this app runs no scheduler: nothing to apply
+    try:
+        scheduler.apply_settings()
+    except Exception as e:
+        logger.warning(
+            f"Configuration saved, but the scheduler could not apply it: {e}"
+        )
+        return (
+            "Settings saved, but the automatic update schedule could not be "
+            f"changed while Boxarr is running ({e}). Restart Boxarr to apply it."
+        )
+    return None
+
+
 @router.post("/save")
 async def save_configuration(config: SaveConfigRequest):
     """Save configuration to file.
@@ -502,10 +528,13 @@ async def save_configuration(config: SaveConfigRequest):
         # Validate cron expression first
         if config.boxarr_scheduler_enabled:
             try:
-                from apscheduler.triggers.cron import CronTrigger
+                import pytz
 
-                # Test if cron expression is valid
-                CronTrigger.from_crontab(config.boxarr_scheduler_cron)
+                from ...core.scheduler import cron_trigger
+
+                # Test if cron expression is valid. Only its syntax is checked,
+                # in a fixed zone: no timezone setting can fail the save.
+                cron_trigger(config.boxarr_scheduler_cron, timezone=pytz.UTC)
             except (ValueError, TypeError) as e:
                 return {
                     "success": False,
@@ -760,66 +789,20 @@ async def save_configuration(config: SaveConfigRequest):
 
         logger.info("Configuration saved successfully")
 
-        # Save old scheduler settings BEFORE reloading
-        old_scheduler_enabled = settings.boxarr_scheduler_enabled
-        old_cron = settings.boxarr_scheduler_cron
-
         # Reload settings
         Settings.reload_from_file(config_path)
 
-        # Reload scheduler if it's running and schedule changed
-        try:
-            # Get new settings values (define these early to avoid NameError)
-            new_cron = config.boxarr_scheduler_cron
-            new_enabled = config.boxarr_scheduler_enabled
-
-            # Try to get scheduler from app state or module
-            scheduler = None
-            try:
-                # Try getting from the scheduler routes module
-                from .scheduler import get_scheduler
-
-                scheduler = get_scheduler()
-            except Exception as e:
-                logger.debug(f"Could not get scheduler instance: {e}")
-
-            # If scheduler exists and is running, check if we need to reload
-            if scheduler and hasattr(scheduler, "_running") and scheduler._running:
-                # Check if scheduler settings changed
-                schedule_changed = old_cron != new_cron
-                enabled_changed = old_scheduler_enabled != new_enabled
-
-                if schedule_changed or enabled_changed:
-                    if new_enabled:
-                        # Reload with new cron
-                        if scheduler.reload_schedule(new_cron):
-                            logger.info(
-                                f"✅ Scheduler reloaded: {old_cron} → {new_cron}"
-                            )
-                        else:
-                            logger.error(
-                                f"Failed to reload scheduler with new cron: {new_cron}"
-                            )
-                    else:
-                        # Disable scheduler by removing job
-                        job = scheduler.scheduler.get_job("box_office_update")
-                        if job:
-                            scheduler.scheduler.remove_job("box_office_update")
-                            logger.info("✅ Scheduler disabled (job removed)")
-                else:
-                    logger.debug("Scheduler settings unchanged, no reload needed")
-            elif new_enabled and not scheduler:
-                logger.warning(
-                    "⚠️ Scheduler should be enabled but instance not found - restart required"
-                )
-        except Exception as e:
-            logger.warning(f"Could not reload scheduler: {e}")
-            # Don't fail the whole config save just because scheduler reload failed
-
-        return {
+        response: Dict[str, Any] = {
             "success": True,
             "message": "Configuration saved successfully!",
         }
+        # The running scheduler takes the new schedule now, not on a restart
+        # (#137). If it cannot, the save still stands: the setup page shows
+        # the warning, and a restart applies the file.
+        warning = _apply_scheduler_settings()
+        if warning:
+            response["warning"] = warning
+        return response
     except Exception as e:
         logger.error(f"Error saving configuration: {e}")
         return {"success": False, "message": str(e)}

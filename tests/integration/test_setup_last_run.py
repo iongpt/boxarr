@@ -123,7 +123,7 @@ class FakeBoxOffice:
     def __init__(self, charts):
         self.charts = charts
 
-    def get_weekend_dates(self):
+    def get_weekend_dates(self, date=None):
         return None, None, 2026, 44
 
     def fetch_weekend_box_office(self, year, week, limit=10, region=None):
