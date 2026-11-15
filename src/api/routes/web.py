@@ -613,9 +613,10 @@ def region_selection_label(names: List[str]) -> str:
     return ", ".join(names)
 
 
-# Other names the setup page's region search finds a region by, matched
-# exactly (a catalogue name matches as a substring, an area code exactly):
-# "uk" would otherwise find only Ukraine, and "usa" nothing at all.
+# Other names the setup page's region search finds a region by, matched by
+# prefix (a catalogue name matches as a substring, an area code exactly):
+# "uk" would otherwise find only Ukraine, "usa" nothing at all, and "dom"
+# not the US & Canada chart that v2.1 called "Domestic".
 REGION_SEARCH_ALIASES: Dict[str, Tuple[str, ...]] = {
     "": ("usa", "us", "united states", "america", "domestic"),
     "GB": ("uk", "britain", "great britain", "england"),

@@ -471,15 +471,16 @@ function renderRegionStatus() {
     status.style.color = problem ? 'var(--error-color)' : '';
 }
 
-// Whether a region row matches a search term: a substring of its name, or
-// exactly its area code or one of its other names (data-region-aliases, e.g.
-// "uk" for the United Kingdom, "usa" for the domestic chart).
+// Whether a region row matches a search term: a substring of its name,
+// exactly its area code, or the start of one of its other names
+// (data-region-aliases, e.g. "uk" for the United Kingdom, "domestic" for the
+// US & Canada chart, so "dom" already finds it while the user types).
 function regionRowMatches(row, term) {
     const checkbox = regionRowCheckbox(row);
     const name = (row.dataset.regionName || '').toLowerCase();
     const code = checkbox ? (checkbox.dataset.regionCode || '').toLowerCase() : '';
     const aliases = (row.dataset.regionAliases || '').toLowerCase().split('|').filter(Boolean);
-    return name.includes(term) || (!!code && code === term) || aliases.includes(term);
+    return name.includes(term) || (!!code && code === term) || aliases.some(alias => alias.startsWith(term));
 }
 
 // Runs on search input only. A checkbox change never moves or hides a row:

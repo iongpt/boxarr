@@ -329,6 +329,10 @@ class TestSearch:
             ("UK", ["UA", "GB"]),
             ("usa", ["domestic"]),
             ("america", ["domestic"]),
+            ("domestic", ["domestic"]),
+            # Other names match while being typed; "dom" is also in
+            # "Dominican Republic" and "United Kingdom".
+            ("dom", ["domestic", "DO", "GB"]),
             ("holland", ["NL"]),
             ("gb", ["GB"]),
             ("king", ["GB"]),
