@@ -889,10 +889,6 @@ class BoxOfficeService:
                 href = str(title_link.get("href", ""))
                 release_url = href if href.startswith("/release/") else None
 
-                # Skip if title looks like a studio name
-                if self._is_studio_name(title):
-                    continue
-
                 movie = BoxOfficeMovie(
                     rank=len(movies) + 1,
                     title=title,
@@ -944,10 +940,6 @@ class BoxOfficeService:
         rank = 1
 
         for release_url, title in matches:
-            # Skip studio names
-            if self._is_studio_name(title):
-                continue
-
             movie = BoxOfficeMovie(rank=rank, title=title, release_url=release_url)
             movies.append(movie)
             rank += 1
@@ -1001,28 +993,6 @@ class BoxOfficeService:
                 movie.imdb_id = imdb_id
                 count += 1
         logger.info(f"Enriched {count}/{len(movies)} movies with IMDb IDs")
-
-    def _is_studio_name(self, text: str) -> bool:
-        """
-        Check if text appears to be a studio/distributor name.
-
-        Args:
-            text: Text to check
-
-        Returns:
-            True if text looks like a studio name
-        """
-        studio_keywords = [
-            "Pictures",
-            "Studios",
-            "Films",
-            "Entertainment",
-            "Releasing",
-            "Distribution",
-            "Productions",
-            "Company",
-        ]
-        return any(keyword.lower() in text.lower() for keyword in studio_keywords)
 
     def get_current_week_movies(self, limit: int = 10) -> List[BoxOfficeMovie]:
         """
