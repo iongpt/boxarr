@@ -587,6 +587,32 @@ class MovieMatcher:
 
         return None
 
+    def _reject_imdb_conflict(self, result: MatchResult) -> MatchResult:
+        """
+        Reject a title-based match that links two films with different IMDb ids.
+
+        The IMDb id is a veto, not only a fast path: a new sequel, spin-off or
+        remake is not in the library yet, so its id misses the index, and the
+        lossy title fallbacks then find the older film ("Wicked: For Good" ->
+        "Wicked", "Lilo & Stitch" 2025 -> 2002). When both ids are known and
+        differ, the entry is a different film and stays unmatched. Title
+        matching is kept when either id is missing.
+        """
+        candidate = result.radarr_movie
+        if candidate is None:
+            return result
+        box_movie = result.box_office_movie
+        chart_id = (box_movie.imdb_id or "").strip().lower()
+        library_id = (candidate.imdbId or "").strip().lower()
+        if not chart_id or not library_id or chart_id == library_id:
+            return result
+        logger.info(
+            f"Rejected {result.match_method} title match '{box_movie.title}' "
+            f"({box_movie.imdb_id}) -> '{candidate.title}' ({candidate.imdbId}): "
+            f"different IMDb ids"
+        )
+        return MatchResult(box_office_movie=box_movie)
+
     def match_batch(
         self, box_office_movies: List[BoxOfficeMovie], radarr_movies: List[RadarrMovie]
     ) -> List[MatchResult]:
@@ -618,6 +644,7 @@ class MovieMatcher:
                 match_result = self.match_single(box_movie.title, radarr_movies)
                 # Update the box office movie in the result
                 match_result.box_office_movie = box_movie
+                match_result = self._reject_imdb_conflict(match_result)
             results.append(match_result)
 
             if match_result.is_matched:
@@ -662,10 +689,10 @@ class MovieMatcher:
                 match_method="imdb_id",
             )
 
-        # Fall back to title matching
+        # Fall back to title matching, unless the IMDb ids name different films
         result = self.match_single(box_office_movie.title, radarr_movies)
         result.box_office_movie = box_office_movie
-        return result
+        return self._reject_imdb_conflict(result)
 
     def match_movies(
         self, box_office_movies: List[BoxOfficeMovie], radarr_movies: List[RadarrMovie]
