@@ -1,10 +1,11 @@
 """Radarr API client for movie management."""
 
+import threading
 import time
 from dataclasses import dataclass, field
 from enum import Enum
 from inspect import signature
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 import httpx
 
@@ -93,6 +94,104 @@ class RadarrMovie:
 
 _movies_cache: Dict[str, Any] = {"ts": 0.0, "data": []}
 _profiles_cache: Dict[str, Any] = {"ts": 0.0, "data": []}
+
+# Longest wait for a TCP connection to Radarr. The read timeout stays at
+# radarr_timeout, which large libraries need for /api/v3/movie (#62), but an
+# unreachable host fails within this many seconds (#138).
+RADARR_CONNECT_TIMEOUT = 10.0
+
+
+class _LibraryDownload:
+    """One download of the Radarr library, shared by every caller waiting on it."""
+
+    def __init__(self, number: int, source: Tuple[str, str], generation: int):
+        self.number = number
+        self.source = source
+        self.generation = generation
+        self.started = time.time()
+        self.done = threading.Event()
+        self.movies: Optional[List[RadarrMovie]] = None
+        self.error: Optional[BaseException] = None
+
+
+# The library is downloaded by one thread at a time (#138): routes run in the
+# threadpool, and without this every cache miss arriving together would fetch
+# the whole /api/v3/movie list - or wait out a hung Radarr - on its own.
+# The lock guards the three values below and the cache; it is never held while
+# Radarr is being asked.
+_library_lock = threading.Lock()
+_library_download: Optional[_LibraryDownload] = None
+_library_downloads_started = 0
+# Bumped when the cache is invalidated, so a download that began before (and
+# so may predate an added movie) is not stored over the invalidation.
+_library_generation = 0
+
+
+def _cached_library(ttl: float) -> Optional[List[RadarrMovie]]:
+    """Return the cached library while it is fresh, else None."""
+    cache = _movies_cache
+    if cache["data"] and (time.time() - cache["ts"]) < ttl:
+        return cast(List[RadarrMovie], cache["data"])
+    return None
+
+
+def _claim_library_download(
+    source: Tuple[str, str], ignore_cache: bool, ttl: float
+) -> Union[List[RadarrMovie], _LibraryDownload]:
+    """Return the library, or the download the caller is to run to get it.
+
+    The library is the cached one while fresh, unless ``ignore_cache``, or the
+    result of a download already under way from the same Radarr - its failure
+    included, so a hung Radarr is waited out once, not once per caller in turn.
+    A caller that bypasses the cache only takes a download that began after it
+    asked.
+    """
+    global _library_download, _library_downloads_started
+    with _library_lock:
+        asked_after = _library_downloads_started
+    while True:
+        with _library_lock:
+            # A fresh cache is served at once, even while a bypass downloads.
+            cached = None if ignore_cache else _cached_library(ttl)
+            if cached is not None:
+                return cached
+            download = _library_download
+            if download is None:
+                _library_downloads_started += 1
+                _library_download = _LibraryDownload(
+                    _library_downloads_started, source, _library_generation
+                )
+                return _library_download
+            usable = download.source == source and (
+                not ignore_cache or download.number > asked_after
+            )
+        download.done.wait()
+        if usable:
+            if download.error is not None:
+                raise download.error
+            return download.movies or []
+
+
+def _finish_library_download(download: _LibraryDownload) -> None:
+    """Cache what ``download`` fetched, and hand it to everyone waiting."""
+    global _library_download
+    with _library_lock:
+        if download.movies is not None and download.generation == _library_generation:
+            _movies_cache["data"] = download.movies
+            _movies_cache["ts"] = download.started
+        _library_download = None
+    download.done.set()
+
+
+def _invalidate_library_cache() -> None:
+    """Forget the cached library; a download already under way is not stored."""
+    global _library_generation
+    with _library_lock:
+        _library_generation += 1
+        _movies_cache["ts"] = 0.0
+        _movies_cache["data"] = []
+
+
 # Language vocabulary is cached per instance, keyed by (url, api_key): the
 # connection test builds throwaway services against arbitrary URLs, and a
 # keyless cache would let that poison the list served for the configured one.
@@ -125,6 +224,7 @@ class RadarrService:
         url: Optional[str] = None,
         api_key: Optional[str] = None,
         http_client: Optional[httpx.Client] = None,
+        timeout: Optional[float] = None,
     ):
         """
         Initialize Radarr service.
@@ -133,6 +233,7 @@ class RadarrService:
             url: Radarr URL (defaults to config)
             api_key: Radarr API key (defaults to config)
             http_client: Optional HTTP client for testing
+            timeout: Seconds to wait for Radarr (defaults to radarr_timeout)
         """
         self.url = (url or str(settings.radarr_url)).rstrip("/")
         self.api_key = api_key or settings.radarr_api_key
@@ -140,10 +241,14 @@ class RadarrService:
         if not self.api_key:
             raise RadarrAuthenticationError("Radarr API key not provided")
 
+        if timeout is None:
+            timeout = getattr(settings, "radarr_timeout", 120.0)
         self.client = http_client or httpx.Client(
             base_url=self.url,
             headers={"X-Api-Key": self.api_key},
-            timeout=getattr(settings, "radarr_timeout", 120.0),
+            timeout=httpx.Timeout(
+                timeout, connect=min(RADARR_CONNECT_TIMEOUT, timeout)
+            ),
             follow_redirects=True,
         )
 
@@ -255,23 +360,25 @@ class RadarrService:
         except Exception:
             ttl = 120
 
-        now = __import__("time").time()
-        if (
-            not ignore_cache
-            and _movies_cache["data"]
-            and (now - _movies_cache["ts"]) < ttl
-        ):
-            return cast(List[RadarrMovie], _movies_cache["data"])
+        claimed = _claim_library_download((self.url, self.api_key), ignore_cache, ttl)
+        if not isinstance(claimed, _LibraryDownload):
+            return claimed  # cached, or downloaded by another caller
+        download = claimed
 
-        response = self._make_request("GET", "/api/v3/movie")
-        movies: List[RadarrMovie] = []
+        try:
+            response = self._make_request("GET", "/api/v3/movie")
+            movies: List[RadarrMovie] = []
 
-        for movie_data in response.json():
-            movie = self._parse_movie(movie_data)
-            movies.append(movie)
+            for movie_data in response.json():
+                movie = self._parse_movie(movie_data)
+                movies.append(movie)
+            download.movies = movies
+        except BaseException as e:
+            download.error = e
+            raise
+        finally:
+            _finish_library_download(download)
 
-        _movies_cache["data"] = movies
-        _movies_cache["ts"] = now
         logger.info(f"Fetched {len(movies)} movies from Radarr")
         return movies
 
@@ -462,8 +569,7 @@ class RadarrService:
         logger.info(f"Added movie to Radarr: {added_movie.title}")
         # Invalidate library cache so new movie is visible immediately
         try:
-            _movies_cache["ts"] = 0.0
-            _movies_cache["data"] = []
+            _invalidate_library_cache()
         except Exception:
             pass
         return added_movie
