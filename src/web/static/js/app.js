@@ -1040,14 +1040,22 @@ function reloadScheduler() {
     // Weekly Page Functions
     // ==========================================
 
+    // Whether a status request is still waiting for its answer. A poll never
+    // starts another one meanwhile: while Radarr hangs, each would wait out
+    // radarr_timeout and the page's 5 s polls would pile up until they held
+    // every connection the browser allows to Boxarr (#138).
+    let statusRequestInFlight = false;
+
     function updateMovieStatuses() {
         const movieCards = document.querySelectorAll('.movie-card[data-movie-id]');
         const movieIds = Array.from(movieCards)
             .map(card => card.dataset.movieId)
             .filter(id => id && id !== '');
-        
+
         if (movieIds.length === 0) return;
-        
+        if (statusRequestInFlight) return;
+        statusRequestInFlight = true;
+
         fetch(apiUrl('/movies/status'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1094,6 +1102,9 @@ function reloadScheduler() {
         })
         .catch(error => {
             console.error('Error updating statuses:', error);
+        })
+        .then(() => {
+            statusRequestInFlight = false;
         });
     }
 
