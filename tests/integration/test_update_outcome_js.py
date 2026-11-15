@@ -423,7 +423,12 @@ class TestDashboard:
         # Each week in one list: 42 updated, 44 partial, 43 kept, 47 no
         # chart, 45, 46, 48, 49 and 50 failed. A 500 that names no failed
         # region reads "Unknown error", as before multi-region.
-        assert changed["summarySuccess"] == "1"
+        # "Weeks Updated" counts the written weeks, 42 and 44, whose movies
+        # "Movies Found" adds up.
+        assert changed["summarySuccess"] == "2"
+        assert changed["summaryMovies"] == str(
+            SUCCESS["movies_found"] + PARTIAL["movies_found"]
+        )
         assert changed["failedCount"] == "5"
         assert changed["failedList"] == (
             "2026W45: Failed to fetch"

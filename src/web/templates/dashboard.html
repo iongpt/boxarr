@@ -1244,9 +1244,13 @@ class RangeProcessor {
         // Hide progress modal
         document.getElementById('progressModal').style.display = 'none';
         
-        // Calculate summary stats: each week is counted in one list only.
-        // Updated: written, and every region came through or had no chart.
-        const successful = this.results.filter(r => r.outcome === 'success').length;
+        // Calculate summary stats. "Weeks Updated" counts every week that
+        // was written - also those written without a failed region, which
+        // "Movies Found" counts the movies of and the partial list names.
+        const successful = this.results.filter(
+            r => r.outcome === 'success' || r.outcome === 'partial'
+        ).length;
+        // Each week is listed in one list only.
         // Written, but a region failed (e.g. "Updated 2 of 3 regions (FR failed)")
         const partial = this.results.filter(r => r.outcome === 'partial');
         // An older stored week left as it was because a region failed: a
