@@ -465,6 +465,44 @@ class TestRegionTab:
             "Dom Only",
         ]
 
+    @pytest.mark.parametrize("broken", ["n/a", "1,000", True, float("nan"), [1]])
+    def test_a_broken_row_gross_falls_back_to_the_films_own(self, page, broken):
+        # A hand-edited stored row: its gross is no number the page can show.
+        week = copy.deepcopy(MULTI_WEEK)
+        week["movies"][1]["regions"][0]["weekend_gross"] = broken
+        week["movies"][1]["regions"][0]["total_gross"] = broken
+
+        html = page(json.loads(json.dumps(week)), "/2026W44?region=RO")
+
+        cards = _cards(html)
+        assert cards[0]["title"] == "Romanian Hit"
+        assert "Weekend: $200,000" in cards[0]["meta"]
+
+    def test_a_null_row_gross_is_not_replaced_by_another_regions(self, page):
+        # Mojo printed no gross for Clayface in Romania; its own (lead) gross
+        # is the domestic one and must not be shown as Romania's.
+        week = copy.deepcopy(MULTI_WEEK)
+        week["movies"][0]["regions"][1]["weekend_gross"] = None
+
+        html = page(week, "/2026W44?region=RO")
+
+        cards = {c["title"]: c["meta"] for c in _cards(html)}
+        assert "Weekend:" not in cards["Clayface"]
+
+    @pytest.mark.parametrize("broken", ["1", 1.5, True])
+    def test_a_broken_row_rank_falls_back_to_the_films_own(self, page, broken):
+        week = copy.deepcopy(MULTI_WEEK)
+        # Wicker's Romanian row; the film's own rank is its lead (#1, GB).
+        week["movies"][2]["regions"][1]["rank"] = broken
+
+        html = page(week, "/2026W44?region=RO")
+
+        assert [(c["title"], c["badge"]) for c in _cards(html)] == [
+            ("Romanian Hit", "#1 RO"),
+            ("Wicker", "#1 RO"),
+            ("Clayface", "#3 RO"),
+        ]
+
 
 class TestInvalidRegion:
     @pytest.mark.parametrize(

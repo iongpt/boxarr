@@ -32,7 +32,7 @@ from ...utils.config import (
     settings,
 )
 from ...utils.logger import get_logger
-from .weekly_regions import build_region_view, region_movies
+from .weekly_regions import build_region_view, region_movies, stored_gross, stored_rank
 
 logger = get_logger(__name__)
 router = APIRouter(tags=["web"])
@@ -124,22 +124,6 @@ async def settings_redirect(request: Request):
 _NO_BEST_RANK = 999
 
 
-def _stored_rank(value: object) -> Optional[int]:
-    """A stored rank, or None when it is missing or not a whole number."""
-    if isinstance(value, int) and not isinstance(value, bool):
-        return value
-    return None
-
-
-def _stored_gross(value: object) -> Optional[float]:
-    """A stored gross, or None when it is missing or not a finite number."""
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        amount = float(value)
-        if math.isfinite(amount):
-            return amount
-    return None
-
-
 def _appearance_best_gross(movie: dict) -> Optional[float]:
     """A stored film's best weekend gross in one week, across its regions.
 
@@ -147,10 +131,10 @@ def _appearance_best_gross(movie: dict) -> Optional[float]:
     top-level gross is only its lead region's. Legacy entries have no rows.
     """
     rows = movie.get("regions")
-    grosses = [_stored_gross(movie.get("weekend_gross"))]
+    grosses = [stored_gross(movie.get("weekend_gross"))]
     if isinstance(rows, list):
         grosses += [
-            _stored_gross(row.get("weekend_gross"))
+            stored_gross(row.get("weekend_gross"))
             for row in rows
             if isinstance(row, dict)
         ]
@@ -198,7 +182,7 @@ async def aggregate_all_movies() -> List[dict]:
                 else:
                     key = f"{movie.get('title', 'unknown')}_{movie.get('year', 0)}"
 
-                rank = _stored_rank(movie.get("rank"))
+                rank = stored_rank(movie.get("rank"))
                 if rank is None:
                     rank = _NO_BEST_RANK
                 entry = movies_by_key.get(key)

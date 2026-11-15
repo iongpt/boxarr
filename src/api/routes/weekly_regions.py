@@ -16,8 +16,9 @@ can hand-edit - so the template escapes all of it, and a ``?region`` value is
 only ever used after it matched one of the file's own codes.
 """
 
+import math
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from ...core.boxoffice import BOX_OFFICE_REGIONS
 
@@ -50,6 +51,41 @@ def region_tag(code: str) -> str:
 def region_param(code: str) -> str:
     """The ?region= value that selects a region."""
     return code or DOMESTIC_PARAM
+
+
+def stored_rank(value: object) -> Optional[int]:
+    """A stored rank, or None when it is missing or not a whole number."""
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    return None
+
+
+def stored_gross(value: object) -> Optional[float]:
+    """A stored gross, or None when it is missing or not a finite number."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        amount = float(value)
+        if math.isfinite(amount):
+            return amount
+    return None
+
+
+def _row_value(
+    row: Dict[str, Any],
+    movie: Dict[str, Any],
+    key: str,
+    usable: Callable[[object], Optional[Any]],
+) -> Any:
+    """A region row's rank or gross, as a region tab shows it.
+
+    A null stays null: the region printed none, and the film's own value
+    is another region's. A value the page cannot show - a hand-edited file
+    - falls back to the film's own, or to None when that is unusable too.
+    """
+    value = row.get(key)
+    if value is None or usable(value) is not None:
+        return value
+    own = movie.get(key)
+    return own if usable(own) is not None else None
 
 
 def _sort_rank(value: Any) -> int:
@@ -257,9 +293,11 @@ def region_movies(movies: List[Any], selected: Optional[str]) -> List[Dict[str, 
             if row is None:
                 continue
             shown = selected
-            card["rank"] = row.get("rank")
-            card["weekend_gross"] = row.get("weekend_gross")
-            card["total_gross"] = row.get("total_gross")
+            card["rank"] = _row_value(row, movie, "rank", stored_rank)
+            card["weekend_gross"] = _row_value(
+                row, movie, "weekend_gross", stored_gross
+            )
+            card["total_gross"] = _row_value(row, movie, "total_gross", stored_gross)
         card["region_tag"] = region_tag(shown)
         card["also"] = _also(rows, shown)
         cards.append(card)
