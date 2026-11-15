@@ -140,9 +140,11 @@ def _app(
     _seed(tmp_path, api_key, url)
     # monkeypatch, so the Settings built from tmp_path cannot outlive the test.
     monkeypatch.setattr(cfg_utils, "_settings", None)
-    # A stopped scheduler, so a save does not build the module-wide one.
+    # A stopped scheduler, which a save leaves as it is.
     monkeypatch.setattr(
-        scheduler_route, "_scheduler", types.SimpleNamespace(_running=False)
+        scheduler_route,
+        "_scheduler",
+        types.SimpleNamespace(_running=False, apply_settings=lambda: "unchanged"),
     )
     return TestClient(create_app())
 

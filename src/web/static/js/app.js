@@ -820,7 +820,10 @@ function reloadScheduler() {
         .then(response => response.json())
         .then(data => {
             if (data.success) {
-                alert(`Scheduler reloaded! Next run: ${new Date(data.next_run).toLocaleString()}`);
+                // No next run while automatic updates are off: say that instead.
+                alert(data.next_run
+                    ? `Scheduler reloaded! Next run: ${formatSchedulerTime(data.next_run, data.timezone)}`
+                    : data.message);
                 refreshSchedulerStatus();
             } else {
                 alert(`Reload failed: ${data.message}`);
@@ -1752,6 +1755,12 @@ function reloadScheduler() {
         .then(response => response.json())
         .then(data => {
             if (data.success) {
+                if (data.warning) {
+                    // Saved, but the running scheduler did not take the new
+                    // schedule (#137). An alert, so it is read before the
+                    // redirect below leaves the page.
+                    alert(data.warning);
+                }
                 showMessage('✓ Configuration saved successfully! Redirecting...', 'success');
                 setTimeout(() => {
                     window.location.href = makeUrl('/dashboard');

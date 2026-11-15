@@ -65,6 +65,12 @@ def cron_trigger(cron: str, timezone: Optional[tzinfo] = None) -> CronTrigger:
     )
 
 
+def _same_trigger(current: Any, wanted: CronTrigger) -> bool:
+    """Return whether the job's trigger fires when and where ``wanted`` does."""
+    current_zone = str(getattr(current, "timezone", None))
+    return str(current) == str(wanted) and current_zone == str(wanted.timezone)
+
+
 class BoxarrScheduler:
     """Scheduler for automated box office tracking."""
 
@@ -625,6 +631,58 @@ class BoxarrScheduler:
         except Exception as e:
             logger.error(f"Failed to reload scheduler: {e}", exc_info=True)
             return False
+
+    def apply_settings(self) -> str:
+        """
+        Apply the current scheduler settings without a restart (#137).
+
+        Called after every settings save, and by the setup page's Reload:
+
+        - automatic updates off: the weekly job is removed. The scheduler
+          itself keeps running, so Run Now still works and turning updates
+          back on needs no restart either;
+        - on, while the scheduler never started (updates were off when Boxarr
+          started): it is started;
+        - on and running: the job is rescheduled when its cron or timezone
+          changed, and added again when it had been removed.
+
+        Call it on the event loop: a scheduler started here runs on that loop.
+
+        Returns:
+            What it did: "disabled", "started", "rescheduled" or "unchanged"
+
+        Raises:
+            SchedulerError: The settings could not be applied
+        """
+        try:
+            # Manual runs date their weekend in this zone too.
+            self.scheduler.timezone = astimezone(scheduler_timezone())
+
+            if not settings.boxarr_scheduler_enabled:
+                if self.scheduler.get_job(WEEKLY_JOB_ID) is None:
+                    return "unchanged"
+                self.scheduler.remove_job(WEEKLY_JOB_ID)
+                logger.info("Automatic updates turned off: weekly job removed")
+                return "disabled"
+
+            if not self._running:
+                self.start()
+                return "started"
+
+            cron = settings.boxarr_scheduler_cron
+            job = self.scheduler.get_job(WEEKLY_JOB_ID)
+            if job is not None and _same_trigger(job.trigger, cron_trigger(cron)):
+                return "unchanged"
+            job = self._add_weekly_job(cron)
+            logger.info(
+                f"Scheduler rescheduled with cron: {cron} (day of week: Monday=0 "
+                f"... Sunday=6), timezone: {self.scheduler.timezone}; next run: "
+                f"{job.next_run_time}"
+            )
+            return "rescheduled"
+        except Exception as e:
+            logger.error(f"Could not apply the scheduler settings: {e}")
+            raise SchedulerError(str(e) or type(e).__name__) from e
 
     def get_next_run_time(self) -> Optional[datetime]:
         """

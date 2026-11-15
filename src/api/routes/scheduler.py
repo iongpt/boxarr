@@ -32,6 +32,11 @@ def get_scheduler() -> BoxarrScheduler:
     return _scheduler
 
 
+def current_scheduler() -> Optional[BoxarrScheduler]:
+    """Return the app's scheduler, or None when it runs none (none is built)."""
+    return _scheduler
+
+
 def _first_error(run: Dict[str, Any]) -> Optional[str]:
     """What a saved run failed with, or None.
 
@@ -111,30 +116,28 @@ async def trigger_update():
 
 @router.post("/reload")
 async def reload_scheduler():
-    """Manually reload the scheduler with current settings."""
+    """Apply the current settings to the scheduler, as a settings save does.
+
+    Starts a scheduler that was off at startup, removes the job when
+    automatic updates are off, and reschedules it on a new cron or timezone
+    (#137).
+    """
     try:
         scheduler = get_scheduler()
+        scheduler.apply_settings()
 
-        if not scheduler._running:
-            return {
-                "success": False,
-                "message": "Scheduler is not running",
-            }
-
-        # Reload with current settings
-        if scheduler.reload_schedule():
-            next_run = scheduler.get_next_run_time()
-            return {
-                "success": True,
-                "message": f"Scheduler reloaded with cron: {settings.boxarr_scheduler_cron}",
-                "next_run": next_run.isoformat() if next_run else None,
-                "cron": settings.boxarr_scheduler_cron,
-            }
+        next_run = scheduler.get_next_run_time()
+        if not settings.boxarr_scheduler_enabled:
+            message = "Automatic updates are turned off: nothing is scheduled"
         else:
-            return {
-                "success": False,
-                "message": "Failed to reload scheduler",
-            }
+            message = f"Scheduler reloaded with cron: {settings.boxarr_scheduler_cron}"
+        return {
+            "success": True,
+            "message": message,
+            "next_run": next_run.isoformat() if next_run else None,
+            "cron": settings.boxarr_scheduler_cron,
+            "timezone": str(scheduler.scheduler.timezone),
+        }
     except Exception as e:
         logger.error(f"Error reloading scheduler: {e}")
         return {
