@@ -1341,6 +1341,12 @@ function reloadScheduler() {
             if (Number.isInteger(tmdbId) && tmdbId > 0) {
                 payload.tmdb_id = tmdbId;
             }
+            // Without a TMDB id, Box Office Mojo's IMDb id lets the server
+            // pick that film from the title search instead of the first hit.
+            const bomImdbId = card ? card.dataset.bomImdbId : '';
+            if (bomImdbId) {
+                payload.imdb_id = bomImdbId;
+            }
 
             fetch(apiUrl('/movies/add'), {
                 method: 'POST',

@@ -674,7 +674,7 @@
     <div class="movies-grid">
         {% for movie in week_data.movies %}
         {% set is_ignored = movie.tmdb_id and movie.tmdb_id in ignored_tmdb_ids %}
-        <div class="movie-card{% if is_ignored %} ignored{% if hide_ignored %} ignored-hidden{% endif %}{% endif %}" data-movie-id="{{ movie.radarr_id or '' }}" data-tmdb-id="{{ movie.tmdb_id or '' }}">
+        <div class="movie-card{% if is_ignored %} ignored{% if hide_ignored %} ignored-hidden{% endif %}{% endif %}" data-movie-id="{{ movie.radarr_id or '' }}" data-tmdb-id="{{ movie.tmdb_id or '' }}" data-bom-imdb-id="{{ movie.bom_imdb_id or '' }}">
             <div class="rank-badge{% if region_view %} with-region{% endif %}">#{{ movie.rank }}{% if region_view %} <span class="region-tag">{{ movie.region_tag }}</span>{% endif %}</div>
             {% if is_ignored %}
             <div class="ignored-badge">Ignored</div>

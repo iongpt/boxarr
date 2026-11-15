@@ -1,6 +1,6 @@
 """Shared auto-add logic for adding unmatched movies to Radarr."""
 
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Any, Iterable, List, Optional, Sequence, Set, Tuple
 
 import httpx
 
@@ -18,6 +18,7 @@ from .matcher import MatchResult
 from .radarr import RadarrService
 from .region_charts import best_weekend_gross, region_order
 from .root_folder_manager import RootFolderManager
+from .tmdb_pick import resolve_tmdb_pick
 
 logger = get_logger(__name__)
 
@@ -51,36 +52,6 @@ def _radarr_unavailable(error: BaseException) -> bool:
         status = cause.response.status_code
         return status >= 500 or status in (408, 429)
     return isinstance(error, (RadarrError, httpx.HTTPError))
-
-
-def _normalize_imdb_id(imdb_id: Optional[str]) -> Optional[str]:
-    """Normalize an IMDb id for comparison (case/whitespace insensitive)."""
-    if not imdb_id:
-        return None
-    return imdb_id.strip().lower()
-
-
-def _select_search_result(
-    search_results: List[Dict[str, Any]], box_office_movie: BoxOfficeMovie
-) -> Dict[str, Any]:
-    """
-    Select the search result matching the box-office movie's IMDb id.
-
-    When the box-office movie carries an IMDb id, prefer the result whose
-    ``imdbId`` matches it. If none matches - or no IMDb id is available -
-    fall back to the first result to preserve the previous behavior.
-    """
-    target = _normalize_imdb_id(box_office_movie.imdb_id)
-    if target:
-        for candidate in search_results:
-            if _normalize_imdb_id(candidate.get("imdbId")) == target:
-                return candidate
-        logger.warning(
-            f"No TMDB search result for '{box_office_movie.title}' matched "
-            f"IMDb id {box_office_movie.imdb_id}; falling back to top result "
-            f"'{search_results[0].get('title')}'"
-        )
-    return search_results[0]
 
 
 def _language_allowed(original_language: Optional[str], config: Any) -> bool:
@@ -331,18 +302,17 @@ def auto_add_missing_movies(  # noqa: C901
                     f"unknown weekend gross - minimum-gross filter not applied"
                 )
 
-            # Search for movie in Radarr database (TMDB)
-            search_results = radarr_service.search_movie(result.box_office_movie.title)
+            # Look the film up on TMDB (through Radarr) and pick the result
+            # with Mojo's IMDb id.
+            movie_info = resolve_tmdb_pick(radarr_service, result.box_office_movie)
             failures_in_a_row = 0
 
-            if not search_results:
+            if not movie_info:
                 logger.warning(
                     f"Movie '{result.box_office_movie.title}' ({position}) not found "
                     "in TMDB"
                 )
                 continue
-
-            movie_info = _select_search_result(search_results, result.box_office_movie)
 
             movie_tmdb_id = movie_info.get("tmdbId")
             if movie_tmdb_id:

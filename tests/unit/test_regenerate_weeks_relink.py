@@ -390,6 +390,41 @@ def test_title_only_entry_storing_a_different_year_is_not_linked(
     assert week.read_bytes() == before_bytes
 
 
+@pytest.mark.parametrize(
+    ("bom_imdb_id", "linked"),
+    [
+        ("tt11655566", False),  # Mojo charted the 2025 remake
+        ("TT0275847 ", True),  # Mojo charted the 2002 film itself
+        (None, True),  # no Mojo id: nothing to tell them apart by
+    ],
+)
+def test_title_only_entry_with_another_mojo_imdb_id_is_not_linked(
+    weekly_dir, bom_calls, radarr, bom_imdb_id, linked
+):
+    # An entry whose lookup failed keeps Box Office Mojo's IMDb id (#141).
+    # Adding the 2002 film must not link the 2025 remake's entry to it.
+    original = _FakeMovie(ADDED_RADARR_ID, 11544, "Lilo & Stitch", year=2002)
+    original.imdbId = "tt0275847"
+    radarr["library"] = [original]
+    week = _write_week(
+        weekly_dir,
+        2025,
+        21,
+        [_unlinked(1, "Lilo & Stitch", None, bom_imdb_id=bom_imdb_id)],
+    )
+    before_bytes = week.read_bytes()
+
+    movies_route.regenerate_weeks_with_movie("Lilo & Stitch", 11544)
+
+    assert bom_calls == []
+    assert radarr["library_fetches"] == 1
+    if linked:
+        assert _read(week)["movies"][0]["radarr_id"] == ADDED_RADARR_ID
+    else:
+        assert week.read_bytes() == before_bytes
+    _assert_lock_free()
+
+
 def test_no_week_listing_the_film_rewrites_nothing(weekly_dir, bom_calls, radarr):
     weeks = [
         _write_week(weekly_dir, 2026, 6, [_unlinked(1, "Aliens", 679)]),

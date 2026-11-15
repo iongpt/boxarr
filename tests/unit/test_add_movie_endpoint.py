@@ -101,7 +101,7 @@ def test_unknown_card_tmdb_id_adds_nothing(radarr):
 
 
 def test_title_only_request_still_adds_the_first_title_hit(radarr):
-    radarr["title_results"] = [
+    radarr["lookup_results"]["Alien"] = [
         {"tmdbId": 348, "title": "Alien"},
         {"tmdbId": 1, "title": "Alien: Romulus"},
     ]
@@ -109,9 +109,66 @@ def test_title_only_request_still_adds_the_first_title_hit(radarr):
     result = _add(title="Alien")
 
     assert result["success"] is True
-    assert radarr["title_searches"] == ["Alien"]
+    assert radarr["lookups"] == ["Alien"]
     assert radarr["added"] == [348]
     assert radarr["relinks"] == [("Alien", 348)]
+
+
+SUPERMAN_1978 = {
+    "tmdbId": 1924,
+    "title": "Superman",
+    "year": 1978,
+    "imdbId": "tt0078346",
+}
+SUPERMAN_2025 = {
+    "tmdbId": 1061474,
+    "title": "Superman",
+    "year": 2025,
+    "imdbId": "tt5950044",
+}
+
+
+def test_title_only_request_adds_the_film_with_the_cards_imdb_id(radarr):
+    """A card without a TMDB id sends Box Office Mojo's IMDb id (#141)."""
+    radarr["lookup_results"]["Superman"] = [SUPERMAN_1978, SUPERMAN_2025]
+
+    result = _add(title="Superman", year=None, imdb_id="tt5950044")
+
+    assert result["success"] is True
+    assert radarr["added"] == [1061474]
+    assert radarr["relinks"] == [("Superman", 1061474)]
+
+
+def test_title_only_request_finds_the_film_by_its_imdb_id(radarr):
+    radarr["lookup_results"]["Superman"] = [SUPERMAN_1978]
+    radarr["lookup_results"]["imdb:tt5950044"] = [SUPERMAN_2025]
+
+    result = _add(title="Superman", imdb_id="tt5950044")
+
+    assert result["success"] is True
+    assert radarr["lookups"] == ["Superman", "imdb:tt5950044"]
+    assert radarr["added"] == [1061474]
+
+
+@pytest.mark.parametrize("year, added", [(2025, 1061474), ("1978", 1924), ("", 1924)])
+def test_title_only_request_prefers_the_cards_year(radarr, year, added):
+    radarr["lookup_results"]["Superman"] = [SUPERMAN_1978, SUPERMAN_2025]
+
+    result = _add(title="Superman", year=year)
+
+    assert result["success"] is True
+    assert radarr["added"] == [added]
+
+
+def test_card_tmdb_id_wins_over_its_imdb_id(radarr):
+    radarr["lookup_results"]["tmdb:1924"] = [SUPERMAN_1978]
+    radarr["lookup_results"]["Superman"] = [SUPERMAN_1978, SUPERMAN_2025]
+
+    result = _add(title="Superman", tmdb_id=1924, imdb_id="tt5950044")
+
+    assert result["success"] is True
+    assert radarr["lookups"] == ["tmdb:1924"]
+    assert radarr["added"] == [1924]
 
 
 def test_film_already_in_radarr_relinks_with_its_identity(radarr):

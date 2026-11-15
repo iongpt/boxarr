@@ -7,7 +7,6 @@ from typing import Any, Dict, List, Optional, Sequence
 from ..utils.atomic import atomic_write_json
 from ..utils.config import configured_box_office_regions, settings
 from ..utils.logger import get_logger
-from .auto_add import _select_search_result
 from .matcher import MatchResult
 from .models import MovieStatus
 from .radarr import RadarrService
@@ -19,6 +18,7 @@ from .region_charts import (
     region_rows,
     row_codes,
 )
+from .tmdb_pick import resolve_tmdb_pick
 
 logger = get_logger(__name__)
 
@@ -405,16 +405,12 @@ class WeeklyDataGenerator:
                 # This ensures we have poster and description for dashboard display
                 if self.radarr_service:
                     try:
-                        # Search for movie in TMDB via Radarr
-                        search_results = self.radarr_service.search_movie(
-                            result.box_office_movie.title
+                        # Look the film up on TMDB via Radarr and pick the
+                        # result with Box Office Mojo's IMDb id.
+                        tmdb_movie = resolve_tmdb_pick(
+                            self.radarr_service, result.box_office_movie
                         )
-                        if search_results and len(search_results) > 0:
-                            # Prefer the result carrying Box Office Mojo's
-                            # IMDb id; without one, the first result.
-                            tmdb_movie = _select_search_result(
-                                search_results, result.box_office_movie
-                            )
+                        if tmdb_movie:
                             movie_data.update(
                                 {
                                     "tmdb_id": tmdb_movie.get("tmdbId"),
