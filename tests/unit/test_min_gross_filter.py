@@ -262,20 +262,19 @@ class TestMinGrossInAutoAddLoop:
         assert skips, "the skipped movie must be logged"
         assert "gross $1,200,000 below minimum $1,200,000.40" in skips[0]
 
-    def test_limit_is_applied_before_the_gross_gate(self, auto_add_env):
-        """'Maximum Movies to Add' keeps meaning 'the top X by rank'.
+    def test_a_film_the_gross_gate_drops_does_not_use_a_slot(self, auto_add_env):
+        """'Maximum Movies to Add' counts the films actually added (#139).
 
         Rank #1 is below the threshold and rank #2 is above it. With a limit
-        of 1 the limit trims to rank #1 first, which the gross gate then
-        rejects - nothing is added. Were the gate applied first, rank #2 would
-        survive the trim and be added.
+        of 1 the gate drops rank #1 without using the slot, so rank #2 is
+        added. Rank #1 still costs no Radarr request.
         """
         added, service = auto_add_env(
             _settings(boxarr_features_auto_add_limit=1),
             chart=[(1, "Small Opener", 100_000.0), (2, "Big Opener", 9_000_000.0)],
         )
-        assert added == []
-        assert service.searched == []
+        assert added == ["Big Opener"]
+        assert service.searched == ["Big Opener"]
 
 
 class TestMinGrossYamlRoundTrip:

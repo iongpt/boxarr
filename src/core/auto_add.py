@@ -195,7 +195,10 @@ def auto_add_missing_movies(  # noqa: C901
     The unmatched films of every region are considered in one pass, in
     chart order: lead rank, then the lead region's configured position
     (#1 domestic, #1 Romania, #2 domestic, ...). For one region that is
-    simply the rank. The auto-add limit is one cap for the whole run.
+    simply the rank. The auto-add limit is one cap for the whole run on the
+    films actually added (#139): a film a filter drops, an ignored film, one
+    not found on TMDB and one Radarr rejects do not use a slot, and the pass
+    stops once the limit is reached.
 
     Args:
         match_results: Match results from movie matching
@@ -206,7 +209,7 @@ def auto_add_missing_movies(  # noqa: C901
     Returns:
         List of added movie titles
     """
-    added_movies = []
+    added_movies: List[str] = []
     unmatched = [r for r in match_results if not r.is_matched]
 
     if not unmatched:
@@ -222,24 +225,16 @@ def auto_add_missing_movies(  # noqa: C901
 
     unmatched = sorted(unmatched, key=_chart_order)
 
-    # Apply limit if configured. It trims the chart before any gate below,
-    # so a film a gate then drops still uses its slot.
+    # The limit counts the films actually added; see the loop below.
     limit = settings.boxarr_features_auto_add_limit
-    if limit < len(unmatched):
-        logger.info(
-            f"Limiting auto-add to top {limit} movies (out of {len(unmatched)} unmatched)"
-        )
-        unmatched = unmatched[:limit]
-
-    if not unmatched:
-        logger.info("No movies to auto-add - all top movies are already in Radarr")
-        return []
 
     # Load ignore list for filtering
     ignore_list = IgnoreList()
     ignored_ids = ignore_list.get_ignored_tmdb_ids()
 
-    logger.info(f"Auto-adding up to {len(unmatched)} unmatched movies to Radarr")
+    logger.info(
+        f"Auto-adding up to {limit} of {len(unmatched)} unmatched movies to Radarr"
+    )
 
     # Get default quality profile
     profiles = radarr_service.get_quality_profiles()
@@ -259,7 +254,13 @@ def auto_add_missing_movies(  # noqa: C901
     # film; only the first is considered.
     seen_tmdb_ids: Set[Any] = set()
 
-    for result in unmatched:
+    for index, result in enumerate(unmatched):
+        if len(added_movies) >= limit:
+            logger.info(
+                f"Reached the auto-add limit of {limit} movies; "
+                f"{len(unmatched) - index} more unmatched movies not considered"
+            )
+            break
         try:
             # Minimum weekend gross filter. _gross_allowed owns the whole
             # policy - disabled, a 0 threshold and an unknown gross all pass -

@@ -1,9 +1,9 @@
 """Auto-add over a list merged from several box office regions.
 
 One pass over every region's unmatched films in chart order (#1 domestic,
-#1 Romania, #2 domestic, ...), one overall limit applied before the gates,
-the minimum-gross gate on the film's best weekend in any region, and each
-TMDB film considered once per run.
+#1 Romania, #2 domestic, ...), one overall limit on the films actually added
+(#139), the minimum-gross gate on the film's best weekend in any region, and
+each TMDB film considered once per run.
 """
 
 import pytest
@@ -33,8 +33,14 @@ class _FakeAddedMovie:
 
 
 class _FakeIgnoreList:
+    ignored_titles: set = set()
+
     def get_ignored_tmdb_ids(self):
-        return set()
+        return {_tmdb_id(title) for title in self.ignored_titles}
+
+
+def _tmdb_id(title):
+    return 1000 + sum(map(ord, title))
 
 
 class _FakeRootFolderManager:
@@ -48,8 +54,10 @@ class _FakeRootFolderManager:
 class _FakeRadarrService:
     """Looks every title up as its own film unless ``same_film`` says otherwise."""
 
-    def __init__(self, same_film=None):
+    def __init__(self, same_film=None, not_on_tmdb=(), rejected=()):
         self.same_film = same_film or {}
+        self.not_on_tmdb = set(not_on_tmdb)
+        self.rejected = set(rejected)
         self.searched = []
         self.added = []
         self._titles = {}
@@ -62,12 +70,17 @@ class _FakeRadarrService:
 
     def search_movie(self, title):
         self.searched.append(title)
+        if title in self.not_on_tmdb:
+            return []
         canonical = self.same_film.get(title, title)
-        tmdb_id = 1000 + sum(map(ord, canonical))
+        tmdb_id = _tmdb_id(canonical)
         self._titles[tmdb_id] = canonical
         return [{"tmdbId": tmdb_id, "title": canonical, "year": 2026, "genres": []}]
 
     def add_movie(self, tmdb_id, profile_id, root_folder, monitored, search):
+        if self._titles[tmdb_id] in self.rejected:
+            # Radarr's answer for a film it already has.
+            raise RuntimeError("400 Bad Request: This movie has already been added")
         self.added.append(self._titles[tmdb_id])
         return _FakeAddedMovie(self._titles[tmdb_id])
 
@@ -81,6 +94,7 @@ def _settings(**overrides):
 @pytest.fixture
 def run(monkeypatch):
     monkeypatch.setattr(auto_add, "IgnoreList", _FakeIgnoreList)
+    monkeypatch.setattr(_FakeIgnoreList, "ignored_titles", set())
     monkeypatch.setattr(auto_add, "RootFolderManager", _FakeRootFolderManager)
 
     def _run(config, films, regions, service=None):
@@ -121,7 +135,8 @@ class TestChartOrderAndLimit:
         added, _ = run(_settings(boxarr_features_auto_add_limit=3), films, regions)
         assert added == ["D1", "R1", "D2"]
 
-    def test_a_film_a_gate_drops_still_uses_its_slot(self, run):
+    def test_a_film_a_gate_drops_does_not_use_a_slot(self, run):
+        # #139: the limit counts films added, not chart rows looked at.
         films, regions = _merged(
             ("", [movie(1, "Small", 10_000.0)]),
             ("RO", [movie(1, "Big", 9_000_000.0)]),
@@ -135,8 +150,65 @@ class TestChartOrderAndLimit:
             films,
             regions,
         )
-        assert added == []
-        assert service.searched == []
+        assert added == ["Big"]
+        assert service.searched == ["Big"]
+
+    def test_an_ignored_film_does_not_use_a_slot(self, run, monkeypatch):
+        # The reporter's case: limit 1 and an ignored #1 added nothing.
+        monkeypatch.setattr(_FakeIgnoreList, "ignored_titles", {"A"})
+        added, _ = run(
+            _settings(boxarr_features_auto_add_limit=1),
+            [movie(1, "A"), movie(2, "B"), movie(3, "C")],
+            [""],
+        )
+        assert added == ["B"]
+
+    def test_a_film_missing_from_tmdb_does_not_use_a_slot(self, run):
+        service = _FakeRadarrService(not_on_tmdb={"A"})
+        added, _ = run(
+            _settings(boxarr_features_auto_add_limit=1),
+            [movie(1, "A"), movie(2, "B")],
+            [""],
+            service,
+        )
+        assert added == ["B"]
+
+    def test_a_film_radarr_rejects_does_not_use_a_slot(self, run):
+        # E.g. already in Radarr under a title the matcher did not link.
+        service = _FakeRadarrService(rejected={"A"})
+        added, _ = run(
+            _settings(boxarr_features_auto_add_limit=1),
+            [movie(1, "A"), movie(2, "B"), movie(3, "C")],
+            [""],
+            service,
+        )
+        assert added == ["B"]
+        assert service.added == ["B"]
+
+    def test_a_tmdb_film_seen_twice_uses_one_slot(self, run):
+        films, regions = _merged(
+            ("", [movie(1, "The Housemaid"), movie(2, "Other")]),
+            ("DE", [movie(1, "Die Haushaelterin")]),
+        )
+        service = _FakeRadarrService(same_film={"Die Haushaelterin": "The Housemaid"})
+        added, _ = run(
+            _settings(boxarr_features_auto_add_limit=2), films, regions, service
+        )
+        assert added == ["The Housemaid", "Other"]
+
+    def test_the_run_stops_once_the_limit_is_added(self, run, caplog):
+        with caplog.at_level("INFO"):
+            added, service = run(
+                _settings(boxarr_features_auto_add_limit=2),
+                [movie(1, "A"), movie(2, "B"), movie(3, "C"), movie(4, "D")],
+                [""],
+            )
+        assert added == ["A", "B"]
+        # No Radarr lookups past the limit.
+        assert service.searched == ["A", "B"]
+        assert any(
+            "limit of 2" in r.message and "2 more" in r.message for r in caplog.records
+        )
 
     def test_one_region_keeps_rank_order(self, run):
         films = [movie(1, "A"), movie(2, "B"), movie(3, "C")]
