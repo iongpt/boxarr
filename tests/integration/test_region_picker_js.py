@@ -290,10 +290,7 @@ class TestSelectionLimits:
 
         saved = steps[-1]
         assert saved["saved"] == []
-        assert (
-            "[error] Select at least one box office region (Domestic for US & Canada)"
-            in saved["toasts"]
-        )
+        assert "[error] Select at least one box office region" in saved["toasts"]
 
 
 class TestLanguageSuggestions:
@@ -332,6 +329,10 @@ class TestSearch:
             ("UK", ["UA", "GB"]),
             ("usa", ["domestic"]),
             ("america", ["domestic"]),
+            ("domestic", ["domestic"]),
+            # Other names match while being typed; "dom" is also in
+            # "Dominican Republic" and "United Kingdom".
+            ("dom", ["domestic", "DO", "GB"]),
             ("holland", ["NL"]),
             ("gb", ["GB"]),
             ("king", ["GB"]),

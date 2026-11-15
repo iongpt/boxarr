@@ -553,6 +553,18 @@ class TestTriggerAndStatus:
             ("DE", "error", "Germany"),
         ]
 
+    def test_history_and_status_report_the_same_error_for_a_partial_run(self, client):
+        c = client({"": [bom(1, "The Odyssey")], "DE": BoxOfficeError("HTTP 503")})
+        c.post("/api/scheduler/trigger")
+
+        last_run = c.get("/api/scheduler/status").json()["last_run"]
+        [run] = c.get("/api/scheduler/history").json()["runs"]
+
+        assert run["partial"] is True
+        assert last_run["error"] is not None
+        assert "HTTP 503" in last_run["error"]
+        assert run["error"] == last_run["error"]
+
     def test_status_treats_older_history_as_successful(self, client, env):
         tmp_path, _ = env
         (tmp_path / "history").mkdir()

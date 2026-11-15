@@ -132,6 +132,20 @@ def _file_regions(metadata: Dict[str, Any]) -> List[str]:
     return codes
 
 
+def lead_region_tag(metadata: Dict[str, Any], movie: Dict[str, Any]) -> Optional[str]:
+    """The tag of the region a stored film's rank and gross are from.
+
+    Only a week of several regions has one ("DOM", "FR"): the film's own
+    ``region``, its lead appearance. A week of one region, a legacy week and
+    a film without a readable region have None, so what shows them stays as
+    it was before multi-region.
+    """
+    region = movie.get("region")
+    if len(_file_regions(metadata)) < 2 or not isinstance(region, str):
+        return None
+    return region_tag(region)
+
+
 def _file_statuses(metadata: Dict[str, Any]) -> List[Dict[str, Any]]:
     """The stored week's region status entries that can be read."""
     statuses = metadata.get("region_status")

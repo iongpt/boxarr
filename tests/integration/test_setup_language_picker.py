@@ -151,7 +151,7 @@ def test_region_map_is_rendered_for_the_picker(tmp_path, monkeypatch):
 
     The server paints them from the *persisted* regions, which on a fresh
     install are nobody's choice: the user checks "Norway" and would still be
-    told "Suggested for Domestic (US & Canada)" until after a save.
+    told "Suggested for US & Canada" until after a save.
     """
     soup = _setup_page(tmp_path, monkeypatch)
     suggestions = soup.find(id="languageSuggestions")

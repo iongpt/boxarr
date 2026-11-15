@@ -341,6 +341,28 @@ select.filter-input {
     box-shadow: 0 2px 8px rgba(0,0,0,0.3);
 }
 
+/* A best rank from a week of several regions names its region: "#2 FR". */
+.rank-badge.with-region {
+    width: auto;
+    min-width: 32px;
+    padding: 0 0.6rem;
+    border-radius: 16px;
+    gap: 0.3rem;
+}
+
+.rank-badge .region-tag {
+    font-size: 0.65rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    opacity: 0.9;
+}
+
+/* On a narrow card that wider badge would run under the centred "Ignored"
+   badge, which moves down below it instead. */
+.rank-badge.with-region ~ .ignored-badge {
+    top: 48px;
+}
+
 /* Tenure badge (replaces stacked week badges) */
 .tenure-badge {
     position: absolute;
@@ -946,7 +968,7 @@ select.filter-input {
            for the bucket a counter was rendered from. #}
         <div class="movie-card{% if is_ignored %} ignored{% endif %}" data-movie-id="{{ movie.radarr_id or '' }}" data-tmdb-id="{{ movie.tmdb_id or '' }}" data-bom-imdb-id="{{ movie.bom_imdb_id or '' }}"
              data-stat-bucket="{% if movie.status == 'Downloaded' %}downloaded{% elif movie.status == 'Missing' %}missing{% endif %}">
-            <div class="rank-badge">#{{ movie.best_rank }}</div>
+            <div class="rank-badge{% if movie.best_rank_region_tag %} with-region{% endif %}">#{{ movie.best_rank }}{% if movie.best_rank_region_tag %} <span class="region-tag">{{ movie.best_rank_region_tag }}</span>{% endif %}</div>
             {% if is_ignored %}
             <div class="ignored-badge">Ignored</div>
             {% endif %}

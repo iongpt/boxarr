@@ -287,7 +287,7 @@ class TestSetupPage:
 
         assert _checked(soup) == [
             ("DE", "Germany"),
-            ("domestic", "Domestic (US & Canada)"),
+            ("domestic", "US & Canada"),
             ("NO", "Norway"),
         ]
         boxes = _picker(soup).find_all("input", attrs={"type": "checkbox"})
@@ -327,6 +327,22 @@ class TestSetupPage:
         # The first-paint label names it as app.js will once the picker changes.
         suggestions = soup.find(id="languageSuggestions")
         assert suggestions["data-region-name"] == "ZZ (not in list), Netherlands"
+
+    def test_a_code_used_for_a_listed_region_suggests_that_one(self, client, tmp_path):
+        # Mojo files the United Kingdom under GB; ?area=UK is the domestic
+        # chart, so the region fails every week. The weekly page's banner
+        # says so; the picker, where the code is fixed, says it too.
+        soup = self._soup(client, tmp_path, "[UK, ZZ]")
+
+        def label(value: str):
+            box = _picker(soup).find("input", attrs={"value": value})
+            return box.find_parent("label")
+
+        assert "did you mean GB?" in label("UK").get_text()
+        # The name the status line and the language label read is unchanged.
+        assert label("UK")["data-region-name"] == "UK (not in list)"
+        assert "did you mean" not in label("ZZ").get_text()
+        assert "did you mean" not in label("GB").get_text()
 
     def test_status_counts_the_selection(self, client, tmp_path):
         soup = self._soup(client, tmp_path, "[DE, domestic, NO]")
@@ -413,11 +429,9 @@ class TestSetupPage:
             for button in suggestions.find_all(attrs={"data-suggested-language": True})
         ]
         assert chips == ["German", "English", "Norwegian"]
-        assert suggestions["data-region-name"] == (
-            "Germany, Domestic (US & Canada), Norway"
-        )
+        assert suggestions["data-region-name"] == ("Germany, US & Canada, Norway")
         label = soup.find(id="languageSuggestionsLabel").get_text()
-        assert "Germany, Domestic (US & Canada), Norway" in label
+        assert "Germany, US & Canada, Norway" in label
 
     def test_label_sums_up_more_than_three_regions(self, client, tmp_path):
         soup = self._soup(client, tmp_path, "[NL, DE, FR, GB]")
@@ -448,7 +462,7 @@ class TestSetupPage:
     def test_domestic_is_posted_as_the_word(self, client, tmp_path):
         soup = self._soup(client, tmp_path, "''")
 
-        assert _checked(soup) == [("domestic", "Domestic (US & Canada)")]
+        assert _checked(soup) == [("domestic", "US & Canada")]
         domestic = _picker(soup).find("input", attrs={"value": "domestic"})
         assert domestic["data-region-code"] == ""
 
@@ -473,7 +487,7 @@ class TestSetupPageEnvLocked:
         assert soup.find(id="boxOfficeRegionSearch").has_attr("disabled")
         # It shows what the environment set, not local.yaml's NL.
         assert _checked(soup) == [
-            ("domestic", "Domestic (US & Canada)"),
+            ("domestic", "US & Canada"),
             ("DE", "Germany"),
         ]
 

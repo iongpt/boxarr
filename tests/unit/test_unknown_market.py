@@ -19,6 +19,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
+from src.api.routes.weekly_regions import weekend_text
 from src.core.boxoffice import (
     _LEARNED_WEEKEND_START,
     BoxOfficeService,
@@ -33,6 +34,7 @@ from src.core.region_charts import (
     STATUS_ERROR,
     STATUS_OK,
     RegionFetch,
+    fetch_region_charts,
     stored_region_fetch,
 )
 
@@ -261,3 +263,53 @@ class TestStoredRows:
         )
 
         assert stored_region_fetch(stored, failed).status == "stale"
+
+
+class TestRegionStatus:
+    """No weekend is described for a market Mojo does not have.
+
+    The weekly page's region line and tabs show each region's weekend on
+    hover. For ZZ that was a weekend computed from a start day - "Weekend of
+    Oct 29 - Nov 1, 2026 (Box Office Mojo 2026W44)" - for a chart that does
+    not exist.
+    """
+
+    def fetch_regions(self, pages, regions):
+        client = fake_mojo(pages)
+        with patch(
+            "src.core.boxoffice.settings", Mock(boxarr_features_box_office_region="")
+        ):
+            service = BoxOfficeService(http_client=client)
+            return fetch_region_charts(
+                service, 2026, 44, regions, 5, sleep=lambda seconds: None
+            )
+
+    @pytest.mark.parametrize("code", ["ZZ", "UK"])
+    def test_an_unknown_market_has_no_weekend(self, code):
+        domestic = (FIXTURES / "US_2026W44.html").read_text()
+        fetches = self.fetch_regions(
+            {"": domestic, code: UNKNOWN_PAGE.read_text()}, ["", code]
+        )
+
+        status = fetches[1].to_status()
+        assert status["status"] == STATUS_ERROR
+        assert "no market" in status["error"]
+        assert status["bom_week"] is None
+        assert status["weekend_start"] is None
+        assert status["weekend_end"] is None
+        assert weekend_text(status) == ""
+        # The domestic chart next to it still names its weekend.
+        assert weekend_text(fetches[0].to_status()).endswith(
+            "(Box Office Mojo 2026W44)"
+        )
+
+    def test_a_market_that_merely_failed_keeps_the_weekend_it_was_asked_for(self):
+        class _Unavailable:
+            def fetch_weekend_box_office(self, year, week, limit, region=None):
+                raise BoxOfficeError("HTTP 503")
+
+        [fetch] = fetch_region_charts(_Unavailable(), 2026, 44, ["DE"], 5)
+
+        assert fetch.status == STATUS_ERROR
+        assert fetch.to_status()["bom_week"] is not None
+        assert weekend_text(fetch.to_status()).startswith("Weekend of ")

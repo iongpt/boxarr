@@ -15,6 +15,7 @@ blocks the loop delays every other request in these tests too.
 
 import asyncio
 import importlib
+import json
 import socket
 import threading
 import time
@@ -27,12 +28,14 @@ import pytest
 import yaml
 from fastapi import FastAPI
 
+import src.api.routes.boxoffice as boxoffice_route
 import src.api.routes.movies as movies_route
 import src.api.routes.scheduler as scheduler_route
 import src.core.radarr as core_radarr
 import src.utils.config as cfg_utils
 from src.api.app import create_app
 from src.api.security import REQUEST_HEADER
+from src.core.boxoffice import BoxOfficeMovie
 
 RADARR_KEY = "hung-radarr-test-key"
 # The shortest radarr_timeout the settings allow. The old code blocked the loop
@@ -256,6 +259,89 @@ def test_a_route_stuck_on_radarr_does_not_block_other_requests(
     assert was_stuck
     assert elapsed < 1.0
     # Once Radarr hung up, the route answered as it does on any Radarr error.
+    assert stuck.status_code in (200, 500)
+
+
+class _ChartWithoutMojo:
+    """Box Office Mojo's chart, answered without the network."""
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def get_current_week_movies(self, *args, **kwargs):
+        return [BoxOfficeMovie(rank=1, title="Hung Film", weekend_gross=1.0)]
+
+
+def _current_chart(monkeypatch, data_dir) -> None:
+    monkeypatch.setattr(boxoffice_route, "BoxOfficeService", _ChartWithoutMojo)
+
+
+def _week_missing_metadata(monkeypatch, data_dir) -> None:
+    """A stored week whose film has no poster or TMDB id, which repair looks up."""
+    weekly_pages = data_dir / "weekly_pages"
+    weekly_pages.mkdir()
+    week = {"year": 2026, "week": 45, "movies": [{"rank": 1, "title": "Hung Film"}]}
+    (weekly_pages / "2026W45.json").write_text(json.dumps(week))
+
+
+def _week_missing_metadata_with_mojo_id(monkeypatch, data_dir) -> None:
+    """The same week with Mojo's IMDb id, so repair picks the film by that id."""
+    weekly_pages = data_dir / "weekly_pages"
+    weekly_pages.mkdir()
+    movie = {"rank": 1, "title": "Hung Film", "bom_imdb_id": "tt0000001"}
+    week = {"year": 2026, "week": 45, "movies": [movie]}
+    (weekly_pages / "2026W45.json").write_text(json.dumps(week))
+
+
+# Routes that get to Radarr after other work: the chart fetch, or the scan of
+# the stored weeks that the repair streams its progress through. The repair
+# looks a film up one way when the week stores Mojo's IMDb id and another way
+# when it does not, so both are covered.
+LATER_ROUTES = [
+    ("GET", "/api/boxoffice/current", None, _current_chart),
+    (
+        "POST",
+        "/api/admin/repair-missing-metadata",
+        {"dry_run": True, "rate_limit_delay": 0},
+        _week_missing_metadata,
+    ),
+    (
+        "POST",
+        "/api/admin/repair-missing-metadata",
+        {"dry_run": True, "rate_limit_delay": 0},
+        _week_missing_metadata_with_mojo_id,
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    "method, path, body, prepare",
+    LATER_ROUTES,
+    ids=[f"{m} {p} {prep.__name__}" for m, p, _, prep in LATER_ROUTES],
+)
+def test_a_route_that_asks_radarr_later_does_not_block_other_requests(
+    app, hung_radarr, monkeypatch, tmp_path, method, path, body, prepare
+):
+    prepare(monkeypatch, tmp_path)
+
+    async def stuck_route_then_weeks(client):
+        started = time.monotonic()
+        stuck = asyncio.ensure_future(
+            client.request(method, path, json=body, headers=OWN_PAGE)
+        )
+        await _until(hung_radarr.connected)
+        weeks = await client.get("/api/weeks")
+        elapsed = time.monotonic() - started
+        was_stuck = not stuck.done()
+        hung_radarr.release()
+        return elapsed, was_stuck, weeks, await stuck
+
+    elapsed, was_stuck, weeks, stuck = _run(app, stuck_route_then_weeks)
+
+    assert weeks.status_code == 200
+    # /api/weeks answered at once while the route still waited on Radarr.
+    assert was_stuck
+    assert elapsed < 1.0
     assert stuck.status_code in (200, 500)
 
 

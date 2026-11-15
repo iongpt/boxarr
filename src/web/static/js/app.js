@@ -101,16 +101,6 @@ function getPathWithoutBase() {
     return currentPath;
 }
 
-// Safe URL construction that prevents double-prefixing
-function safeUrl(path) {
-    // If path is already absolute and contains base path, return as-is
-    if (BASE_PATH && path.startsWith(BASE_PATH)) {
-        return path;
-    }
-    // Otherwise use makeUrl to add base path
-    return makeUrl(path);
-}
-
 // Scheduler Debug Functions (Global scope for onclick handlers)
 function toggleSchedulerDebug() {
     const content = document.getElementById('schedulerDebugContent');
@@ -461,7 +451,7 @@ function regionSelectionProblem() {
     const count = regionSelection.length;
     const max = regionMaxSelected();
     if (count === 0) {
-        return 'Select at least one box office region (Domestic for US & Canada)';
+        return 'Select at least one box office region';
     }
     if (count > max) {
         return `Select at most ${max} box office regions - ${count} are selected`;
@@ -481,15 +471,16 @@ function renderRegionStatus() {
     status.style.color = problem ? 'var(--error-color)' : '';
 }
 
-// Whether a region row matches a search term: a substring of its name, or
-// exactly its area code or one of its other names (data-region-aliases, e.g.
-// "uk" for the United Kingdom, "usa" for the domestic chart).
+// Whether a region row matches a search term: a substring of its name,
+// exactly its area code, or the start of one of its other names
+// (data-region-aliases, e.g. "uk" for the United Kingdom, "domestic" for the
+// US & Canada chart, so "dom" already finds it while the user types).
 function regionRowMatches(row, term) {
     const checkbox = regionRowCheckbox(row);
     const name = (row.dataset.regionName || '').toLowerCase();
     const code = checkbox ? (checkbox.dataset.regionCode || '').toLowerCase() : '';
     const aliases = (row.dataset.regionAliases || '').toLowerCase().split('|').filter(Boolean);
-    return name.includes(term) || (!!code && code === term) || aliases.includes(term);
+    return name.includes(term) || (!!code && code === term) || aliases.some(alias => alias.startsWith(term));
 }
 
 // Runs on search input only. A checkbox change never moves or hides a row:
@@ -955,37 +946,6 @@ function reloadScheduler() {
     // updateCurrentWeek, updateHistoricalWeek and fetchHistoricalWeek live in
     // dashboard.html's own script, the only page with their buttons.
 
-    // Global variables for historical week selection
-    let selectedHistoricalWeekUrl = null;
-    let selectedHistoricalWeekText = null;
-
-    window.showHistoricalWeekModal = function(weekUrl, weekText) {
-        selectedHistoricalWeekUrl = weekUrl;
-        selectedHistoricalWeekText = weekText;
-        
-        const modal = document.getElementById('historicalWeekModal');
-        const weekTextEl = document.getElementById('selectedWeekText');
-        
-        if (weekTextEl) {
-            weekTextEl.textContent = weekText;
-        }
-        
-        if (modal) {
-            modal.classList.add('show');
-            isModalOpen = true;
-        }
-    };
-
-    window.closeHistoricalWeekModal = function() {
-        const modal = document.getElementById('historicalWeekModal');
-        if (modal) {
-            modal.classList.remove('show');
-            isModalOpen = false;
-        }
-        selectedHistoricalWeekUrl = null;
-        selectedHistoricalWeekText = null;
-    };
-
     window.showHistoricalUpdate = function() {
         const modal = document.getElementById('historicalModal');
         if (modal) {
@@ -1040,14 +1000,22 @@ function reloadScheduler() {
     // Weekly Page Functions
     // ==========================================
 
+    // Whether a status request is still waiting for its answer. A poll never
+    // starts another one meanwhile: while Radarr hangs, each would wait out
+    // radarr_timeout and the page's 5 s polls would pile up until they held
+    // every connection the browser allows to Boxarr (#138).
+    let statusRequestInFlight = false;
+
     function updateMovieStatuses() {
         const movieCards = document.querySelectorAll('.movie-card[data-movie-id]');
         const movieIds = Array.from(movieCards)
             .map(card => card.dataset.movieId)
             .filter(id => id && id !== '');
-        
+
         if (movieIds.length === 0) return;
-        
+        if (statusRequestInFlight) return;
+        statusRequestInFlight = true;
+
         fetch(apiUrl('/movies/status'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1094,6 +1062,9 @@ function reloadScheduler() {
         })
         .catch(error => {
             console.error('Error updating statuses:', error);
+        })
+        .then(() => {
+            statusRequestInFlight = false;
         });
     }
 

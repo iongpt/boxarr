@@ -1,5 +1,13 @@
 # Boxarr Default Configuration
 # Copy this file to config.yaml and modify as needed
+#
+# Which file is read: Boxarr reads ONE settings file from its data directory
+# (/config in Docker): local.yaml when it exists, otherwise config.yaml. The
+# setup page saves to local.yaml. Its first save starts from config.yaml, so
+# every setting written there is kept in the new local.yaml; from then on
+# local.yaml is the file Boxarr reads, and config.yaml is left as it is but
+# no longer read (Boxarr logs a warning while both exist). Edit local.yaml
+# after that. Environment variables override both files.
 
 version: 1
 

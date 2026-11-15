@@ -299,7 +299,9 @@ async def get_scheduler_history():
                                 "total_count", result.get("total_movies")
                             ),
                             "movies_added": added_count,
-                            "error": result.get("error"),
+                            # The same value /status gives for this run: a
+                            # partial run names the region that failed.
+                            "error": _first_error(result),
                             "partial": result.get("partial", False),
                             "region_status": named_region_status(
                                 result.get("region_status", [])
