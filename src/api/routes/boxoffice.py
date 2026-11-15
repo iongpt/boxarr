@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from ...core.boxoffice import BoxOfficeService, normalize_region_code
-from ...core.exceptions import BoxOfficeError
+from ...core.exceptions import BoxOfficeError, BoxOfficeUnknownMarket
 from ...core.matcher import MovieMatcher
 from ...core.radarr import RadarrService
 from ...utils.config import settings
@@ -39,6 +39,23 @@ def _region_kwargs(region: Optional[str]) -> Dict[str, Any]:
         return {"region": normalize_region_code(region)}
     except BoxOfficeError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+def _unknown_market(region_kwargs: Dict[str, Any], error: Exception) -> HTTPException:
+    """
+    Answer a region Box Office Mojo has no market for.
+
+    A ``?region=`` the client chose is its own mistake, a 400 like a
+    malformed code. A configured region Mojo does not know stays a 500.
+
+    Args:
+        region_kwargs: The fetch arguments ``_region_kwargs`` returned
+        error: The BoxOfficeUnknownMarket raised by the fetch
+
+    Returns:
+        The HTTPException to raise
+    """
+    return HTTPException(status_code=400 if region_kwargs else 500, detail=str(error))
 
 
 class BoxOfficeMovieResponse(BaseModel):
@@ -131,6 +148,9 @@ async def get_current_box_office(
             ]
 
         return results
+    except BoxOfficeUnknownMarket as e:
+        logger.error(f"Error getting box office: {e}")
+        raise _unknown_market(region_kwargs, e)
     except Exception as e:
         logger.error(f"Error getting box office: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -178,6 +198,9 @@ async def get_historical_box_office(
         ]
     except HTTPException:
         raise
+    except BoxOfficeUnknownMarket as e:
+        logger.error(f"Error getting historical box office: {e}")
+        raise _unknown_market(region_kwargs, e)
     except Exception as e:
         logger.error(f"Error getting historical box office: {e}")
         raise HTTPException(status_code=500, detail=str(e))
