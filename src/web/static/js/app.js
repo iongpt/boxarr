@@ -651,6 +651,32 @@ function updateGenreMode() {
     }
 }
 
+// The Last Run row's note and tooltip for /scheduler/status's last_run,
+// agreeing with the message the run's own update showed:
+// - "(7/10 matched)"; "(7/10 matched, France failed)" when the week was
+//   written without a region that failed;
+// - "(no chart)" when Box Office Mojo had no chart in any of several
+//   regions - nothing failed, there was nothing to write;
+// - "(failed)", with what failed it on hover. Failed runs are saved too,
+//   with no films. So is a stored legacy week kept because a region
+//   failed: its tooltip says so ("Kept the existing data ..."), and its
+//   history entry does not tell it from a run that failed after keeping it.
+function describeLastRun(run) {
+    const result = describeUpdateResult(run);
+    if (result.outcome === 'no_chart') {
+        return { note: '(no chart)', title: result.message };
+    }
+    if (run.success === false) {
+        return { note: '(failed)', title: run.error || '' };
+    }
+    let note = `${run.matched_count}/${run.total_count} matched`;
+    const failed = run.partial
+        ? window.BoxarrUpdateResult.failedRegionNames(run.region_status)
+        : '';
+    if (failed) note += `, ${failed} failed`;
+    return { note: `(${note})`, title: '' };
+}
+
 function refreshSchedulerStatus() {
     fetch(apiUrl('/scheduler/status'))
         .then(response => response.json())
@@ -703,15 +729,9 @@ function refreshSchedulerStatus() {
                 if (data.last_run) {
                     const lastTime = new Date(data.last_run.timestamp);
                     const note = document.createElement('small');
-                    if (data.last_run.success === false) {
-                        // Failed runs are saved too, with no films: say the
-                        // run failed, with its first error on hover.
-                        note.textContent = '(failed)';
-                        lastRun.title = data.last_run.error || '';
-                    } else {
-                        note.textContent = `(${data.last_run.matched_count}/${data.last_run.total_count} matched)`;
-                        lastRun.title = '';
-                    }
+                    const described = describeLastRun(data.last_run);
+                    note.textContent = described.note;
+                    lastRun.title = described.title;
                     lastRun.textContent = `${lastTime.toLocaleString()} `;
                     lastRun.appendChild(note);
                 } else {

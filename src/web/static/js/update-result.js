@@ -81,6 +81,14 @@
         return notes.join('; ');
     }
 
+    /*
+     * The regions that failed (errored, or kept their last chart), named and
+     * comma-joined, e.g. "France, Germany". Empty when none failed.
+     */
+    function failedRegionNames(regionStatus) {
+        return names(failedEntries(statusEntries(regionStatus)));
+    }
+
     function okEntries(entries) {
         return entries.filter(function (entry) { return entry.status === 'ok'; });
     }
@@ -186,6 +194,7 @@
         regionLabel: regionLabel,
         regionName: regionName,
         regionSummary: regionSummary,
+        failedRegionNames: failedRegionNames,
         describe: describe
     };
 });
