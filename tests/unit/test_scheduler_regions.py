@@ -370,7 +370,7 @@ class TestUpdateBoxOffice:
         monkeypatch.setattr(
             week_builder,
             "auto_add_missing_movies",
-            lambda results, service, year, regions=None: ["Moana"],
+            lambda results, service, year, regions=None, radarr_movies=None: ["Moana"],
         )
 
         def broken_refresh(*args, **kwargs):

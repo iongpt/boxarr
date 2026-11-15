@@ -193,6 +193,7 @@ def auto_add_missing_movies(  # noqa: C901
     top_year: int,
     *,
     regions: Optional[Sequence[str]] = None,
+    radarr_movies: Optional[Sequence[Any]] = None,
 ) -> List[str]:
     """
     Add unmatched movies to Radarr with filters and validation.
@@ -205,13 +206,16 @@ def auto_add_missing_movies(  # noqa: C901
     not found on TMDB and one Radarr rejects do not use a slot, and the pass
     stops once the limit is reached. It also stops after
     ``MAX_RADARR_FAILURES_IN_A_ROW`` failures in a row that mean Radarr is
-    not answering (a timeout, a refused connection, a 5xx).
+    not answering (a timeout, a refused connection, a 5xx). A film whose
+    TMDB pick is already in the Radarr library is counted as present: no add
+    is attempted.
 
     Args:
         match_results: Match results from movie matching
         radarr_service: Radarr service instance
         top_year: Year used for re-release filtering
         regions: Configured area codes, in order; defaults to the setting
+        radarr_movies: The Radarr library the results were matched against
 
     Returns:
         List of added movie titles
@@ -260,6 +264,14 @@ def auto_add_missing_movies(  # noqa: C901
     # be merged (a localized title without an IMDb id) can look up the same
     # film; only the first is considered.
     seen_tmdb_ids: Set[Any] = set()
+
+    # TMDB films already in Radarr. The matcher can leave such a film's entry
+    # unmatched (a localized title, IMDb ids Mojo and TMDB disagree on);
+    # adding it again only gets "already added" back.
+    library_tmdb_ids = {
+        movie.tmdbId for movie in radarr_movies or [] if getattr(movie, "tmdbId", None)
+    }
+    already_present = 0
 
     # Films in a row that Radarr failed on; see _radarr_unavailable.
     failures_in_a_row = 0
@@ -323,6 +335,14 @@ def auto_add_missing_movies(  # noqa: C901
                     )
                     continue
                 seen_tmdb_ids.add(movie_tmdb_id)
+
+            if movie_tmdb_id and movie_tmdb_id in library_tmdb_ids:
+                already_present += 1
+                logger.info(
+                    f"Skipping '{result.box_office_movie.title}' ({position}) - "
+                    f"TMDB film {movie_tmdb_id} is already in Radarr"
+                )
+                continue
 
             # Skip movies on the ignore list
             if movie_tmdb_id and movie_tmdb_id in ignored_ids:
@@ -447,4 +467,9 @@ def auto_add_missing_movies(  # noqa: C901
                 )
                 break
 
+    if already_present:
+        logger.info(
+            f"{already_present} unmatched movie(s) were already in Radarr; "
+            "none of them was added again"
+        )
     return added_movies

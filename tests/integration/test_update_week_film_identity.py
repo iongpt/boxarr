@@ -159,3 +159,21 @@ def test_stored_week_is_otherwise_unchanged_by_the_refresh(harness):
         ("Superman", 8),
         ("Moana", 12),
     ]
+
+
+def test_auto_add_does_not_try_to_add_a_film_already_in_radarr(harness):
+    """Mojo and TMDB disagree on the film's IMDb id: the matcher leaves it
+    unmatched, and its TMDB pick is the library film. No add is attempted."""
+    in_radarr = RadarrMovie(
+        id=9, title="Superman", tmdbId=1061474, imdbId="tt0000009", year=2025
+    )
+    h = harness("domestic", auto_add=True)
+    FakeBoxOffice.charts = {"": [bom(1, "Superman", 5e7, "tt5950044")]}
+    FakeRadarr.library = [in_radarr]
+    FakeRadarr.lookups = {"Superman": [_lookup(in_radarr)]}
+    FakeRadarr.addable = {1061474: in_radarr}
+
+    body = h.update().json()
+
+    assert (body["success"], body["movies_added"]) == (True, 0)
+    assert FakeRadarr.added == []
