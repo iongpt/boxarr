@@ -6,7 +6,7 @@ import re
 import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, List, Optional, Set
 
 # Paths that produce high-frequency, low-value log noise when hit by automated
 # probes (Docker/orchestrator health checks, uptime monitors, load balancer
@@ -35,18 +35,159 @@ class _HealthCheckFilter(logging.Filter):
         return path not in _HEALTHCHECK_PATHS
 
 
+DEFAULT_LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# Environment variables that set the level, in precedence order:
+# BOXARR_LOG_LEVEL is the documented name, LOG_LEVEL the original one.
+# See log_level_from_env() for how a blank value counts.
+LOG_LEVEL_ENV_VARS = ("BOXARR_LOG_LEVEL", "LOG_LEVEL")
+
+# The level names Boxarr accepts, in any case, and the stdlib's aliases for
+# two of them. Anything else (TRACE included) falls back to INFO.
+_LOG_LEVELS: Dict[str, int] = {
+    "DEBUG": logging.DEBUG,
+    "INFO": logging.INFO,
+    "WARNING": logging.WARNING,
+    "ERROR": logging.ERROR,
+    "CRITICAL": logging.CRITICAL,
+}
+_LOG_LEVEL_ALIASES = {"WARN": "WARNING", "FATAL": "CRITICAL"}
+
+# The handlers setup_logging() attached, so apply_log_level() can adjust
+# them in place without touching handlers anyone else added.
+_console_handler: Optional[logging.Handler] = None
+_boxarr_handlers: List[logging.Handler] = []
+
+# Level and format warnings already logged since setup_logging(). The
+# environment is checked at import and again when the settings load, and
+# one mistake should be reported once.
+_reported_warnings: Set[str] = set()
+
+
+def parse_log_level(value: Any) -> Optional[str]:
+    """Return the canonical name of a log level, or None if it is not one.
+
+    Accepts any case and surrounding spaces, and the aliases WARN and FATAL.
+    """
+    if not isinstance(value, str):
+        return None
+    name = value.strip().upper()
+    name = _LOG_LEVEL_ALIASES.get(name, name)
+    return name if name in _LOG_LEVELS else None
+
+
+def _warn_once(message: str) -> None:
+    if message in _reported_warnings:
+        return
+    _reported_warnings.add(message)
+    logging.getLogger(__name__).warning("%s", message)
+
+
+def _warn_invalid_log_level(value: Any) -> None:
+    _warn_once(
+        f"Invalid log level {value!r} - using INFO. "
+        f"Valid levels: {', '.join(_LOG_LEVELS)}"
+    )
+
+
+def normalize_log_level(value: Any) -> str:
+    """Return the canonical name of a log level, or INFO if it is not one.
+
+    An empty or unknown name logs a warning instead of raising, so a typo in
+    the environment or in local.yaml cannot stop Boxarr from starting.
+    """
+    name = parse_log_level(value)
+    if name is None:
+        _warn_invalid_log_level(value)
+        return "INFO"
+    return name
+
+
+def log_level_from_env() -> Optional[str]:
+    """Return the level the environment sets, or None if it sets none.
+
+    BOXARR_LOG_LEVEL wins over LOG_LEVEL, but a blank BOXARR_LOG_LEVEL counts
+    as unset: a container template that lists it empty must not hide
+    LOG_LEVEL or local.yaml. A blank LOG_LEVEL still counts, and means INFO
+    with a warning.
+    """
+    boxarr_level = os.environ.get("BOXARR_LOG_LEVEL", "")
+    if boxarr_level.strip():
+        return boxarr_level
+    return os.environ.get("LOG_LEVEL")
+
+
+def _checked_formatter(log_format: str) -> logging.Formatter:
+    """Build a formatter, raising if log_format cannot format a record."""
+    formatter = logging.Formatter(log_format)
+    probe = logging.LogRecord("boxarr", logging.INFO, __file__, 0, "probe", None, None)
+    formatter.format(probe)
+    return formatter
+
+
+def apply_log_level(log_level: Any = None, log_format: Optional[str] = None) -> str:
+    """Apply a log level, and optionally a format, to Boxarr's logging.
+
+    Re-levels the root logger and the console handler that setup_logging()
+    attached, and gives its handlers the new format, without replacing any
+    handler. The log files keep their own thresholds: boxarr.log takes
+    everything the root level lets through, error.log only errors.
+
+    Args:
+        log_level: Level name; None means INFO, an invalid name warns and
+            falls back to INFO
+        log_format: logging format string; None keeps the current one, an
+            invalid one warns and is ignored
+
+    Returns:
+        The canonical name of the level applied
+    """
+    level_name = "INFO" if log_level is None else parse_log_level(log_level)
+    invalid_level = level_name is None
+    level_name = level_name or "INFO"
+    level = _LOG_LEVELS[level_name]
+
+    logging.getLogger().setLevel(level)
+    if _console_handler is not None:
+        _console_handler.setLevel(level)
+
+    format_error: Optional[Exception] = None
+    if log_format:
+        try:
+            formatter = _checked_formatter(log_format)
+        except (ValueError, TypeError, KeyError) as exc:
+            format_error = exc
+        else:
+            for handler in _boxarr_handlers:
+                handler.setFormatter(formatter)
+
+    # Warn only now, so the warning goes through the configured handlers.
+    if invalid_level:
+        _warn_invalid_log_level(log_level)
+    if format_error is not None:
+        _warn_once(
+            f"Invalid log format {log_format!r} ({format_error}) - "
+            "keeping the current format"
+        )
+    return level_name
+
+
 def setup_logging(
     log_level: Optional[str] = None, data_directory: Optional[Path] = None
 ) -> None:
     """Configure application-wide logging.
 
     Args:
-        log_level: Override log level (DEBUG, INFO, WARNING, ERROR)
+        log_level: Override log level (DEBUG, INFO, WARNING, ERROR, CRITICAL);
+            defaults to BOXARR_LOG_LEVEL (unless blank), then LOG_LEVEL,
+            then INFO
         data_directory: Override data directory for log files
     """
+    global _console_handler, _boxarr_handlers
+
     # Use environment variables or defaults if not provided
     if log_level is None:
-        log_level = os.getenv("LOG_LEVEL", "INFO")
+        log_level = log_level_from_env()
 
     if data_directory is None:
         data_dir = os.getenv("BOXARR_DATA_DIRECTORY", "config")
@@ -58,29 +199,25 @@ def setup_logging(
 
     # Configure root logger
     root_logger = logging.getLogger()
-    root_logger.setLevel(getattr(logging, log_level.upper()))
 
     # Remove existing handlers
     root_logger.handlers.clear()
 
-    # Create formatters
-    log_format = os.getenv(
-        "LOG_FORMAT", "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
-    formatter = logging.Formatter(log_format)
+    # Create formatters; apply_log_level() below swaps in LOG_FORMAT
+    formatter = logging.Formatter(DEFAULT_LOG_FORMAT)
 
-    # Console handler
+    # Console handler (its level is set by apply_log_level() below)
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setFormatter(formatter)
-    console_handler.setLevel(getattr(logging, log_level.upper()))
     root_logger.addHandler(console_handler)
 
-    # File handler with rotation
+    # File handler with rotation. It passes every record the root level lets
+    # through, so boxarr.log gets DEBUG lines when the log level is DEBUG.
     file_handler = RotatingFileHandler(
         log_dir / "boxarr.log", maxBytes=10 * 1024 * 1024, backupCount=5  # 10MB
     )
     file_handler.setFormatter(formatter)
-    file_handler.setLevel(logging.DEBUG)  # Always log DEBUG to file
+    file_handler.setLevel(logging.DEBUG)
     root_logger.addHandler(file_handler)
 
     # Error file handler
@@ -90,6 +227,11 @@ def setup_logging(
     error_handler.setFormatter(formatter)
     error_handler.setLevel(logging.ERROR)
     root_logger.addHandler(error_handler)
+
+    _console_handler = console_handler
+    _boxarr_handlers = [console_handler, file_handler, error_handler]
+    _reported_warnings.clear()
+    apply_log_level(log_level, os.getenv("LOG_FORMAT"))
 
     # Reduce noise from third-party libraries
     logging.getLogger("httpx").setLevel(logging.WARNING)

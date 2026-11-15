@@ -353,7 +353,7 @@ def auto_add_missing_movies(
                 default_profile.id,
                 root_folder,
                 True,  # monitored
-                True,  # search for movie
+                settings.radarr_search_for_movie,  # search for movie
             )
             logger.info(
                 f"Auto-added movie to Radarr: {added_movie.title} "

@@ -11,6 +11,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple, Union
 
 import yaml
 from pydantic import (
+    AliasChoices,
     BaseModel,
     Field,
     HttpUrl,
@@ -20,7 +21,7 @@ from pydantic import (
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from .logger import get_logger
+from .logger import get_logger, log_level_from_env, normalize_log_level
 
 logger = get_logger(__name__)
 
@@ -471,9 +472,6 @@ class Settings(BaseSettings):
     boxarr_port: int = Field(
         default=8888, ge=1, le=65535, description="Web interface port"
     )
-    boxarr_api_port: int = Field(
-        default=8889, ge=1, le=65535, description="API server port"
-    )
     boxarr_url_base: str = Field(
         default="",
         description="URL base path for reverse proxy (e.g., 'boxarr' for /boxarr/)",
@@ -649,7 +647,10 @@ class Settings(BaseSettings):
 
     # Logging Configuration
     log_level: str = Field(
-        default="INFO", description="Logging level (DEBUG, INFO, WARNING, ERROR)"
+        default="INFO",
+        # BOXARR_LOG_LEVEL is the documented variable; LOG_LEVEL keeps working.
+        validation_alias=AliasChoices("boxarr_log_level", "log_level"),
+        description="Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
     )
     log_format: str = Field(
         default="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -664,6 +665,23 @@ class Settings(BaseSettings):
             if port_env:
                 return int(port_env)
         return v
+
+    @field_validator("log_level", mode="before")
+    @classmethod
+    def validate_log_level(cls, v: Any) -> str:
+        """Store a canonical level name; an invalid one warns and becomes INFO.
+
+        Accepts any case and WARN/FATAL, and never raises: a bad value in the
+        environment or local.yaml must not stop Boxarr, nor reach uvicorn,
+        which only knows the canonical names.
+        """
+        if isinstance(v, str) and not v.strip() and "BOXARR_LOG_LEVEL" in os.environ:
+            # The environment source stops at a blank BOXARR_LOG_LEVEL, which
+            # counts as unset: fall through to LOG_LEVEL, then the default.
+            v = log_level_from_env()
+            if v is None:
+                return "INFO"
+        return normalize_log_level(v)
 
     @field_validator("boxarr_features_box_office_region", mode="before")
     @classmethod
@@ -706,14 +724,6 @@ class Settings(BaseSettings):
             raise ValueError("Auto tag must be at most 20 characters")
         return s
 
-    @validator("boxarr_api_port")
-    def validate_api_port_different(cls, v: int, values: Dict) -> int:
-        """Ensure API port is different from web port."""
-        web_port = values.get("boxarr_port", 8888)
-        if v == web_port:
-            raise ValueError("API port must be different from web port")
-        return v
-
     @validator("boxarr_data_directory")
     def ensure_data_directory_exists(cls, v: Path) -> Path:
         """Validate data directory path without creating it."""
@@ -740,6 +750,9 @@ class Settings(BaseSettings):
         for env_var, field_name in special_env_map.items():
             if env_var in os.environ:
                 env_set.add(field_name)
+        # A blank BOXARR_LOG_LEVEL counts as unset, so local.yaml still applies.
+        if os.environ.get("BOXARR_LOG_LEVEL", "").strip():
+            env_set.add("log_level")
         return env_set
 
     @staticmethod

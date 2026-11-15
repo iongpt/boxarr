@@ -225,7 +225,7 @@ class TestBoxOfficeHTMLParsing:
 
         movies = self.service.parse_box_office_html(html_fixture)
 
-        # Should get exactly 10 movies, studio name should be filtered
+        # Should get exactly 10 movies: the 11th row is past the default limit
         assert len(movies) == 10
 
         # Check specific challenging titles are parsed correctly
