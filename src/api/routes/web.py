@@ -432,7 +432,7 @@ async def dashboard_page(request: Request):
         and settings.boxarr_features_auto_add_limit < 10
     ):
         filter_descriptions.append(
-            f"Top {settings.boxarr_features_auto_add_limit} movies"
+            f"At most {settings.boxarr_features_auto_add_limit} added per run"
         )
     if settings.boxarr_features_auto_add_genre_filter_enabled:
         mode = settings.boxarr_features_auto_add_genre_filter_mode
