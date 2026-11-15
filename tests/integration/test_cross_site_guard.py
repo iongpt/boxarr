@@ -10,6 +10,11 @@ middleware refuses those before routing.
 
 Only the embeddable widgets keep a wildcard Access-Control-Allow-Origin, and
 only on GET.
+
+Boxarr's own pages mark every state-changing request with a custom header that
+another site's page cannot send (no preflight is answered), which keeps them
+working behind a plain-http reverse proxy that rewrites Host - where browsers
+send no Sec-Fetch-Site and the Origin has nothing to match.
 """
 
 import json
@@ -27,7 +32,8 @@ import src.api.routes.movies as movies_route
 import src.api.routes.scheduler as scheduler_route
 import src.utils.config as cfg_utils
 from src.api.app import create_app
-from src.api.security import cross_site_reason
+from src.api.security import REQUEST_HEADER, cross_site_reason
+from tests.integration.app_js_harness import NODE, run_app_js
 
 EVIL = "http://evil.example"
 WEEK_FILE = "2026W45.json"
@@ -146,16 +152,19 @@ def test_a_foreign_origin_gets_no_cors_header(env, path):
         ("/api/movies/add", "POST"),
         ("/api/scheduler/trigger", "POST"),
         ("/api/weeks/2026/W45/delete", "DELETE"),
+        ("/api/movies/42/upgrade", "POST"),
         ("/api/widget/json", "GET"),
     ],
 )
 def test_a_preflight_is_not_answered(env, path, method):
+    """No route may ever grant one: the request header the guard trusts is
+    only unforgeable while another site's page cannot get it past a preflight."""
     response = env["client"].options(
         path,
         headers={
             "Origin": EVIL,
             "Access-Control-Request-Method": method,
-            "Access-Control-Request-Headers": "content-type",
+            "Access-Control-Request-Headers": "content-type, x-boxarr-request",
         },
     )
 
@@ -205,21 +214,51 @@ CROSS_SITE_HEADERS = {
         "Sec-Fetch-Site": "cross-site",
         "Origin": "http://testserver",
     },
+    # ... and over the request header (which no browser would send it with).
+    "cross-site-despite-request-header": {
+        "Sec-Fetch-Site": "cross-site",
+        "Origin": EVIL,
+        "X-Boxarr-Request": "1",
+    },
+    # A blank request header proves nothing.
+    "blank-request-header": {"Origin": EVIL, "X-Boxarr-Request": ""},
+    # Plain-http proxies (no Sec-Fetch-Site) where the Origin matches nothing:
+    # without the request header (an HTML form, say) nothing shows the request
+    # is Boxarr's own. nginx's default Host, then a Forwarded host that is not
+    # the Origin's.
+    "plain-http-proxy-without-request-header": {
+        "Origin": "http://nas.lan",
+        "Host": "localhost:8888",
+    },
+    "forwarded-host-mismatch": {
+        "Origin": EVIL,
+        "Host": "127.0.0.1:8888",
+        "Forwarded": 'for=192.0.2.60;proto=http;host="proxy.lan:8080"',
+    },
 }
 
 FORM = {"content-type": "application/x-www-form-urlencoded"}
 TEXT = {"content-type": "text/plain"}
+MULTIPART = {"content-type": "multipart/form-data; boundary=x"}
+MULTIPART_BODY = (
+    b'--x\r\nContent-Disposition: form-data; name="a"\r\n\r\n1\r\n--x--\r\n'
+)
+
+# What an HTML form or a simple fetch() can POST without a preflight.
+SIMPLE_BODIES = [
+    ({}, None),
+    (FORM, b"x=1"),
+    (TEXT, b"anything"),
+    (MULTIPART, MULTIPART_BODY),
+]
+SIMPLE_BODY_IDS = ["no-body", "form-post", "text-plain", "multipart"]
 
 
 def _trigger(client, headers, body):
     return client.post("/api/scheduler/trigger", headers=headers, content=body)
 
 
-@pytest.mark.parametrize(
-    "extra, body",
-    [({}, None), (FORM, b"x=1"), (TEXT, b"anything")],
-    ids=["no-body", "form-post", "text-plain"],
-)
+@pytest.mark.parametrize("extra, body", SIMPLE_BODIES, ids=SIMPLE_BODY_IDS)
 @pytest.mark.parametrize(
     "headers", CROSS_SITE_HEADERS.values(), ids=CROSS_SITE_HEADERS.keys()
 )
@@ -233,11 +272,7 @@ def test_cross_site_scheduler_trigger_is_refused(env, headers, extra, body):
     assert env["scheduler"].runs == 0
 
 
-@pytest.mark.parametrize(
-    "extra, body",
-    [({}, None), (FORM, b"x=1"), (TEXT, b"anything")],
-    ids=["no-body", "form-post", "text-plain"],
-)
+@pytest.mark.parametrize("extra, body", SIMPLE_BODIES, ids=SIMPLE_BODY_IDS)
 @pytest.mark.parametrize(
     "headers", CROSS_SITE_HEADERS.values(), ids=CROSS_SITE_HEADERS.keys()
 )
@@ -268,8 +303,7 @@ def test_cross_site_movie_upgrade_is_refused(env, headers, extra, body):
         ("POST", "/api/scheduler/reload", FORM, b"x=1"),
         ("POST", "/api/scheduler/update-week", TEXT, b'{"year": 2026}'),
         ("POST", "/api/admin/repair-missing-metadata", {}, None),
-        ("DELETE", "/api/weeks/2026/W45/delete", {}, None),
-        ("DELETE", "/api/movies/ignore/1", {}, None),
+        ("POST", "/api/config/save", MULTIPART, MULTIPART_BODY),
     ],
 )
 def test_cross_site_requests_to_other_routes_are_refused(
@@ -280,10 +314,54 @@ def test_cross_site_requests_to_other_routes_are_refused(
     )
 
     assert response.status_code == 403
+    _assert_nothing_changed(env)
+
+
+def _assert_nothing_changed(env):
     assert env["week_file"].exists()
     stored = yaml.safe_load(env["config_file"].read_text())
     assert stored["radarr"]["url"] == "http://radarr.local:7878"
     assert stored["radarr"]["api_key"] == "guard-test-key"
+
+
+@pytest.mark.parametrize("path", ["/api/weeks/2026/W45/delete", "/api/movies/ignore/1"])
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {"Sec-Fetch-Site": "cross-site", "Origin": EVIL},
+        {"Sec-Fetch-Site": "cross-site", "Origin": EVIL, "X-Boxarr-Request": "1"},
+        {"Sec-Fetch-Site": "cross-site"},
+    ],
+    ids=["cross-site", "cross-site-despite-request-header", "fetch-metadata-only"],
+)
+def test_a_cross_site_delete_is_refused(env, path, headers):
+    response = env["client"].delete(path, headers=headers)
+
+    assert response.status_code == 403
+    _assert_nothing_changed(env)
+
+
+def test_a_delete_with_a_foreign_origin_is_not_refused(env):
+    """No page on another site can send a DELETE: it needs a preflight, which
+    is never answered. So over plain http (no Sec-Fetch-Site) the Origin need
+    not match - behind a proxy that rewrites Host it cannot."""
+    response = env["client"].delete(
+        "/api/weeks/2026/W45/delete",
+        headers={"Origin": "http://nas.lan:8080", "Host": "nas.lan"},
+    )
+
+    assert response.status_code == 200
+    assert not env["week_file"].exists()
+
+
+def test_a_put_with_a_foreign_origin_reaches_routing(env):
+    """It gets past the guard, and the POST-only route answers 405."""
+    response = env["client"].put(
+        "/api/scheduler/trigger", headers={"Origin": EVIL}, content=b"x=1"
+    )
+
+    assert response.status_code == 405
+    assert env["scheduler"].runs == 0
 
 
 def test_a_refusal_is_logged_without_the_body(env, caplog):
@@ -293,9 +371,25 @@ def test_a_refusal_is_logged_without_the_body(env, caplog):
 
     messages = [r.getMessage() for r in caplog.records if r.name == "src.api.security"]
     assert len(messages) == 1
-    assert "Blocked cross-site POST /api/scheduler/trigger" in messages[0]
+    assert "Blocked cross-site POST '/api/scheduler/trigger'" in messages[0]
     assert "evil.example" in messages[0]
     assert "never-log-this" not in messages[0]
+
+
+def test_a_refusal_log_line_cannot_be_forged(env, caplog):
+    """The path is percent-decoded: a %0A in it must not start a new log line."""
+    forged = "2026-11-15 12:00:00 - src.api.app - INFO - Configuration saved"
+    with caplog.at_level(logging.WARNING, logger="src.api.security"):
+        response = env["client"].post(
+            "/api/scheduler/trigger%0A" + forged.replace(" ", "%20"),
+            headers={"Origin": EVIL},
+        )
+
+    assert response.status_code == 403
+    messages = [r.getMessage() for r in caplog.records if r.name == "src.api.security"]
+    assert len(messages) == 1
+    assert "\n" not in messages[0] and "\r" not in messages[0]
+    assert "/api/scheduler/trigger\\n2026-11-15" in messages[0]
 
 
 # --------------------------------------------------------------------------
@@ -334,6 +428,36 @@ ALLOWED_HEADERS = {
         "Origin": "http://boxarr.example.com:8080",
         "Host": "boxarr:8888",
         "X-Forwarded-Host": "boxarr.example.com:8080, proxy.internal",
+    },
+    # The scheme a proxy forwards plays no part in the host match.
+    "x-forwarded-proto-differs-from-origin": {
+        "Origin": "http://boxarr.lan",
+        "Host": "boxarr.lan",
+        "X-Forwarded-Proto": "https",
+    },
+    # Plain-http reverse proxies that leave the Origin nothing to match (no
+    # Sec-Fetch-Site over http): Boxarr's pages send the request header.
+    "nginx-default-host-with-request-header": {
+        "Origin": "http://nas.lan",
+        "Host": "localhost:8888",
+        "X-Boxarr-Request": "1",
+    },
+    "nginx-host-without-port-with-request-header": {
+        "Origin": "http://nas.lan:8080",
+        "Host": "nas.lan",
+        "X-Boxarr-Request": "1",
+    },
+    # A proxy that forwards the original host only as RFC 7239 Forwarded.
+    "forwarded-host-matches": {
+        "Origin": "http://proxy.lan:8080",
+        "Host": "127.0.0.1:8888",
+        "Forwarded": 'for=192.0.2.60;proto=http;host="proxy.lan:8080"',
+    },
+    "forwarded-without-host-with-request-header": {
+        "Origin": "http://proxy.lan:8080",
+        "Host": "127.0.0.1:8888",
+        "Forwarded": "for=192.0.2.60;proto=http",
+        "X-Boxarr-Request": "1",
     },
 }
 
@@ -385,6 +509,51 @@ def test_cross_site_reads_are_not_blocked(env):
         ({}, False),
         ({"sec-fetch-site": "Cross-Site"}, True),
         ({"sec-fetch-site": "same-origin", "origin": EVIL}, False),
+        ({"sec-fetch-site": "none", "origin": EVIL}, False),
+        ({"sec-fetch-site": "same-site", "origin": EVIL, "host": "boxarr"}, False),
+        # the request header stands in for a matching Origin, never for cross-site
+        ({"origin": EVIL, "host": "boxarr", "x-boxarr-request": "1"}, False),
+        ({"origin": "null", "x-boxarr-request": "yes"}, False),
+        ({"origin": "null", "x-boxarr-request": ""}, True),
+        ({"origin": EVIL, "host": "boxarr", "x-boxarr-request": "  "}, True),
+        ({"sec-fetch-site": "bogus", "origin": EVIL, "x-boxarr-request": "1"}, False),
+        ({"sec-fetch-site": "cross-site", "x-boxarr-request": "1"}, True),
+        # Forwarded (RFC 7239): host= of any element of any header, quoted or not
+        ({"origin": "http://p:8080", "host": "b", "forwarded": "host=p:8080"}, False),
+        (
+            {
+                "origin": "http://p:8080",
+                "host": "b",
+                "forwarded": 'for=1.2.3.4, for=5.6.7.8;HOST="p:8080";proto=http',
+            },
+            False,
+        ),
+        (
+            {
+                "origin": "http://[::1]:8080",
+                "host": "b",
+                "forwarded": 'host="[::1]:8080"',
+            },
+            False,
+        ),
+        ({"origin": "http://p", "host": "b", "forwarded": 'host="p"'}, False),
+        ({"origin": "http://p:8080", "host": "b", "forwarded": 'host="p"'}, True),
+        # a host= inside another quoted value is no host
+        (
+            {"origin": "http://p", "host": "b", "forwarded": 'for="x;host=p"'},
+            True,
+        ),
+        ({"origin": "http://p", "host": "b", "forwarded": "for=p;by=p"}, True),
+        ({"origin": "http://p", "host": "b", "forwarded": "host="}, True),
+        # X-Forwarded-Proto is ignored either way
+        (
+            {"origin": "http://boxarr", "host": "boxarr", "x-forwarded-proto": "https"},
+            False,
+        ),
+        (
+            {"origin": "https://boxarr", "host": "boxarr", "x-forwarded-proto": "http"},
+            False,
+        ),
         # An unknown value is not trusted: the Origin check still runs.
         ({"sec-fetch-site": "bogus", "origin": EVIL, "host": "boxarr"}, True),
         (
@@ -406,3 +575,146 @@ def test_cross_site_reads_are_not_blocked(env):
 )
 def test_cross_site_reason(headers, refused):
     assert (cross_site_reason(Headers(headers=headers)) is not None) is refused
+
+
+@pytest.mark.parametrize(
+    "method, refused",
+    [
+        ("POST", True),
+        ("post", True),
+        ("PUT", False),
+        ("PATCH", False),
+        ("patch", False),
+        ("DELETE", False),
+    ],
+)
+def test_cross_site_reason_by_method(method, refused):
+    """Only a CORS-safelisted method can come from another site's page without
+    a preflight; over http without Sec-Fetch-Site only those need the Origin."""
+    foreign = Headers(headers={"origin": EVIL, "host": "boxarr"})
+    cross_site = Headers(headers={"sec-fetch-site": "cross-site", "origin": EVIL})
+
+    assert (cross_site_reason(foreign, method) is not None) is refused
+    assert cross_site_reason(cross_site, method) is not None
+
+
+# --------------------------------------------------------------------------
+# Boxarr's pages send the request header (app.js, run under node)
+# --------------------------------------------------------------------------
+
+needs_node = pytest.mark.skipif(NODE is None, reason="node is not installed")
+
+PAGE_ORIGIN = "http://nas.lan"
+
+FETCH_CALLS = [
+    # (fetch() arguments, whether the header must be added)
+    ({"input": "/api/scheduler/trigger", "init": {"method": "POST"}}, True),
+    (
+        {
+            "input": "/api/config/test",
+            "init": {
+                "method": "POST",
+                "headers": {"Content-Type": "application/json"},
+                "body": "{}",
+            },
+        },
+        True,
+    ),
+    (
+        {
+            "input": "/api/movies/ignore",
+            "init": {
+                "method": "POST",
+                "headers": {"Content-Type": "application/json"},
+                "body": "{}",
+            },
+            "headersAs": "Headers",
+        },
+        True,
+    ),
+    ({"input": "/api/weeks/2026/W45/delete", "init": {"method": "DELETE"}}, True),
+    ({"input": "/api/movies/ignore/1", "init": {"method": "delete"}}, True),
+    ({"input": PAGE_ORIGIN + "/api/x", "init": {"method": "PUT"}}, True),
+    ({"input": "/api/health"}, False),
+    ({"input": "/api/config", "init": {"method": "GET"}}, False),
+    # Never to another origin: it would turn a simple request into a preflighted one.
+    ({"input": "https://image.tmdb.org/t/p/x.jpg", "init": {"method": "POST"}}, False),
+    ({"input": "//evil.example/x", "init": {"method": "POST"}}, False),
+    ({"input": "http://nas.lan:8080/x", "init": {"method": "POST"}}, False),
+]
+
+
+@needs_node
+def test_boxarr_pages_mark_their_state_changing_requests(tmp_path):
+    report = run_app_js(
+        tmp_path,
+        {
+            "kind": "fetch",
+            "origin": PAGE_ORIGIN,
+            "path": "/dashboard",
+            "calls": [call for call, _ in FETCH_CALLS],
+        },
+    )
+
+    sent = report["requests"]
+    assert len(sent) == len(FETCH_CALLS)
+    for request, (call, marked) in zip(sent, FETCH_CALLS):
+        assert (request["headers"].get(REQUEST_HEADER) == "1") is marked, call
+        init = call.get("init") or {}
+        for name, value in (init.get("headers") or {}).items():
+            assert request["headers"][name.lower()] == value, call  # kept
+        assert request["body"] == init.get("body"), call
+
+
+PROXIES = {
+    # nginx `proxy_pass` alone: Host is the upstream address.
+    "nginx-default-host": ("http://nas.lan", {"Host": "localhost:8888"}, True),
+    # nginx `proxy_set_header Host $host` on a non-default port: no port.
+    "nginx-host-without-port": ("http://nas.lan:8080", {"Host": "nas.lan"}, True),
+    # Only RFC 7239 Forwarded carries the original host - which the Origin
+    # check also accepts, header or not.
+    "forwarded-only": (
+        "http://proxy.lan:8080",
+        {
+            "Host": "127.0.0.1:8888",
+            "Forwarded": 'for=192.0.2.60;proto=http;host="proxy.lan:8080"',
+        },
+        False,
+    ),
+}
+
+
+@needs_node
+@pytest.mark.parametrize(
+    "origin, proxy_headers, refused_without_header",
+    PROXIES.values(),
+    ids=PROXIES.keys(),
+)
+def test_boxarr_pages_work_behind_a_plain_http_proxy_that_rewrites_host(
+    env, tmp_path, origin, proxy_headers, refused_without_header
+):
+    """What the browser sends over plain http: an Origin, no Sec-Fetch-Site,
+    and the headers app.js adds - through a proxy that rewrote Host."""
+    calls = [
+        {"input": "/api/scheduler/trigger", "init": {"method": "POST"}},
+        {"input": "/api/weeks/2026/W45/delete", "init": {"method": "DELETE"}},
+    ]
+    report = run_app_js(
+        tmp_path, {"kind": "fetch", "origin": origin, "path": "/", "calls": calls}
+    )
+
+    for request in report["requests"]:
+        assert request["headers"][REQUEST_HEADER] == "1", request
+        headers = {**request["headers"], "Origin": origin, **proxy_headers}
+        response = env["client"].request(
+            request["method"], request["url"], headers=headers
+        )
+        assert response.status_code == 200, (request, response.text)
+    assert env["scheduler"].runs == 1
+    assert not env["week_file"].exists()
+
+    # The same POST without the header - an HTML form, say - is refused,
+    # unless the proxy left the Origin something to match.
+    headers = {"Origin": origin, **proxy_headers}
+    refused = _trigger(env["client"], headers, b"x=1").status_code == 403
+    assert refused is refused_without_header

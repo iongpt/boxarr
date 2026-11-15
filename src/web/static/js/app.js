@@ -6,6 +6,49 @@
 // Get base path from injected variable (set in base.html)
 const BASE_PATH = window.BOXARR_BASE_PATH || '';
 
+// Every state-changing request a Boxarr page sends to Boxarr carries this
+// header (#136). A page on another site cannot add it: a custom header needs a
+// CORS preflight, and Boxarr answers none. So the server takes it as proof that
+// the request came from one of its own pages, which it cannot otherwise tell
+// over plain http behind a reverse proxy that rewrites Host (browsers send
+// Sec-Fetch-Site to https and localhost only). Wrapping fetch() covers every
+// page, inline template scripts included, since every page loads this file
+// before its own scripts (tests/unit/test_state_changing_requests_marked.py).
+// So send requests with fetch(), never XMLHttpRequest, sendBeacon or a form.
+const BOXARR_REQUEST_HEADER = 'X-Boxarr-Request';
+
+(function() {
+    const nativeFetch = window.fetch;
+    if (typeof nativeFetch !== 'function') return;
+    const SAFE_METHODS = ['GET', 'HEAD', 'OPTIONS'];
+
+    function isBoxarrUrl(url) {
+        try {
+            return new URL(url, window.location.href).origin === window.location.origin;
+        } catch (e) {
+            return false;
+        }
+    }
+
+    window.fetch = function(input, init) {
+        const request = typeof Request !== 'undefined' && input instanceof Request ? input : null;
+        const method = String((init && init.method) || (request ? request.method : 'GET')).toUpperCase();
+        if (SAFE_METHODS.includes(method) || !isBoxarrUrl(request ? request.url : String(input))) {
+            return nativeFetch.call(window, input, init);
+        }
+        let headers = (init && init.headers) || (request ? request.headers : {});
+        if (typeof Headers !== 'undefined' && headers instanceof Headers) {
+            headers = new Headers(headers);
+            headers.set(BOXARR_REQUEST_HEADER, '1');
+        } else if (Array.isArray(headers)) {
+            headers = headers.concat([[BOXARR_REQUEST_HEADER, '1']]);
+        } else {
+            headers = Object.assign({}, headers, { [BOXARR_REQUEST_HEADER]: '1' });
+        }
+        return nativeFetch.call(window, input, Object.assign({}, init, { headers: headers }));
+    };
+})();
+
 // URL helper functions
 function makeUrl(path) {
     // Ensure path starts with /
