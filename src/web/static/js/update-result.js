@@ -2,13 +2,17 @@
  * Read a POST /api/scheduler/trigger or /api/scheduler/update-week response.
  *
  * A week can be built from several box office regions, and a region can fail
- * while the others are written. The server answers in one of four shapes:
+ * while the others are written. The server answers in one of five shapes:
  *
  *   success                     the week was written, every region came through
+ *                               or had no chart
  *   success + partial           written, but a region failed (errored, or its
  *                               last chart was kept as "stale")
  *   !success + partial          a week stored before regions were recorded was
  *                               kept unchanged, because a region failed
+ *   !success, every one of several regions no_data
+ *                               Box Office Mojo has no chart for the week in
+ *                               any region: nothing failed, nothing to write
  *   !success (or an HTTP error) nothing could be fetched; FastAPI errors carry
  *                               "detail" instead of "message"
  *
@@ -77,17 +81,22 @@
         return notes.join('; ');
     }
 
+    function okEntries(entries) {
+        return entries.filter(function (entry) { return entry.status === 'ok'; });
+    }
+
     /*
      * Sum up each region's outcome, e.g. "Updated 2 of 3 regions (FR failed)".
-     * Empty for a run of one region, whose messages stay as they always were.
+     * Only a region whose chart came through counts as updated: one that
+     * failed, or that had no chart, does not. Empty for a run of one region,
+     * whose messages stay as they always were.
      */
     function regionSummary(regionStatus) {
         var entries = statusEntries(regionStatus);
         if (entries.length < 2) return '';
 
-        var failed = failedEntries(entries);
         var notes = regionNotes(entries);
-        var text = 'Updated ' + (entries.length - failed.length) + ' of ' + entries.length + ' regions';
+        var text = 'Updated ' + okEntries(entries).length + ' of ' + entries.length + ' regions';
         if (notes) text += ' (' + notes + ')';
         return text;
     }
@@ -104,11 +113,12 @@
      *   httpOk: response.ok; false makes any body a failure
      *
      * Returns {outcome, summary, message}:
-     *   outcome: 'success', 'partial', 'kept' or 'failed'
+     *   outcome: 'success', 'partial', 'kept', 'no_chart' or 'failed'
      *   summary: regionSummary() of the response ('' for one region)
      *   message: the line to show - for 'success' the summary (may be empty),
      *            for 'partial' the summary (with one region, what failed),
-     *            for 'kept' which regions failed, for 'failed' which regions
+     *            for 'kept' which regions failed, for 'no_chart' that Box
+     *            Office Mojo has none for the week, for 'failed' which regions
      *            failed when several were tried and none came through, else
      *            the server's error (one region: as before multi-region)
      */
@@ -140,7 +150,17 @@
                     : text(body.message) || 'Kept the existing data: a region failed'
             };
         }
-        var none = entries.length > 1 && entries.every(function (entry) { return entry.status !== 'ok'; });
+        var noChart = entries.length > 1 && entries.every(function (entry) { return entry.status === 'no_data'; });
+        if (httpOk !== false && noChart) {
+            // Not a failure: there was nothing to write. With one region the
+            // answer stays the failure it always was.
+            return {
+                outcome: 'no_chart',
+                summary: summary,
+                message: 'Box Office Mojo has no chart for this week in ' + names(entries)
+            };
+        }
+        var none = entries.length > 1 && okEntries(entries).length === 0;
         return {
             outcome: 'failed',
             summary: summary,

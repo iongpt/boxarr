@@ -1076,6 +1076,11 @@
                 <h4>Not Updated - Kept Existing Data (<span id="keptCount">0</span>)</h4>
                 <ul id="keptList"></ul>
             </div>
+
+            <div class="failed-weeks" id="noChartWeeks" style="display: none;">
+                <h4>No Chart on Box Office Mojo (<span id="noChartCount">0</span>)</h4>
+                <ul id="noChartList"></ul>
+            </div>
             
             <div class="summary-details" id="summaryDetails"></div>
         </div>
@@ -1175,6 +1180,8 @@ class RangeProcessor {
                     progressText = `Completed ${weekStr} - ${result.message}`;
                 } else if (result.outcome === 'kept') {
                     progressText = `Kept ${weekStr} - ${result.message}`;
+                } else if (result.outcome === 'no_chart') {
+                    progressText = `No chart for ${weekStr} - ${result.message}`;
                 } else if (result.outcome === 'failed') {
                     progressText = `Failed ${weekStr} - ${result.message}`;
                 }
@@ -1232,14 +1239,21 @@ class RangeProcessor {
         // Hide progress modal
         document.getElementById('progressModal').style.display = 'none';
         
-        // Calculate summary stats
-        const successful = this.results.filter(r => r.success).length;
-        // An older stored week left as it was because a region failed: a
-        // warning, not a failure. A request that threw has no outcome.
-        const kept = this.results.filter(r => r.outcome === 'kept');
-        const failed = this.results.filter(r => !r.success && r.outcome !== 'kept');
+        // Calculate summary stats: each week is counted in one list only.
+        // Updated: written, and every region came through or had no chart.
+        const successful = this.results.filter(r => r.outcome === 'success').length;
         // Written, but a region failed (e.g. "Updated 2 of 3 regions (FR failed)")
-        const partial = this.results.filter(r => r.success && r.outcome === 'partial');
+        const partial = this.results.filter(r => r.outcome === 'partial');
+        // An older stored week left as it was because a region failed: a
+        // warning, not a failure.
+        const kept = this.results.filter(r => r.outcome === 'kept');
+        // Box Office Mojo has no chart for the week in any region: nothing
+        // failed, there was nothing to write.
+        const noChart = this.results.filter(r => r.outcome === 'no_chart');
+        // Everything else; a request that threw has no outcome.
+        const failed = this.results.filter(
+            r => !['success', 'partial', 'kept', 'no_chart'].includes(r.outcome)
+        );
         const totalMovies = this.results.reduce((sum, r) => sum + (r.movies_found || 0), 0);
         const totalAdded = this.results.reduce((sum, r) => sum + (r.movies_added || 0), 0);
         
@@ -1277,6 +1291,20 @@ class RangeProcessor {
             });
         } else {
             document.getElementById('partialWeeks').style.display = 'none';
+        }
+
+        if (noChart.length > 0) {
+            document.getElementById('noChartWeeks').style.display = 'block';
+            document.getElementById('noChartCount').textContent = noChart.length;
+            const noChartList = document.getElementById('noChartList');
+            noChartList.replaceChildren();
+            noChart.forEach(n => {
+                const li = document.createElement('li');
+                li.textContent = `${n.year}W${n.week.toString().padStart(2, '0')}: ${n.outcomeMessage}`;
+                noChartList.appendChild(li);
+            });
+        } else {
+            document.getElementById('noChartWeeks').style.display = 'none';
         }
 
         if (kept.length > 0) {
@@ -1568,8 +1596,9 @@ function updateCurrentWeek() {
 
 // Report a /scheduler/trigger or /scheduler/update-week response. A week
 // written although a region failed is a warning ("Updated 2 of 3 regions
-// (FR failed)"), and so is an older stored week kept because a region failed;
-// neither is reported as "Update failed".
+// (FR failed)"), and so is an older stored week kept because a region failed,
+// or a week Box Office Mojo has no chart for in any region; none of them is
+// reported as "Update failed".
 function showUpdateOutcome(data, httpOk) {
     const result = describeUpdateResult(data, httpOk);
     if (result.outcome === 'success' || result.outcome === 'partial') {
@@ -1587,7 +1616,7 @@ function showUpdateOutcome(data, httpOk) {
             showSuccess(`Updated successfully! Found ${data.movies_found || 0} movies.`);
             setTimeout(() => location.reload(), 2000);
         }
-    } else if (result.outcome === 'kept') {
+    } else if (result.outcome === 'kept' || result.outcome === 'no_chart') {
         showWarning(`Week not updated: ${result.message}`);
     } else {
         addToProgressLog(`Update failed: ${result.message}`, 'error');

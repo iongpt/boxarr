@@ -550,9 +550,10 @@
                 // (FR failed)". The reloaded page has a banner for the failed region.
                 btn.textContent = `⚠️ ${result.message}`;
                 setTimeout(() => location.reload(), 3000);
-            } else if (result.outcome === 'kept') {
+            } else if (result.outcome === 'kept' || result.outcome === 'no_chart') {
                 // An older stored week was left as it was because a region
-                // failed - not a failed regeneration of what is shown.
+                // failed, or Box Office Mojo has no chart for the week in any
+                // region - not a failed regeneration of what is shown.
                 alert('Week not updated: ' + result.message);
                 btn.innerHTML = originalText;
                 btn.disabled = false;

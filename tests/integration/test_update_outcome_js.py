@@ -92,7 +92,16 @@ FAILED_REGIONS = {
     "region_status": _status(("", "error"), ("FR", "error")),
 }
 
+# Every region answered without a chart: not a failure, nothing written.
+NO_CHART = {
+    "success": False,
+    "message": "No data found for week 2026W44",
+    "partial": False,
+    "region_status": _status(("", "no_data"), ("FR", "no_data")),
+}
+
 PARTIAL_SUMMARY = "Updated 2 of 3 regions (France failed)"
+NO_CHART_MESSAGE = "Box Office Mojo has no chart for this week in US & Canada, France"
 KEPT_MESSAGE = "France failed, so the stored week was kept as it was"
 FAILED_REGIONS_MESSAGE = "No region could be updated (US & Canada, France failed)"
 
@@ -251,8 +260,9 @@ class TestWeeklyRegenerate:
             _reply(FAILED),
             _reply(FAILED_HTTP, 500),
             _reply(FAILED_REGIONS, 500),
+            _reply(NO_CHART),
         )
-        success, partial, kept, failed, failed_http, failed_regions = results
+        success, partial, kept, failed, failed_http, failed_regions, no_chart = results
         _assert_no_error_text(results)
 
         assert success["changed"]["regenerate-btn"] == "✓ Done!"
@@ -273,6 +283,10 @@ class TestWeeklyRegenerate:
         assert failed_regions["alerts"] == [
             f"Regeneration failed: {FAILED_REGIONS_MESSAGE}"
         ]
+
+        _assert_not_a_failure(no_chart)
+        assert no_chart["alerts"] == [f"Week not updated: {NO_CHART_MESSAGE}"]
+        assert no_chart["reloads"] == 0
 
     def test_network_error(self, render):
         (result,) = self._run(render, {"throws": "Failed to fetch"})
@@ -306,9 +320,10 @@ class TestDashboard:
             _reply(PARTIAL),
             _reply(KEPT),
             _reply(FAILED),
+            _reply(NO_CHART),
             setup=setup,
         )
-        success, partial, kept, failed = results
+        success, partial, kept, failed, no_chart = results
         _assert_no_error_text(results)
 
         assert success["changed"]["progressMessage"] == (
@@ -332,6 +347,12 @@ class TestDashboard:
         assert failed["changed"]["progressMessage"] == (
             f"❌ Update failed: {FAILED['message']}"
         )
+
+        _assert_not_a_failure(no_chart)
+        assert no_chart["changed"]["progressMessage"] == (
+            f"⚠️ Week not updated: {NO_CHART_MESSAGE}"
+        )
+        assert no_chart["reloads"] == 0
 
     def test_historical_update_reads_an_error_body(self, render):
         setup = (
@@ -368,29 +389,38 @@ class TestDashboard:
                 "44": _reply(PARTIAL),
                 "45": {"throws": "Failed to fetch"},
                 "46": _reply(FAILED),
+                "47": _reply(NO_CHART),
+                "48": _reply(FAILED_REGIONS, 500),
             }
         }
         (result,) = self._run(
             render,
-            "rangeProcessor.processRange(2026, 42, 2026, 46)",
+            "rangeProcessor.processRange(2026, 42, 2026, 48)",
             replies,
         )
 
         _assert_no_error_text([result])
         changed = result["changed"]
-        assert result["posted"] == ["/api/scheduler/update-week"] * 5
-        assert changed["summarySuccess"] == "2"
-        assert changed["failedCount"] == "2"
+        assert result["posted"] == ["/api/scheduler/update-week"] * 7
+        # Each week in one list: 42 updated, 44 partial, 43 kept, 47 no
+        # chart, 45, 46 and 48 failed.
+        assert changed["summarySuccess"] == "1"
+        assert changed["failedCount"] == "3"
         assert changed["failedList"] == (
-            "2026W45: Failed to fetch" + f"2026W46: {FAILED['message']}"
+            "2026W45: Failed to fetch"
+            + f"2026W46: {FAILED['message']}"
+            + f"2026W48: {FAILED_REGIONS_MESSAGE}"
         )
         assert changed["partialCount"] == "1"
         assert changed["partialList"] == f"2026W44: {PARTIAL_SUMMARY}"
         assert changed["keptCount"] == "1"
         assert changed["keptList"] == f"2026W43: {KEPT_MESSAGE}"
+        assert changed["noChartCount"] == "1"
+        assert changed["noChartList"] == f"2026W47: {NO_CHART_MESSAGE}"
         log = changed["progressLog"]
         assert f"Completed 2026W44 - {PARTIAL_SUMMARY}" in log
         assert f"Kept 2026W43 - {KEPT_MESSAGE}" in log
+        assert f"No chart for 2026W47 - {NO_CHART_MESSAGE}" in log
 
 
 class TestDashboardHandlersDefinedOnce:
@@ -449,8 +479,9 @@ class TestAppJs:
             _reply(KEPT),
             _reply(FAILED),
             _reply(trigger_failed),
+            _reply({**NO_CHART, "message": "Update failed: No data found"}),
         )
-        success, partial, kept, failed, failed_regions = results
+        success, partial, kept, failed, failed_regions, no_chart = results
         _assert_no_error_text(results)
 
         assert success["alerts"] == [
@@ -465,4 +496,6 @@ class TestAppJs:
         assert kept["alerts"] == [f"Week not updated: {KEPT_MESSAGE}"]
         assert failed["alerts"] == [f"Update failed: {FAILED['message']}"]
         assert failed_regions["alerts"] == [f"Update failed: {FAILED_REGIONS_MESSAGE}"]
+        _assert_not_a_failure(no_chart)
+        assert no_chart["alerts"] == [f"Week not updated: {NO_CHART_MESSAGE}"]
         assert partial["button"] == "▶ Trigger Now"

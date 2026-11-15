@@ -758,7 +758,7 @@ function triggerScheduler() {
                 if (result.summary) text += `\n${result.summary}`;
                 alert(text);
                 refreshSchedulerStatus();
-            } else if (result.outcome === 'kept') {
+            } else if (result.outcome === 'kept' || result.outcome === 'no_chart') {
                 alert(`Week not updated: ${result.message}`);
                 refreshSchedulerStatus();
             } else {

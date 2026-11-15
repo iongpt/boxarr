@@ -189,15 +189,67 @@ class TestDescribe:
                 True,
             ),
         )
+        # A region without a chart is not a failure, but it was not updated.
         assert result[0]["message"] == (
-            "Updated 2 of 4 regions "
+            "Updated 1 of 4 regions "
             "(France, United Kingdom failed; no chart for Germany)"
         )
         assert result[1] == {
             "outcome": "success",
-            "summary": "Updated 2 of 2 regions (no chart for Germany)",
-            "message": "Updated 2 of 2 regions (no chart for Germany)",
+            "summary": "Updated 1 of 2 regions (no chart for Germany)",
+            "message": "Updated 1 of 2 regions (no chart for Germany)",
         }
+
+    def test_no_region_had_a_chart(self):
+        # /update-week's and /trigger's answers when every region reported
+        # no data: nothing failed, and there was nothing to write.
+        result = _describe(
+            (
+                {
+                    "success": False,
+                    "message": "No data found for week 2026W44",
+                    "partial": False,
+                    "region_status": _status(("", "no_data"), ("DE", "no_data")),
+                },
+                True,
+            ),
+            (
+                {
+                    "success": False,
+                    "message": "Update failed: No data found for week 2026W44",
+                    "region_status": _status(("", "no_data"), ("DE", "no_data")),
+                },
+                None,
+            ),
+        )
+        assert (
+            result
+            == [
+                {
+                    "outcome": "no_chart",
+                    "summary": "Updated 0 of 2 regions (no chart for US & Canada, Germany)",
+                    "message": (
+                        "Box Office Mojo has no chart for this week in US & Canada, Germany"
+                    ),
+                }
+            ]
+            * 2
+        )
+
+    def test_one_region_without_a_chart_is_still_the_failure_it_was(self):
+        (result,) = _describe(
+            (
+                {
+                    "success": False,
+                    "message": "No data found for week 2026W44",
+                    "partial": False,
+                    "region_status": _status(("GB", "no_data")),
+                },
+                True,
+            )
+        )
+        assert result["outcome"] == "failed"
+        assert result["message"] == "No data found for week 2026W44"
 
     def test_partial_without_region_status_never_shows_the_server_message(self):
         (result,) = _describe(
@@ -356,7 +408,7 @@ class TestDescribe:
     )
     def test_malformed_bodies_never_throw(self, data):
         (result,) = _describe((data, True))
-        assert result["outcome"] in {"success", "partial", "failed"}
+        assert result["outcome"] in {"success", "partial", "no_chart", "failed"}
         assert isinstance(result["message"], str)
 
 
