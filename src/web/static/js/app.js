@@ -461,7 +461,7 @@ function regionSelectionProblem() {
     const count = regionSelection.length;
     const max = regionMaxSelected();
     if (count === 0) {
-        return 'Select at least one box office region (Domestic for US & Canada)';
+        return 'Select at least one box office region';
     }
     if (count > max) {
         return `Select at most ${max} box office regions - ${count} are selected`;

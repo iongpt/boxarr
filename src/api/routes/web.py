@@ -32,7 +32,13 @@ from ...utils.config import (
     settings,
 )
 from ...utils.logger import get_logger
-from .weekly_regions import build_region_view, region_movies, stored_gross, stored_rank
+from .weekly_regions import (
+    build_region_view,
+    region_movies,
+    region_name,
+    stored_gross,
+    stored_rank,
+)
 
 logger = get_logger(__name__)
 router = APIRouter(tags=["web"])
@@ -625,8 +631,9 @@ def _region_picker_rows(configured: List[str]) -> List[Dict[str, object]]:
     is appended to the selection order it posts.
 
     Each row has ``value`` (what the checkbox posts: the code, or "domestic"
-    for the US & Canada chart, whose code is ""), ``code``, ``name``,
-    ``checked`` and ``aliases`` (REGION_SEARCH_ALIASES joined by "|").
+    for the US & Canada chart, whose code is ""), ``code``, ``name`` (the
+    name every page uses, see region_name), ``checked`` and ``aliases``
+    (REGION_SEARCH_ALIASES joined by "|").
     """
     names = dict(BOX_OFFICE_REGIONS)
 
@@ -635,7 +642,7 @@ def _region_picker_rows(configured: List[str]) -> List[Dict[str, object]]:
         return {
             "value": code or DOMESTIC_REGION,
             "code": code,
-            "name": names[code] if listed else f"{code} (not in list)",
+            "name": region_name(code) if listed else f"{code} (not in list)",
             "checked": checked,
             "aliases": "|".join(REGION_SEARCH_ALIASES.get(code, ())),
         }

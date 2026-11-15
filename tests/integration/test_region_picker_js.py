@@ -290,10 +290,7 @@ class TestSelectionLimits:
 
         saved = steps[-1]
         assert saved["saved"] == []
-        assert (
-            "[error] Select at least one box office region (Domestic for US & Canada)"
-            in saved["toasts"]
-        )
+        assert "[error] Select at least one box office region" in saved["toasts"]
 
 
 class TestLanguageSuggestions:
