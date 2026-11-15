@@ -313,6 +313,8 @@ class TestDescribe:
         assert result[1]["message"] == (
             "No region could be updated (US & Canada, Germany failed)"
         )
+        # Worded from region_status, not the server's text.
+        assert [r["fromServer"] for r in result] == [False, False]
 
     def test_a_failure_after_the_regions_came_through_keeps_its_error(self):
         # Every region was fetched; the run failed later (e.g. Radarr).
@@ -327,6 +329,7 @@ class TestDescribe:
             )
         )
         assert result["message"] == "Update failed: Radarr went away"
+        assert result["fromServer"] is True
 
     @pytest.mark.parametrize(
         "data, http_ok",
@@ -394,6 +397,9 @@ class TestDescribe:
         assert result["outcome"] == "failed"
         expected = message or data.get("detail") or data.get("message")
         assert result["message"] == expected
+        # The server's own text (or "Unknown error"): a page that never
+        # showed an error body's text words the HTTP error instead.
+        assert result["fromServer"] is True
 
     @pytest.mark.parametrize(
         "data",

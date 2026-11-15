@@ -121,6 +121,11 @@
      *            Office Mojo has none for the week, for 'failed' which regions
      *            failed when several were tried and none came through, else
      *            the server's error (one region: as before multi-region)
+     * and, for 'failed' only:
+     *   fromServer: true when message is the server's own text (or "Unknown
+     *            error") rather than worded from region_status. A page that
+     *            never showed an error body's text (the dashboard's week and
+     *            range updates) words an HTTP error by its status instead.
      */
     function describe(data, httpOk) {
         var body = data && typeof data === 'object' ? data : {};
@@ -161,12 +166,19 @@
             };
         }
         var none = entries.length > 1 && okEntries(entries).length === 0;
+        if (none && notes) {
+            return {
+                outcome: 'failed',
+                summary: summary,
+                message: 'No region could be updated (' + notes + ')',
+                fromServer: false
+            };
+        }
         return {
             outcome: 'failed',
             summary: summary,
-            message: none && notes
-                ? 'No region could be updated (' + notes + ')'
-                : text(body.detail) || text(body.message) || text(body.error) || 'Unknown error'
+            message: text(body.detail) || text(body.message) || text(body.error) || 'Unknown error',
+            fromServer: true
         };
     }
 

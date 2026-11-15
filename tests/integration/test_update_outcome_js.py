@@ -92,6 +92,10 @@ FAILED_REGIONS = {
     "region_status": _status(("", "error"), ("FR", "error")),
 }
 
+# /update-week when a failure that is not a region's (e.g. Radarr) ended the
+# run: a 500 whose detail is the exception's text, with no region status.
+FAILED_NOT_A_REGION = {"detail": f"Radarr went away: {RAW}"}
+
 # Every region answered without a chart: not a failure, nothing written.
 NO_CHART = {
     "success": False,
@@ -354,18 +358,29 @@ class TestDashboard:
         )
         assert no_chart["reloads"] == 0
 
-    def test_historical_update_reads_an_error_body(self, render):
+    def test_historical_update_hides_an_error_bodys_text(self, render):
+        # A 500 that names no failed region - one region, or a failure that
+        # is not a region's (Radarr): its detail is an exception's text, and
+        # the page says what it said before multi-region.
         setup = (
             "document.getElementById('historicalYear').value = '2026';"
             "document.getElementById('historicalWeek').value = '44';"
         )
-        (result,) = self._run(
-            render, "updateHistoricalWeek()", _reply(FAILED_HTTP, 500), setup=setup
+        results = self._run(
+            render,
+            "updateHistoricalWeek()",
+            _reply(FAILED_HTTP, 500),
+            _reply(FAILED_NOT_A_REGION, 500),
+            setup=setup,
         )
 
-        assert result["changed"]["progressMessage"] == (
-            f"❌ Update failed: {FAILED_HTTP['detail']}"
-        )
+        for result in results:
+            shown = _shown(result)
+            assert FAILED_HTTP["detail"] not in shown, shown
+            assert RAW not in shown, shown
+            assert result["changed"]["progressMessage"] == (
+                "❌ Update failed: HTTP error! status: 500"
+            )
 
     def test_historical_update_names_the_regions_of_a_failed_week(self, render):
         setup = (
@@ -391,25 +406,31 @@ class TestDashboard:
                 "46": _reply(FAILED),
                 "47": _reply(NO_CHART),
                 "48": _reply(FAILED_REGIONS, 500),
+                "49": _reply(FAILED_HTTP, 500),
+                "50": _reply(FAILED_NOT_A_REGION, 500),
             }
         }
         (result,) = self._run(
             render,
-            "rangeProcessor.processRange(2026, 42, 2026, 48)",
+            "rangeProcessor.processRange(2026, 42, 2026, 50)",
             replies,
         )
 
         _assert_no_error_text([result])
+        assert FAILED_HTTP["detail"] not in _shown(result)
         changed = result["changed"]
-        assert result["posted"] == ["/api/scheduler/update-week"] * 7
+        assert result["posted"] == ["/api/scheduler/update-week"] * 9
         # Each week in one list: 42 updated, 44 partial, 43 kept, 47 no
-        # chart, 45, 46 and 48 failed.
+        # chart, 45, 46, 48, 49 and 50 failed. A 500 that names no failed
+        # region reads "Unknown error", as before multi-region.
         assert changed["summarySuccess"] == "1"
-        assert changed["failedCount"] == "3"
+        assert changed["failedCount"] == "5"
         assert changed["failedList"] == (
             "2026W45: Failed to fetch"
             + f"2026W46: {FAILED['message']}"
             + f"2026W48: {FAILED_REGIONS_MESSAGE}"
+            + "2026W49: Unknown error"
+            + "2026W50: Unknown error"
         )
         assert changed["partialCount"] == "1"
         assert changed["partialList"] == f"2026W44: {PARTIAL_SUMMARY}"
@@ -421,6 +442,8 @@ class TestDashboard:
         assert f"Completed 2026W44 - {PARTIAL_SUMMARY}" in log
         assert f"Kept 2026W43 - {KEPT_MESSAGE}" in log
         assert f"No chart for 2026W47 - {NO_CHART_MESSAGE}" in log
+        assert f"Failed 2026W48 - {FAILED_REGIONS_MESSAGE}" in log
+        assert "Failed 2026W49 - Unknown error" in log
 
 
 class TestDashboardHandlersDefinedOnce:

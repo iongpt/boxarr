@@ -1171,7 +1171,12 @@ class RangeProcessor {
                 
                 const data = await response.json();
                 const result = describeUpdateResult(data, response.ok);
-                this.results.push({year, week, ...data, outcome: result.outcome, outcomeMessage: result.message});
+                // An HTTP error that names no failed region carries an
+                // exception's text: not shown, as before multi-region.
+                const outcomeMessage = !response.ok && result.fromServer
+                    ? 'Unknown error'
+                    : result.message;
+                this.results.push({year, week, ...data, outcome: result.outcome, outcomeMessage});
                 
                 // Update progress bar. A week can be written although one of
                 // its regions failed - say so instead of a plain "Completed".
@@ -1183,7 +1188,7 @@ class RangeProcessor {
                 } else if (result.outcome === 'no_chart') {
                     progressText = `No chart for ${weekStr} - ${result.message}`;
                 } else if (result.outcome === 'failed') {
-                    progressText = `Failed ${weekStr} - ${result.message}`;
+                    progressText = `Failed ${weekStr} - ${outcomeMessage}`;
                 }
                 this.updateProgress(i + 1, progressText);
                 
@@ -1270,8 +1275,8 @@ class RangeProcessor {
             failedList.innerHTML = '';
             failed.forEach(f => {
                 const li = document.createElement('li');
-                // A failed request carries "error"; a failed update "message"
-                // (or FastAPI's "detail"), read through describeUpdateResult.
+                // A request that threw carries "error"; a failed update the
+                // outcomeMessage worded above.
                 li.textContent = `${f.year}W${f.week.toString().padStart(2, '0')}: ${f.error || f.outcomeMessage || 'Unknown error'}`;
                 failedList.appendChild(li);
             });
@@ -1638,9 +1643,16 @@ function updateHistoricalWeek() {
         body: JSON.stringify({year: parseInt(year), week: parseInt(week)})
     })
     .then(response => response.json()
-        // An error body still says why (FastAPI's "detail").
         .catch(() => { throw new Error(`HTTP error! status: ${response.status}`); })
-        .then(data => showUpdateOutcome(data, response.ok)))
+        .then(data => {
+            // An error body that names the failed regions is worded from
+            // them; one that does not carries an exception's text (FastAPI's
+            // "detail"), which is not shown - as before multi-region.
+            if (!response.ok && describeUpdateResult(data, false).fromServer) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            showUpdateOutcome(data, response.ok);
+        }))
     .catch(error => {
         const errorMsg = error.message || 'Network error';
         addToProgressLog(`Error: ${errorMsg}`, 'error');
