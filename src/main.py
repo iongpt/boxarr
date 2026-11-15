@@ -8,7 +8,7 @@ from pathlib import Path
 
 import uvicorn
 
-from src.utils.logger import setup_logging
+from src.utils.logger import apply_log_level, parse_log_level, setup_logging
 
 # Setup logging first, before any other imports that might use logging
 setup_logging()
@@ -198,11 +198,23 @@ def cli():
         help="Run mode (default: api)",
     )
     parser.add_argument("--config", type=Path, help="Path to configuration file")
+
+    def log_level_name(value: str) -> str:
+        level = parse_log_level(value)
+        if level is None:
+            raise argparse.ArgumentTypeError(
+                f"invalid level {value!r} "
+                "(use DEBUG, INFO, WARNING, ERROR or CRITICAL)"
+            )
+        return level
+
     parser.add_argument(
         "--log-level",
-        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        type=log_level_name,
         default=None,
-        help="Override log level",
+        metavar="LEVEL",
+        help="Override log level: DEBUG, INFO, WARNING (or WARN), ERROR, "
+        "CRITICAL, in any case",
     )
 
     args = parser.parse_args()
@@ -214,7 +226,11 @@ def cli():
 
     if args.log_level:
         settings.log_level = args.log_level
-        setup_logging()
+
+    # The import-time setup could only read the environment. Apply the level
+    # and format the settings resolved (--log-level, then BOXARR_LOG_LEVEL or
+    # LOG_LEVEL, then local.yaml) to the handlers already in place.
+    apply_log_level(settings.log_level, settings.log_format)
 
     # Map update mode to cli
     mode = "cli" if args.mode == "update" else args.mode
