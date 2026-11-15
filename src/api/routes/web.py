@@ -617,6 +617,20 @@ def region_selection_label(names: List[str]) -> str:
     return ", ".join(names)
 
 
+# Other names the setup page's region search finds a region by, matched
+# exactly (a catalogue name matches as a substring, an area code exactly):
+# "uk" would otherwise find only Ukraine, and "usa" nothing at all.
+REGION_SEARCH_ALIASES: Dict[str, Tuple[str, ...]] = {
+    "": ("usa", "us", "united states", "america", "domestic"),
+    "GB": ("uk", "britain", "great britain", "england"),
+    "AE": ("uae", "emirates"),
+    "CZ": ("czechia",),
+    "KR": ("korea",),
+    "NL": ("holland",),
+    "TR": ("turkey",),
+}
+
+
 def _region_picker_rows(configured: List[str]) -> List[Dict[str, object]]:
     """Return the setup page's region checkboxes, in display order.
 
@@ -625,13 +639,13 @@ def _region_picker_rows(configured: List[str]) -> List[Dict[str, object]]:
     configured code missing from the catalogue still gets a checked row
     ("ZZ (not in list)"), so saving the page keeps it instead of silently
     dropping it. Every other catalogue region follows in catalogue order.
+    app.js never moves a row: a region checked later stays where it is and
+    is appended to the selection order it posts.
 
     Each row has ``value`` (what the checkbox posts: the code, or "domestic"
     for the US & Canada chart, whose code is ""), ``code``, ``name``,
-    ``checked`` and ``index`` (the row's catalogue position, which app.js
-    sorts unchecked rows back into; codes outside the catalogue sort last).
+    ``checked`` and ``aliases`` (REGION_SEARCH_ALIASES joined by "|").
     """
-    catalogue = {code: index for index, (code, _) in enumerate(BOX_OFFICE_REGIONS)}
     names = dict(BOX_OFFICE_REGIONS)
 
     def row(code: str, checked: bool) -> Dict[str, object]:
@@ -641,7 +655,7 @@ def _region_picker_rows(configured: List[str]) -> List[Dict[str, object]]:
             "code": code,
             "name": names[code] if listed else f"{code} (not in list)",
             "checked": checked,
-            "index": catalogue.get(code, len(catalogue)),
+            "aliases": "|".join(REGION_SEARCH_ALIASES.get(code, ())),
         }
 
     rows = [row(code, True) for code in configured]

@@ -213,8 +213,9 @@
                 <!-- Box Office Regions: one checkbox per region. The configured
                      regions are pinned to the top in configured order, which is
                      the order a save posts back (app.js keeps it, appending newly
-                     checked regions). The search box has no name on purpose, so
-                     the FormData sweep never posts it. -->
+                     checked regions, and never moves a row while it is clicked).
+                     The search box has no name on purpose, so the FormData sweep
+                     never posts it. -->
                 <div class="form-group" id="boxOfficeRegionGroup" style="margin-top: 1rem;">
                     <label for="boxOfficeRegionSearch" class="form-label">Box Office Regions</label>
                     {% if box_office_region_env_locked %}
@@ -231,7 +232,7 @@
                          data-locked="{{ 'true' if box_office_region_env_locked else 'false' }}"
                          style="display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 0.5rem; max-height: 240px; overflow-y: auto; padding: 0.5rem; border: 1px solid var(--border-color); border-radius: 6px;">
                         {% for region in box_office_region_rows %}
-                        <label class="checkbox-label region-option" data-region-name="{{ region.name }}" data-catalog-index="{{ region.index }}" style="display: flex; align-items: center; gap: 0.5rem;">
+                        <label class="checkbox-label region-option" data-region-name="{{ region.name }}" data-region-aliases="{{ region.aliases }}" style="display: flex; align-items: center; gap: 0.5rem;">
                             <input type="checkbox" name="boxarr_features_box_office_region" value="{{ region.value }}"
                                    data-region-code="{{ region.code }}"
                                    {% if region.checked %}checked{% endif %}
@@ -714,7 +715,7 @@
 
 <script src="{{ request.scope.get('root_path', '') }}/static/js/theme-manager.js?v=1"></script>
 <script src="{{ request.scope.get('root_path', '') }}/static/js/update-result.js?v=1"></script>
-<script src="{{ request.scope.get('root_path', '') }}/static/js/app.js?v=9"></script>
+<script src="{{ request.scope.get('root_path', '') }}/static/js/app.js?v=10"></script>
 <script>
 // Sync theme select with current preference
 document.addEventListener('DOMContentLoaded', function() {

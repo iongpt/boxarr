@@ -304,8 +304,18 @@ class TestSetupPage:
         rest = [row.find("input")["data-region-code"] for row in rows[2:]]
         catalogue = [code for code, _ in BOX_OFFICE_REGIONS if code not in ("NO", "DE")]
         assert rest == catalogue
-        indexes = [int(row["data-catalog-index"]) for row in rows[2:]]
-        assert indexes == sorted(indexes)
+
+    def test_rows_carry_other_names_for_the_search(self, client, tmp_path):
+        soup = self._soup(client, tmp_path, "NL")
+
+        def aliases(value: str) -> list:
+            box = _picker(soup).find("input", attrs={"value": value})
+            return box.find_parent("label")["data-region-aliases"].split("|")
+
+        assert "uk" in aliases("GB")
+        assert "usa" in aliases("domestic")
+        assert "holland" in aliases("NL")
+        assert aliases("RO") == [""]
 
     def test_code_outside_the_catalogue_is_rendered_checked(self, client, tmp_path):
         soup = self._soup(client, tmp_path, "[ZZ, NL]")

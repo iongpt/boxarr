@@ -489,42 +489,41 @@ function renderRegionStatus() {
     status.style.color = problem ? 'var(--error-color)' : '';
 }
 
-// Selected rows first, in selection order; the rest in catalogue order.
-function pinSelectedRegions() {
-    const picker = regionPicker();
-    if (!picker) return;
-    const rows = regionOptionRows();
-    const pinned = regionSelection.map(regionRowByValue).filter(Boolean);
-    const rest = rows
-        .filter(row => !pinned.includes(row))
-        .sort((a, b) => Number(a.dataset.catalogIndex) - Number(b.dataset.catalogIndex));
-    pinned.concat(rest).forEach(row => picker.appendChild(row));
+// Whether a region row matches a search term: a substring of its name, or
+// exactly its area code or one of its other names (data-region-aliases, e.g.
+// "uk" for the United Kingdom, "usa" for the domestic chart).
+function regionRowMatches(row, term) {
+    const checkbox = regionRowCheckbox(row);
+    const name = (row.dataset.regionName || '').toLowerCase();
+    const code = checkbox ? (checkbox.dataset.regionCode || '').toLowerCase() : '';
+    const aliases = (row.dataset.regionAliases || '').toLowerCase().split('|').filter(Boolean);
+    return name.includes(term) || (!!code && code === term) || aliases.includes(term);
 }
 
+// Runs on search input only. A checkbox change never moves or hides a row:
+// the rows would shift under the pointer, so a second click would toggle a
+// region the user never chose, and keyboard focus would be lost.
 function filterRegionOptions() {
     const search = document.getElementById('boxOfficeRegionSearch');
     const term = search ? search.value.trim().toLowerCase() : '';
     regionOptionRows().forEach(row => {
         const checkbox = regionRowCheckbox(row);
-        const name = (row.dataset.regionName || '').toLowerCase();
-        const code = checkbox ? (checkbox.dataset.regionCode || '').toLowerCase() : '';
         // A selected region is never filtered out of view, so a search can
         // never hide - or appear to drop - part of the selection.
-        const visible = !term || name.includes(term) || (code && code === term)
-            || !!(checkbox && checkbox.checked);
+        const visible = !term || regionRowMatches(row, term) || !!(checkbox && checkbox.checked);
         row.style.display = visible ? 'flex' : 'none';
     });
 }
 
-// Delegated: one listener on the picker for every checkbox in it.
+// Delegated: one listener on the picker for every checkbox in it. Records
+// the selection order and redraws the status and language suggestions; the
+// rows stay where they are (the server rendered the configured ones first).
 function onRegionPickerChange(e) {
     const checkbox = e.target;
     if (!checkbox || checkbox.type !== 'checkbox') return;
     const value = checkbox.value;
     regionSelection = regionSelection.filter(v => v !== value);
     if (checkbox.checked) regionSelection.push(value);
-    pinSelectedRegions();
-    filterRegionOptions();
     renderRegionStatus();
     renderLanguageSuggestions();
 }
