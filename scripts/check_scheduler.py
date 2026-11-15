@@ -156,7 +156,11 @@ def check_history():
         print("⚠️  No history directory found - scheduler may not have run yet")
         return False
     
-    history_files = sorted(history_dir.glob("*.json"), reverse=True)[:5]
+    # {week}_latest.json repeats a week's last run; skip it like /history does.
+    history_files = sorted(
+        (path for path in history_dir.glob("*.json") if not path.stem.endswith("_latest")),
+        reverse=True,
+    )[:5]
     
     if not history_files:
         print("⚠️  No history files found - scheduler has not completed any runs")
@@ -173,6 +177,8 @@ def check_history():
             timestamp = data.get("timestamp", "Unknown")
             matched = data.get("matched_count", 0)
             total = data.get("total_count", 0)
+            # Runs saved before failed runs were recorded carry no "success".
+            success = data.get("success", True)
             
             # Parse timestamp
             if timestamp != "Unknown":
@@ -181,9 +187,13 @@ def check_history():
                 days = time_ago.days
                 hours = time_ago.seconds // 3600
                 
-                print(f"\n  ✓ {run_time.strftime('%Y-%m-%d %H:%M:%S')}")
+                mark = "✓" if success else "✗"
+                print(f"\n  {mark} {run_time.strftime('%Y-%m-%d %H:%M:%S')}")
                 print(f"    {days} days, {hours} hours ago")
-                print(f"    Matched {matched}/{total} movies")
+                if success:
+                    print(f"    Matched {matched}/{total} movies")
+                else:
+                    print(f"    Failed: {data.get('error') or 'unknown error'}")
             
         except Exception as e:
             print(f"  ❌ Error reading {file_path.name}: {e}")
