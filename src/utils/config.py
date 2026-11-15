@@ -471,9 +471,6 @@ class Settings(BaseSettings):
     boxarr_port: int = Field(
         default=8888, ge=1, le=65535, description="Web interface port"
     )
-    boxarr_api_port: int = Field(
-        default=8889, ge=1, le=65535, description="API server port"
-    )
     boxarr_url_base: str = Field(
         default="",
         description="URL base path for reverse proxy (e.g., 'boxarr' for /boxarr/)",
@@ -705,14 +702,6 @@ class Settings(BaseSettings):
         if len(s) > 20:
             raise ValueError("Auto tag must be at most 20 characters")
         return s
-
-    @validator("boxarr_api_port")
-    def validate_api_port_different(cls, v: int, values: Dict) -> int:
-        """Ensure API port is different from web port."""
-        web_port = values.get("boxarr_port", 8888)
-        if v == web_port:
-            raise ValueError("API port must be different from web port")
-        return v
 
     @validator("boxarr_data_directory")
     def ensure_data_directory_exists(cls, v: Path) -> Path:

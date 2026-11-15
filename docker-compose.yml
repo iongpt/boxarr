@@ -19,12 +19,8 @@ services:
     
     restart: unless-stopped
     
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8888/api/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
+    # Health check: the image's own HEALTHCHECK probes /api/health on the
+    # port set by BOXARR_PORT or PORT (default 8888), every 30s.
 
 # Example with existing Radarr on same network:
 # services:

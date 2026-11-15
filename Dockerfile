@@ -32,9 +32,10 @@ VOLUME ["/config"]
 # Expose web port
 EXPOSE 8888
 
-# Health check
+# Health check. Shell form so it probes the port the app listens on when
+# BOXARR_PORT or PORT changes it (a port set only in local.yaml is not seen).
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD curl -f http://localhost:8888/api/health || exit 1
+    CMD curl -f "http://localhost:${BOXARR_PORT:-${PORT:-8888}}/api/health" || exit 1
 
 # Run application
 CMD ["python", "-m", "src.main"]
