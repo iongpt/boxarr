@@ -932,10 +932,11 @@ class BoxOfficeService:
         """
         Tell whether a chart page is Mojo's empty weekend rather than a failure.
 
-        True when the page says "No data available", or when it carries the
-        chart heading (<h1 class="mojo-gutter">German 2026 Weekend 46</h1>)
-        but no chart table. An empty body, a block page or a table whose rows
-        cannot be read is not "no data".
+        True only when the page says "No data available", as Mojo's empty
+        weekend does. Anything else that cannot be parsed - an empty body, a
+        block page, a heading without its table, a table whose rows cannot be
+        read - is an error, so a stored chart for the region is kept rather
+        than replaced by nothing.
 
         Args:
             html: Chart HTML
@@ -944,12 +945,7 @@ class BoxOfficeService:
             True when Mojo reports no data for the weekend
         """
         soup = BeautifulSoup(html or "", "html.parser")
-        if _NO_DATA_TEXT.search(soup.get_text(" ", strip=True)):
-            return True
-        if soup.find("table", class_="a-bordered"):
-            return False
-        heading = soup.find("h1", class_="mojo-gutter")
-        return bool(heading and "weekend" in heading.get_text(" ").lower())
+        return bool(_NO_DATA_TEXT.search(soup.get_text(" ", strip=True)))
 
     def parse_box_office_html(
         self, html: str, limit: int = 10

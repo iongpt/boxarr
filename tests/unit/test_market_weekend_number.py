@@ -481,7 +481,10 @@ class TestNoData:
         assert isinstance(exc_info.value, BoxOfficeError)
         assert requested_urls(client) == [de_url]
 
-    def test_heading_without_a_chart_is_no_data(self):
+    def test_heading_without_a_chart_is_an_error_not_no_data(self):
+        # Only Mojo's "No data available" text means no data. A page that
+        # lost its table is degraded: as no_data, a Regenerate would drop the
+        # region's stored rows without a warning; as an error they are kept.
         de_url = f"{MOJO}/weekend/2026W46/?area=DE"
         page = (
             '<html><body><h1 class="mojo-gutter">German 2026 Weekend 46</h1>'
@@ -489,8 +492,10 @@ class TestNoData:
         )
         client = fake_mojo({de_url: page})
 
-        with pytest.raises(BoxOfficeNoData):
+        with pytest.raises(BoxOfficeError) as exc_info:
             fetch(client, "", 2026, 46, region="DE")
+
+        assert not isinstance(exc_info.value, BoxOfficeNoData)
 
     @pytest.mark.parametrize(
         "page",

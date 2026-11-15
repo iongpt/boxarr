@@ -23,9 +23,9 @@ class BoxOfficeNoData(BoxOfficeError):
     """Raised when Box Office Mojo has no chart for the requested weekend.
 
     The page itself was fetched and shows the requested week, but Mojo prints
-    "No data available" (or no chart) for it - a market with no reported
-    grosses that weekend, not a failure. It subclasses BoxOfficeError so a
-    caller that fetches one chart handles it exactly like any other error.
+    "No data available" for it - a market with no reported grosses that
+    weekend, not a failure. It subclasses BoxOfficeError so a caller that
+    fetches one chart handles it exactly like any other error.
     """
 
     pass
