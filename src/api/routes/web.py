@@ -163,9 +163,11 @@ async def aggregate_all_movies() -> List[dict]:
 
     Each film is listed once, with every week it appeared in (once per week,
     however many regions it charted in or entries it has there), its best
-    rank and its best weekend gross - the highest of every appearance, in any
-    week and any region. Missing or null ranks and grosses never break the
-    comparison or the sort.
+    rank, and as its best weekend gross the gross of the appearance that
+    reached that rank first - as before multi-region. Only within that one
+    appearance is the gross the highest across its regions. A missing or
+    broken rank counts as _NO_BEST_RANK and a missing or broken gross as 0,
+    so neither breaks the comparison or the sort.
     """
     weekly_pages_dir = Path(settings.boxarr_data_directory) / "weekly_pages"
     if not weekly_pages_dir.exists():
@@ -197,39 +199,35 @@ async def aggregate_all_movies() -> List[dict]:
                     key = f"{movie.get('title', 'unknown')}_{movie.get('year', 0)}"
 
                 rank = _stored_rank(movie.get("rank"))
-                gross = _appearance_best_gross(movie)
+                if rank is None:
+                    rank = _NO_BEST_RANK
                 entry = movies_by_key.get(key)
                 if entry is None:
                     # New movie entry
                     entry = dict(movie)
                     entry["weeks"] = []
-                    entry["best_rank"] = None
-                    entry["best_weekend_gross"] = None
                     movies_by_key[key] = entry
+                    better = True
+                else:
+                    # Only a strictly better rank moves "best": on a tie the
+                    # earlier week keeps it, as before multi-region.
+                    better = rank < entry["best_rank"]
 
                 # One week counts once, even if the film has two entries in it.
                 if week_str not in entry["weeks"]:
                     entry["weeks"].append(week_str)
-                if rank is not None and (
-                    entry["best_rank"] is None or rank < entry["best_rank"]
-                ):
+                if better:
+                    # Rank and gross come from the same appearance: never a
+                    # gross from another week, even a higher one.
                     entry["best_rank"] = rank
-                if gross is not None and (
-                    entry["best_weekend_gross"] is None
-                    or gross > entry["best_weekend_gross"]
-                ):
-                    entry["best_weekend_gross"] = gross
+                    gross = _appearance_best_gross(movie)
+                    entry["best_weekend_gross"] = 0 if gross is None else gross
 
         except Exception as e:
             logger.warning(f"Error reading {json_file}: {e}")
             continue
 
     movies_list = list(movies_by_key.values())
-    for entry in movies_list:
-        if entry["best_rank"] is None:
-            entry["best_rank"] = _NO_BEST_RANK
-        if entry["best_weekend_gross"] is None:
-            entry["best_weekend_gross"] = 0
 
     # Sort by best weekend gross (highest first)
     movies_list.sort(key=lambda x: x["best_weekend_gross"], reverse=True)

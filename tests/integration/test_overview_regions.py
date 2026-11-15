@@ -2,9 +2,11 @@
 
 A week built from several box office regions holds one entry per film, with
 a row per region. The overview lists each film once with every week it
-appeared in - once per week - and its best weekend gross across all its
-appearances, weeks and regions alike. A stored null rank or gross (both are
-written for films Mojo reported without one) must never 500 the page.
+appeared in - once per week - its best rank, and as "Best $" the weekend
+gross of the week it reached that rank (the first such week on a tie), as in
+v2.1.2. Only inside that week is the gross the highest across its regions. A
+stored null rank or gross (both are written for films Mojo reported without
+one) must never 500 the page.
 
 GET /api/weeks and the overview's recent weeks keep their shape; a week's
 movie_count is its number of films. The widget JSON names each film's region.
@@ -175,11 +177,24 @@ class TestOverview:
         assert movie["best_rank"] == 1
         assert movie["best_weekend_gross"] == 11_000_000.0
 
-    def test_best_gross_is_the_highest_of_every_appearance(self, seed):
+    def test_best_gross_is_the_gross_of_the_best_rank_week(self, seed):
+        # Opened at #2 with more money, then reached #1 in a slower week.
         seed(
-            # Week 43: #1 in a slow week.
-            _week(43, [_movie("Film", 1, 1, 3_000_000.0)]),
-            # Week 44: led the Romanian chart, but grossed more at #4 domestic.
+            _week(44, [_movie("Film", 1, 2, 150_000_000.0)]),
+            _week(45, [_movie("Film", 1, 1, 90_022_510.0)]),
+        )
+
+        movie = _aggregate()["Film"]
+
+        assert movie["best_rank"] == 1
+        assert movie["best_weekend_gross"] == 90_022_510.0
+        assert movie["weeks"] == ["2026W44", "2026W45"]
+
+    def test_the_best_rank_week_counts_its_best_region(self, seed):
+        seed(
+            # Week 43: #3 in a busy week.
+            _week(43, [_movie("Film", 1, 3, 3_000_000.0)]),
+            # Week 44: led the Romanian chart, and grossed more at #4 domestic.
             _week(
                 44,
                 [
@@ -204,6 +219,63 @@ class TestOverview:
         assert movie["best_rank"] == 1
         assert movie["best_weekend_gross"] == 5_000_000.0
         assert movie["weeks"] == ["2026W43", "2026W44"]
+
+    def test_a_region_gross_of_another_week_is_never_used(self, seed):
+        seed(
+            # Week 43: #1 in a slow week.
+            _week(43, [_movie("Film", 1, 1, 3_000_000.0)]),
+            # Week 44: #1 again (a tie: the first week stays), $5M domestic.
+            _week(
+                44,
+                [
+                    _movie(
+                        "Film",
+                        1,
+                        1,
+                        200_000.0,
+                        region="RO",
+                        rows=[
+                            {"code": "", "rank": 4, "weekend_gross": 5_000_000.0},
+                            {"code": "RO", "rank": 1, "weekend_gross": 200_000.0},
+                        ],
+                    )
+                ],
+                regions=["", "RO"],
+            ),
+            # Week 45: #2 with the most money of all.
+            _week(45, [_movie("Film", 1, 2, 9_000_000.0, region="")], [""]),
+        )
+
+        movie = _aggregate()["Film"]
+
+        assert movie["best_rank"] == 1
+        assert movie["best_weekend_gross"] == 3_000_000.0
+
+    def test_a_missing_rank_counts_as_999(self, seed):
+        seed(
+            _week(43, [_movie("Unranked", 1, None, 7_000.0)]),
+            _week(44, [_movie("Unranked", 1, None, 9_000.0)]),
+            _week(45, [_movie("Ranked Later", 2, None, 8_000.0)]),
+            _week(46, [_movie("Ranked Later", 2, 5, 1_000.0)]),
+        )
+
+        movies = _aggregate()
+
+        assert movies["Unranked"]["best_rank"] == 999
+        assert movies["Unranked"]["best_weekend_gross"] == 7_000.0
+        assert movies["Ranked Later"]["best_rank"] == 5
+        assert movies["Ranked Later"]["best_weekend_gross"] == 1_000.0
+
+    def test_a_null_gross_in_the_best_rank_week_is_not_replaced(self, seed):
+        client = seed(
+            _week(43, [_movie("Film", 1, 2, 4_000_000.0)]),
+            _week(44, [_movie("Film", 1, 1, None)]),
+        )
+
+        assert client.get("/overview").status_code == 200
+        movie = _aggregate()["Film"]
+        assert movie["best_rank"] == 1
+        assert movie["best_weekend_gross"] == 0
 
     def test_films_are_sorted_by_best_gross_nulls_last(self, seed):
         seed(
