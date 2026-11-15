@@ -504,6 +504,31 @@ class TestTriggerAndStatus:
         assert (last_run["success"], last_run["matched_count"]) == (True, 7)
         assert (last_run["partial"], last_run["region_status"]) == (False, [])
 
+    def test_history_reports_a_successful_run_as_successful(self, client):
+        # #150: every run was listed with success false.
+        c = client({"": [bom(1, "The Odyssey")], "DE": [bom(1, "Heimat")]})
+        assert c.post("/api/scheduler/trigger").json()["success"] is True
+
+        [run] = c.get("/api/scheduler/history").json()["runs"]
+
+        assert (run["week"], run["success"], run["error"]) == ("2026W44", True, None)
+        assert run["movies_found"] == 2
+
+    def test_history_lists_twenty_runs_whatever_the_latest_copies(self, client, env):
+        """Each week's _latest.json copy is not a run and takes no place."""
+        tmp_path, _ = env
+        history_dir = tmp_path / "history"
+        history_dir.mkdir()
+        for week in range(10, 35):
+            run = {"success": True, "total_count": week}
+            for name in (f"2026W{week}_20260101_230000", f"2026W{week}_latest"):
+                (history_dir / f"{name}.json").write_text(json.dumps(run))
+        c = client({})
+
+        listed = c.get("/api/scheduler/history").json()["runs"]
+
+        assert [r["week"] for r in listed] == [f"2026W{w}" for w in range(34, 14, -1)]
+
     def test_history_lists_failed_and_successful_runs(self, client, env):
         tmp_path, _ = env
         history_dir = tmp_path / "history"

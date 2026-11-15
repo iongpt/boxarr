@@ -226,8 +226,15 @@ async def get_scheduler_history():
         if not history_dir.exists():
             return {"runs": []}
 
-        # Get all history files
-        history_files = sorted(history_dir.glob("*.json"), reverse=True)[:20]
+        # The 20 latest runs. {week}_latest.json repeats a week's last run.
+        history_files = sorted(
+            (
+                path
+                for path in history_dir.glob("*.json")
+                if not path.stem.endswith("_latest")
+            ),
+            reverse=True,
+        )[:20]
 
         runs = []
         for file_path in history_files:
