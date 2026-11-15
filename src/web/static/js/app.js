@@ -101,16 +101,6 @@ function getPathWithoutBase() {
     return currentPath;
 }
 
-// Safe URL construction that prevents double-prefixing
-function safeUrl(path) {
-    // If path is already absolute and contains base path, return as-is
-    if (BASE_PATH && path.startsWith(BASE_PATH)) {
-        return path;
-    }
-    // Otherwise use makeUrl to add base path
-    return makeUrl(path);
-}
-
 // Scheduler Debug Functions (Global scope for onclick handlers)
 function toggleSchedulerDebug() {
     const content = document.getElementById('schedulerDebugContent');
@@ -954,37 +944,6 @@ function reloadScheduler() {
     // ==========================================
     // updateCurrentWeek, updateHistoricalWeek and fetchHistoricalWeek live in
     // dashboard.html's own script, the only page with their buttons.
-
-    // Global variables for historical week selection
-    let selectedHistoricalWeekUrl = null;
-    let selectedHistoricalWeekText = null;
-
-    window.showHistoricalWeekModal = function(weekUrl, weekText) {
-        selectedHistoricalWeekUrl = weekUrl;
-        selectedHistoricalWeekText = weekText;
-        
-        const modal = document.getElementById('historicalWeekModal');
-        const weekTextEl = document.getElementById('selectedWeekText');
-        
-        if (weekTextEl) {
-            weekTextEl.textContent = weekText;
-        }
-        
-        if (modal) {
-            modal.classList.add('show');
-            isModalOpen = true;
-        }
-    };
-
-    window.closeHistoricalWeekModal = function() {
-        const modal = document.getElementById('historicalWeekModal');
-        if (modal) {
-            modal.classList.remove('show');
-            isModalOpen = false;
-        }
-        selectedHistoricalWeekUrl = null;
-        selectedHistoricalWeekText = null;
-    };
 
     window.showHistoricalUpdate = function() {
         const modal = document.getElementById('historicalModal');
