@@ -367,3 +367,62 @@ class TestOnlyTheConflictingCandidateIsSkipped:
             and "different IMDb ids" in r.message
             for r in caplog.records
         )
+
+
+# (chart title, chart IMDb id, library): the title match lands on an older
+# film with another IMDb id, and the only film without an id is another film
+# of the franchise, not one of the chart's whole title.
+FRANCHISE_FILM_WITHOUT_AN_ID = [
+    pytest.param(
+        "Avatar: Fire and Ash",
+        "tt1757678",
+        [("Avatar", 2009, "tt0499549"), ("Avatar: The Way of Water", 2022, None)],
+        id="avatar-fire-and-ash-vs-way-of-water",
+    ),
+    pytest.param(
+        "Avatar: Fire and Ash",
+        "tt1757678",
+        [("Avatar", 2009, "tt0499549"), ("Avatar 4", 2029, None)],
+        id="avatar-fire-and-ash-vs-avatar-4",
+    ),
+    pytest.param(
+        "Mission: Impossible - The Final Reckoning",
+        "tt9603208",
+        [
+            ("Mission: Impossible", 1996, "tt0117060"),
+            ("Mission: Impossible - Dead Reckoning Part One", 2023, None),
+        ],
+        id="final-reckoning-vs-dead-reckoning",
+    ),
+]
+
+
+class TestNoLossyMatchPastTheSkippedFilm:
+    """Skipping the film with another IMDb id does not run the lossy title
+    fallbacks over the rest of the library: only a film of the chart's whole
+    title can be taken instead."""
+
+    @ENTRY_POINTS
+    @pytest.mark.parametrize("title, imdb_id, library", FRANCHISE_FILM_WITHOUT_AN_ID)
+    @pytest.mark.parametrize("reverse", [False, True], ids=["id-first", "id-last"])
+    def test_another_film_of_the_franchise_is_not_matched(
+        self, match, title, imdb_id, library, reverse
+    ):
+        films = [_lib(*film) for film in library]
+        if reverse:
+            films.reverse()
+
+        result = match(MovieMatcher(), _chart(title, imdb_id), films)
+
+        assert result == MatchResult(box_office_movie=result.box_office_movie)
+
+    @ENTRY_POINTS
+    def test_subtitled_title_still_matches_a_film_without_an_id(self, match):
+        """Nothing in the library conflicts with the title match: the lossy
+        fallbacks apply as before, other films with ids notwithstanding."""
+        f1 = _lib("F1", 2025, None)
+        library = [_lib("Heat", 1995, "tt0113277"), f1]
+
+        result = match(MovieMatcher(), _chart("F1: The Movie", "tt16311594"), library)
+
+        assert result.radarr_movie is f1

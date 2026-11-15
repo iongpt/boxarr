@@ -3,7 +3,7 @@
 import re
 from dataclasses import dataclass
 from difflib import SequenceMatcher
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from ..utils.logger import get_logger
 from .boxoffice import BoxOfficeMovie
@@ -15,6 +15,12 @@ logger = get_logger(__name__)
 def _imdb_key(imdb_id: Optional[str]) -> str:
     """An IMDb id for comparison: case and whitespace insensitive, "" if none."""
     return (imdb_id or "").strip().lower()
+
+
+def _imdb_conflict(chart_id: str, library_imdb_id: Optional[str]) -> bool:
+    """Whether a library film's IMDb id is known and not ``chart_id`` (a key)."""
+    library_id = _imdb_key(library_imdb_id)
+    return bool(chart_id and library_id and library_id != chart_id)
 
 
 @dataclass
@@ -107,11 +113,6 @@ class MovieMatcher:
         Args:
             movies: List of Radarr movies
         """
-        self._index_movies(movies)
-        logger.info(f"Built movie index with {len(movies)} movies")
-
-    def _index_movies(self, movies: List[RadarrMovie]) -> None:
-        """Fill the search index from Radarr movies (see build_movie_index)."""
         self._movie_cache.clear()
         self._imdb_index.clear()
 
@@ -153,6 +154,8 @@ class MovieMatcher:
                     # Prefer non-sequel for the base title mapping
                     if _is_sequel(existing.title) and not _is_sequel(movie.title):
                         self._movie_cache[key] = movie
+
+        logger.info(f"Built movie index with {len(movies)} movies")
 
     def normalize_title(self, title: str) -> str:
         """
@@ -599,85 +602,65 @@ class MovieMatcher:
         self, box_movie: BoxOfficeMovie, radarr_movies: List[RadarrMovie]
     ) -> MatchResult:
         """
-        Title-match a chart entry among the library films its IMDb id allows.
+        Title-match a chart entry, never to a film with another IMDb id.
 
         The IMDb id is a veto, not only a fast path: a new sequel, spin-off or
         remake is not in the library yet, so its id misses the index, and the
         lossy title fallbacks would find the older film ("Wicked: For Good" ->
-        "Wicked", "Lilo & Stitch" 2025 -> 2002). A library film whose IMDb id
-        differs from the chart entry's is another film, so every title
-        fallback skips it - and only it: a film of that title without an IMDb
-        id (or with the same id, spelled differently) can still match. Without
-        a chart id the whole library is searched, as before.
+        "Wicked", "Lilo & Stitch" 2025 -> 2002). When they land on a library
+        film whose IMDb id differs from the chart entry's, only that film is
+        skipped: a film of the same full title without an IMDb id (or with
+        the same id, spelled differently) is taken instead - the new film
+        Radarr lists before TMDB has its id. The lossy fallbacks are not run
+        again over the rest of the library, where they would only find
+        another film of the franchise ("Avatar: Fire and Ash" -> "Avatar:
+        The Way of Water"). Without a chart id, or when the title match does
+        not conflict, the result is the plain title match, as before.
 
-        The films left are indexed by a matcher of their own, so the shared
-        index (a scheduler reuses one matcher) is never changed.
+        The shared index (a scheduler reuses one matcher) is never changed.
         """
-        chart_id = _imdb_key(box_movie.imdb_id)
-        candidates = radarr_movies
-        if chart_id:
-            candidates = [
-                movie
-                for movie in radarr_movies
-                if _imdb_key(movie.imdbId) in ("", chart_id)
-            ]
-
-        if len(candidates) == len(radarr_movies):
-            result = self.match_single(box_movie.title, radarr_movies)
-        else:
-            self._log_skipped_title_match(box_movie)
-            if candidates:
-                matcher = MovieMatcher(self.min_confidence)
-                matcher._index_movies(candidates)
-                result = matcher.match_single(box_movie.title, candidates)
-            else:
-                result = MatchResult(box_office_movie=box_movie)
+        result = self.match_single(box_movie.title, radarr_movies)
         result.box_office_movie = box_movie
-        return self._reject_imdb_conflict(result)
-
-    def _log_skipped_title_match(self, box_movie: BoxOfficeMovie) -> None:
-        """Log the film of the chart title that its IMDb id rules out, if any.
-
-        Only the cheap exact and normalized lookups of the shared index are
-        tried; it says why a sequel or remake is not linked to the older film.
-        """
-        if not self._movie_cache:
-            return
-        title = box_movie.title
-        skipped = self._try_exact_match(title) or self._try_normalized_match(title)
-        if skipped is None:
-            return
-        chart_id = _imdb_key(box_movie.imdb_id)
-        library_id = _imdb_key(skipped.imdbId)
-        if library_id and library_id != chart_id:
-            logger.info(
-                f"Not matching '{title}' ({box_movie.imdb_id}) to "
-                f"'{skipped.title}' ({skipped.imdbId}): different IMDb ids"
-            )
-
-    def _reject_imdb_conflict(self, result: MatchResult) -> MatchResult:
-        """
-        Reject a title-based match that links two films with different IMDb ids.
-
-        A safety net behind :meth:`_title_match`, which already leaves such
-        films out: when both ids are known and differ, the entry is a
-        different film and stays unmatched. Title matching is kept when either
-        id is missing.
-        """
         candidate = result.radarr_movie
-        if candidate is None:
-            return result
-        box_movie = result.box_office_movie
         chart_id = _imdb_key(box_movie.imdb_id)
-        library_id = _imdb_key(candidate.imdbId)
-        if not chart_id or not library_id or chart_id == library_id:
+        if candidate is None or not _imdb_conflict(chart_id, candidate.imdbId):
             return result
+
         logger.info(
-            f"Rejected {result.match_method} title match '{box_movie.title}' "
-            f"({box_movie.imdb_id}) -> '{candidate.title}' ({candidate.imdbId}): "
-            f"different IMDb ids"
+            f"Not matching '{box_movie.title}' ({box_movie.imdb_id}) to "
+            f"'{candidate.title}' ({candidate.imdbId}): different IMDb ids"
         )
+        return self._same_title_match(box_movie, radarr_movies)
+
+    def _same_title_match(
+        self, box_movie: BoxOfficeMovie, radarr_movies: List[RadarrMovie]
+    ) -> MatchResult:
+        """
+        Match a library film of the chart entry's full title, if one is allowed.
+
+        Only films whose IMDb id does not differ from the chart entry's are
+        considered, and only by their whole title - exactly, or after the
+        normalization and article removal of the title index - never by a
+        base title, a subtitle or fuzzily.
+        """
+        chart_id = _imdb_key(box_movie.imdb_id)
+        title = box_movie.title
+        keys = self._full_title_keys(title)
+        for movie in radarr_movies:
+            if _imdb_conflict(chart_id, movie.imdbId):
+                continue
+            if movie.title.lower() == title.lower():
+                return MatchResult(box_movie, movie, 1.0, "exact")
+            if keys & self._full_title_keys(movie.title):
+                return MatchResult(box_movie, movie, 0.95, "normalized")
         return MatchResult(box_office_movie=box_movie)
+
+    def _full_title_keys(self, title: str) -> Set[str]:
+        """A title's whole-title forms: normalized, and without its article."""
+        return {
+            self.normalize_title(title),
+            self.normalize_title(self.remove_articles(title)),
+        }
 
     def match_batch(
         self, box_office_movies: List[BoxOfficeMovie], radarr_movies: List[RadarrMovie]
@@ -752,7 +735,7 @@ class MovieMatcher:
                 match_method="imdb_id",
             )
 
-        # Fall back to title matching among the films the IMDb id allows
+        # Fall back to title matching, never to a film with another IMDb id
         return self._title_match(box_office_movie, radarr_movies)
 
     def match_movies(
