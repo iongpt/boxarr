@@ -62,11 +62,19 @@ def _errors(fetches: Sequence[RegionFetch]) -> List[str]:
 
 
 def describe_failed_regions(fetches: Sequence[RegionFetch]) -> str:
-    """Name the regions that failed, e.g. 'DE failed (kept its last chart)'."""
+    """Name the regions that failed, e.g. 'DE failed (kept its last chart)'.
+
+    A region carried over from a stored "no data" answer kept no chart, so
+    it reads 'DE failed (no data at its last fetch)'.
+    """
     parts = []
     for fetch in fetches:
-        if fetch.status == STATUS_STALE:
+        if fetch.status == STATUS_STALE and fetch.movies:
             parts.append(f"{region_label(fetch.region)} failed (kept its last chart)")
+        elif fetch.status == STATUS_STALE:
+            parts.append(
+                f"{region_label(fetch.region)} failed (no data at its last fetch)"
+            )
         elif fetch.status == STATUS_ERROR:
             parts.append(f"{region_label(fetch.region)} failed")
     return ", ".join(parts)

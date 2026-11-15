@@ -493,6 +493,24 @@ class TestPartialFailure:
         resp = h.update()
         assert h.stored()["region_status"][1]["carried_from"] == first["generated_at"]
 
+    def test_a_region_without_data_before_does_not_claim_a_chart(self, harness):
+        h = harness("domestic,DE")
+        FakeBoxOffice.charts = {
+            "": two_region_charts()[""],
+            "DE": BoxOfficeNoData("No movies found"),
+        }
+        assert h.update().json()["region_status"][1]["status"] == "no_data"
+
+        FakeBoxOffice.charts["DE"] = BoxOfficeError("HTTP 503")
+        body = h.update().json()
+
+        assert (body["success"], body["partial"]) == (True, True)
+        assert body["message"] == (
+            "Updated week 2026W44; DE failed (no data at its last fetch)"
+        )
+        de = h.stored()["region_status"][1]
+        assert (de["status"], de["movies"]) == ("stale", 0)
+
     def test_stored_legacy_week_is_kept_when_a_region_errors(self, harness):
         h = harness("domestic,DE")
         before = h.seed(
