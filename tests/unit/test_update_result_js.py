@@ -239,7 +239,7 @@ class TestDescribe:
 # this count makes a new call site fail here until it is added there.
 UPDATE_CALL = re.compile(r"""['"`][^'"`]*/scheduler/(?:trigger|update-week)['"`]""")
 SITES = {
-    STATIC_JS / "app.js": 4,
+    STATIC_JS / "app.js": 1,
     TEMPLATES / "dashboard.html": 3,
     TEMPLATES / "weekly.html": 1,
 }

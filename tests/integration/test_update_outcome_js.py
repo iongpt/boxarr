@@ -347,6 +347,38 @@ class TestDashboard:
         assert f"Kept 2026W43 - {KEPT['message']}" in log
 
 
+class TestDashboardHandlersDefinedOnce:
+    """dashboard.html's own update handlers are the only copies.
+
+    app.js used to assign window.updateCurrentWeek, fetchHistoricalWeek and
+    updateHistoricalWeek too, but dashboard.html's script runs after app.js
+    and replaces them, so those copies never ran and drifted from the live
+    ones (TestDashboard covers those).
+    """
+
+    NAMES = ("updateCurrentWeek", "fetchHistoricalWeek", "updateHistoricalWeek")
+
+    def test_app_js_does_not_define_them(self):
+        app_js = Path(static_script("app.js")).read_text()
+        for name in self.NAMES:
+            assert f"window.{name} =" not in app_js, name
+
+    def test_dashboard_defines_them(self):
+        dashboard = (
+            Path(static_script("app.js")).parents[2] / "templates" / "dashboard.html"
+        ).read_text()
+        for name in self.NAMES:
+            assert f"function {name}()" in dashboard, name
+
+    def test_describe_update_result_has_no_second_wording(self):
+        """app.js words outcomes only through update-result.js."""
+        app_js = Path(static_script("app.js")).read_text()
+        start = app_js.index("function describeUpdateResult(")
+        body = app_js[start : app_js.index("\n}\n", start)]
+        assert "Unknown error" not in body
+        assert "return window.BoxarrUpdateResult.describe(data, httpOk);" in body
+
+
 class TestAppJs:
     """app.js's own handlers (pages without a script of their own)."""
 
@@ -378,42 +410,3 @@ class TestAppJs:
         assert kept["alerts"] == [f"Week not updated: {KEPT['message']}"]
         assert failed["alerts"] == [f"Update failed: {FAILED['message']}"]
         assert partial["button"] == "▶ Trigger Now"
-
-    @pytest.mark.parametrize(
-        "call, setup",
-        [
-            ("window.updateCurrentWeek()", ""),
-            (
-                "window.fetchHistoricalWeek()",
-                "window.showHistoricalWeekModal('/2026W44', 'Week 44, 2026');",
-            ),
-            (
-                "window.updateHistoricalWeek()",
-                "document.getElementById('historicalYear').value = '2026';"
-                "document.getElementById('historicalWeek').value = '44';",
-            ),
-        ],
-    )
-    def test_progress_handlers(self, call, setup):
-        success, partial, kept, failed = self._run(
-            call,
-            _reply(SUCCESS),
-            _reply(PARTIAL),
-            _reply(KEPT),
-            _reply(FAILED),
-            setup=setup,
-        )
-
-        assert success["changed"]["progressMessage"].startswith("✅")
-
-        _assert_not_a_failure(partial)
-        assert partial["changed"]["progressMessage"] == f"⚠️ {PARTIAL_SUMMARY}"
-        assert PARTIAL_SUMMARY in partial["changed"]["progressLog"]
-
-        _assert_not_a_failure(kept)
-        assert kept["changed"]["progressMessage"] == "⚠️ Week not updated"
-        assert KEPT["message"] in kept["changed"]["progressLog"]
-        assert not kept["navigations"] and not kept["reloads"]
-
-        _assert_failure(failed, FAILED["message"])
-        assert failed["changed"]["progressMessage"].startswith("❌")

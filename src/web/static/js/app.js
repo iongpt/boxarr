@@ -69,18 +69,10 @@ function apiUrl(endpoint) {
 // Read a /scheduler/trigger or /scheduler/update-week response: outcome
 // 'success', 'partial' (written, a region failed), 'kept' (an older stored
 // week left as it was) or 'failed', with the words for it. See
-// update-result.js; without it, falls back to the plain success flag.
+// update-result.js, which every page loads before this file
+// (tests/unit/test_static_cache_busting.py).
 function describeUpdateResult(data, httpOk) {
-    if (window.BoxarrUpdateResult) {
-        return window.BoxarrUpdateResult.describe(data, httpOk);
-    }
-    const body = data && typeof data === 'object' ? data : {};
-    const ok = httpOk !== false && body.success === true;
-    return {
-        outcome: ok ? 'success' : 'failed',
-        summary: '',
-        message: ok ? '' : (body.detail || body.message || body.error || 'Unknown error'),
-    };
+    return window.BoxarrUpdateResult.describe(data, httpOk);
 }
 
 // Helper to check if current path matches a given path (handling base path)
@@ -910,88 +902,8 @@ function reloadScheduler() {
     // ==========================================
     // Dashboard Functions
     // ==========================================
-
-    window.updateCurrentWeek = function() {
-        const modal = document.getElementById('progressModal');
-        const progressMessage = document.getElementById('progressMessage');
-        const progressLog = document.getElementById('progressLog');
-        const progressFooter = document.getElementById('progressFooter');
-        
-        if (modal) {
-            modal.classList.add('show');
-            isModalOpen = true;
-        }
-        
-        // Clear previous log and set initial message
-        if (progressLog) progressLog.innerHTML = '';
-        if (progressMessage) progressMessage.textContent = 'Fetching box office data from Box Office Mojo...';
-        if (progressFooter) progressFooter.style.display = 'none';
-        
-        // Add log entry
-        function addLogEntry(message, type = 'info') {
-            if (progressLog) {
-                const entry = document.createElement('div');
-                entry.style.color = type === 'error' ? '#f56565' : type === 'success' ? '#48bb78' : type === 'warning' ? '#ed8936' : '#718096';
-                entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
-                progressLog.appendChild(entry);
-                progressLog.scrollTop = progressLog.scrollHeight;
-            }
-        }
-        
-        addLogEntry('Starting box office update...');
-        
-        fetch(apiUrl('/scheduler/trigger'), { method: 'POST' })
-            .then(response => {
-                addLogEntry('Received response from server');
-                return response.json();
-            })
-            .then(data => {
-                const result = describeUpdateResult(data);
-                if (result.outcome === 'success' || result.outcome === 'partial') {
-                    addLogEntry(`Found ${data.movies_found || 0} movies`, 'success');
-                    if (data.movies_added && data.movies_added > 0) {
-                        addLogEntry(`Added ${data.movies_added} new movies to Radarr`, 'success');
-                    }
-                    // e.g. "Updated 2 of 3 regions (FR failed)"
-                    if (result.summary) {
-                        addLogEntry(result.summary, result.outcome === 'partial' ? 'warning' : 'info');
-                    }
-                    if (progressMessage) {
-                        progressMessage.textContent = result.outcome === 'partial'
-                            ? `⚠️ ${result.message}`
-                            : '✅ Update completed successfully!';
-                    }
-                    addLogEntry('Update completed!', 'success');
-                    if (progressFooter) progressFooter.style.display = 'block';
-                    setTimeout(() => window.location.reload(), result.outcome === 'partial' ? 4000 : 2000);
-                } else if (result.outcome === 'kept') {
-                    // An older stored week was left as it was: not a failure
-                    // of the whole run, but nothing was written either.
-                    if (progressMessage) progressMessage.textContent = '⚠️ Week not updated';
-                    addLogEntry(result.message, 'warning');
-                    if (progressFooter) progressFooter.style.display = 'block';
-                } else {
-                    const errorMsg = result.message || 'Unknown error occurred';
-                    if (progressMessage) progressMessage.textContent = '❌ Update failed';
-                    addLogEntry(`Error: ${errorMsg}`, 'error');
-                    
-                    // Provide helpful error messages
-                    if (errorMsg.includes('connection') || errorMsg.includes('Connection')) {
-                        addLogEntry('Please check your Radarr connection settings', 'error');
-                    } else if (errorMsg.includes('API')) {
-                        addLogEntry('Please verify your Radarr API key', 'error');
-                    }
-                    
-                    if (progressFooter) progressFooter.style.display = 'block';
-                }
-            })
-            .catch(error => {
-                if (progressMessage) progressMessage.textContent = '❌ Network error';
-                addLogEntry(`Network error: ${error.message}`, 'error');
-                addLogEntry('Please check if the Boxarr server is running', 'error');
-                if (progressFooter) progressFooter.style.display = 'block';
-            });
-    };
+    // updateCurrentWeek, updateHistoricalWeek and fetchHistoricalWeek live in
+    // dashboard.html's own script, the only page with their buttons.
 
     // Global variables for historical week selection
     let selectedHistoricalWeekUrl = null;
@@ -1024,113 +936,6 @@ function reloadScheduler() {
         selectedHistoricalWeekText = null;
     };
 
-    window.fetchHistoricalWeek = function() {
-        if (!selectedHistoricalWeekUrl) return;
-        
-        const weekMatch = selectedHistoricalWeekUrl.match(/\/(\d{4})W(\d{2})/);
-        
-        if (!weekMatch) {
-            showMessage('Invalid week format', 'error');
-            return;
-        }
-        
-        const year = weekMatch[1];
-        const week = weekMatch[2];
-        
-        closeHistoricalWeekModal();
-        
-        const modal = document.getElementById('progressModal');
-        const progressTitle = document.getElementById('progressTitle');
-        const progressMessage = document.getElementById('progressMessage');
-        const progressLog = document.getElementById('progressLog');
-        const progressFooter = document.getElementById('progressFooter');
-        
-        if (modal) {
-            modal.classList.add('show');
-            isModalOpen = true;
-        }
-        if (progressTitle) {
-            progressTitle.textContent = `Fetching ${selectedHistoricalWeekText}`;
-        }
-        
-        // Clear previous log and set initial message
-        if (progressLog) progressLog.innerHTML = '';
-        if (progressMessage) progressMessage.textContent = `Fetching box office data for ${selectedHistoricalWeekText}...`;
-        if (progressFooter) progressFooter.style.display = 'none';
-        
-        // Add log entry helper
-        function addLogEntry(message, type = 'info') {
-            if (progressLog) {
-                const entry = document.createElement('div');
-                entry.style.color = type === 'error' ? '#f56565' : type === 'success' ? '#48bb78' : type === 'warning' ? '#ed8936' : '#718096';
-                entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
-                progressLog.appendChild(entry);
-                progressLog.scrollTop = progressLog.scrollHeight;
-            }
-        }
-        
-        addLogEntry(`Starting historical data fetch for ${selectedHistoricalWeekText}`);
-        
-        fetch(apiUrl('/scheduler/update-week'), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                year: parseInt(year), 
-                week: parseInt(week)
-            })
-        })
-        .then(response => {
-            addLogEntry('Received response from server');
-            return response.json();
-        })
-        .then(data => {
-            const result = describeUpdateResult(data);
-            if (result.outcome === 'success' || result.outcome === 'partial') {
-                addLogEntry(`Found ${data.movies_found || 0} movies`, 'success');
-                if (data.movies_added && data.movies_added > 0) {
-                    addLogEntry(`Added ${data.movies_added} new movies to Radarr`, 'success');
-                }
-                // e.g. "Updated 2 of 3 regions (FR failed)"
-                if (result.summary) {
-                    addLogEntry(result.summary, result.outcome === 'partial' ? 'warning' : 'info');
-                }
-                if (progressMessage) {
-                    progressMessage.textContent = result.outcome === 'partial'
-                        ? `⚠️ ${result.message}`
-                        : '✅ Historical week fetched successfully!';
-                }
-                addLogEntry('Update completed!', 'success');
-                if (progressFooter) progressFooter.style.display = 'block';
-                setTimeout(() => window.location.href = safeUrl(selectedHistoricalWeekUrl), result.outcome === 'partial' ? 4000 : 2000);
-            } else if (result.outcome === 'kept') {
-                // An older stored week was left as it was because a region
-                // failed: nothing was written, but nothing broke either.
-                if (progressMessage) progressMessage.textContent = '⚠️ Week not updated';
-                addLogEntry(result.message, 'warning');
-                if (progressFooter) progressFooter.style.display = 'block';
-            } else {
-                const errorMsg = result.message || 'Unknown error occurred';
-                if (progressMessage) progressMessage.textContent = '❌ Fetch failed';
-                addLogEntry(`Error: ${errorMsg}`, 'error');
-                
-                // Provide helpful error messages
-                if (errorMsg.includes('already exists')) {
-                    addLogEntry('This week has already been fetched', 'error');
-                } else if (errorMsg.includes('not found')) {
-                    addLogEntry('No box office data available for this week', 'error');
-                }
-                
-                if (progressFooter) progressFooter.style.display = 'block';
-            }
-        })
-        .catch(error => {
-            if (progressMessage) progressMessage.textContent = '❌ Network error';
-            addLogEntry(`Network error: ${error.message}`, 'error');
-            addLogEntry('Please check if the Boxarr server is running', 'error');
-            if (progressFooter) progressFooter.style.display = 'block';
-        });
-    };
-
     window.showHistoricalUpdate = function() {
         const modal = document.getElementById('historicalModal');
         if (modal) {
@@ -1145,104 +950,6 @@ function reloadScheduler() {
             modal.classList.remove('show');
             isModalOpen = false;
         }
-    };
-
-    window.updateHistoricalWeek = function() {
-        const year = document.getElementById('historicalYear').value;
-        const week = document.getElementById('historicalWeek').value;
-        
-        closeHistoricalUpdate();
-        
-        const modal = document.getElementById('progressModal');
-        const progressTitle = document.getElementById('progressTitle');
-        const progressMessage = document.getElementById('progressMessage');
-        const progressLog = document.getElementById('progressLog');
-        const progressFooter = document.getElementById('progressFooter');
-        
-        if (modal) {
-            modal.classList.add('show');
-            isModalOpen = true;
-        }
-        if (progressTitle) {
-            progressTitle.textContent = `Updating Week ${week}, ${year}`;
-        }
-        
-        // Clear previous log and set initial message
-        if (progressLog) progressLog.innerHTML = '';
-        if (progressMessage) progressMessage.textContent = `Fetching box office data for Week ${week}, ${year}...`;
-        if (progressFooter) progressFooter.style.display = 'none';
-        
-        // Add log entry helper
-        function addLogEntry(message, type = 'info') {
-            if (progressLog) {
-                const entry = document.createElement('div');
-                entry.style.color = type === 'error' ? '#f56565' : type === 'success' ? '#48bb78' : type === 'warning' ? '#ed8936' : '#718096';
-                entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
-                progressLog.appendChild(entry);
-                progressLog.scrollTop = progressLog.scrollHeight;
-            }
-        }
-        
-        addLogEntry(`Starting historical data fetch for Week ${week}, ${year}`);
-        
-        fetch(apiUrl('/scheduler/update-week'), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                year: parseInt(year), 
-                week: parseInt(week)
-            })
-        })
-        .then(response => {
-            addLogEntry('Received response from server');
-            return response.json();
-        })
-        .then(data => {
-            const result = describeUpdateResult(data);
-            if (result.outcome === 'success' || result.outcome === 'partial') {
-                addLogEntry(`Found ${data.movies_found || 0} movies`, 'success');
-                if (data.movies_added && data.movies_added > 0) {
-                    addLogEntry(`Added ${data.movies_added} new movies to Radarr`, 'success');
-                }
-                // e.g. "Updated 2 of 3 regions (FR failed)"
-                if (result.summary) {
-                    addLogEntry(result.summary, result.outcome === 'partial' ? 'warning' : 'info');
-                }
-                if (progressMessage) {
-                    progressMessage.textContent = result.outcome === 'partial'
-                        ? `⚠️ ${result.message}`
-                        : '✅ Historical week updated successfully!';
-                }
-                addLogEntry('Update completed!', 'success');
-                if (progressFooter) progressFooter.style.display = 'block';
-                setTimeout(() => window.location.href = makeUrl(`/${year}W${String(week).padStart(2, '0')}`), result.outcome === 'partial' ? 4000 : 2000);
-            } else if (result.outcome === 'kept') {
-                // An older stored week was left as it was because a region
-                // failed: nothing was written, but nothing broke either.
-                if (progressMessage) progressMessage.textContent = '⚠️ Week not updated';
-                addLogEntry(result.message, 'warning');
-                if (progressFooter) progressFooter.style.display = 'block';
-            } else {
-                const errorMsg = result.message || 'Unknown error occurred';
-                if (progressMessage) progressMessage.textContent = '❌ Update failed';
-                addLogEntry(`Error: ${errorMsg}`, 'error');
-                
-                // Provide helpful error messages
-                if (errorMsg.includes('already exists')) {
-                    addLogEntry('This week has already been fetched', 'error');
-                } else if (errorMsg.includes('not found')) {
-                    addLogEntry('No box office data available for this week', 'error');
-                }
-                
-                if (progressFooter) progressFooter.style.display = 'block';
-            }
-        })
-        .catch(error => {
-            if (progressMessage) progressMessage.textContent = '❌ Network error';
-            addLogEntry(`Network error: ${error.message}`, 'error');
-            addLogEntry('Please check if the Boxarr server is running', 'error');
-            if (progressFooter) progressFooter.style.display = 'block';
-        });
     };
 
     window.closeProgressModal = function() {

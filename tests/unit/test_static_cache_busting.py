@@ -48,5 +48,5 @@ def test_every_template_loads_the_same_update_result_js_version():
 
 @pytest.mark.parametrize("template", sorted(_app_js_versions()))
 def test_templates_that_load_app_js_also_load_its_update_helper(template):
-    """app.js calls window.BoxarrUpdateResult; a page without it falls back."""
+    """app.js calls window.BoxarrUpdateResult, which update-result.js defines."""
     assert template in _versions(UPDATE_RESULT_JS)
