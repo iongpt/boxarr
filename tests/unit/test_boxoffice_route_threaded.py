@@ -127,7 +127,8 @@ def test_region_query_selects_the_chart(client, path, query, expected):
     "path",
     ["/api/boxoffice/current", "/api/boxoffice/history/2024/W48"],
 )
-@pytest.mark.parametrize("bad", ["NLD", "domestic,DE", "1A"])
+# "ß" and "ﬁ" upper-case to the ASCII "SS" and "FI".
+@pytest.mark.parametrize("bad", ["NLD", "domestic,DE", "1A", "ß", "ﬁ", "ıt"])
 def test_invalid_region_query_is_a_400(client, path, bad):
     _RegionRecordingService.regions = []
     with patch("src.api.routes.boxoffice.BoxOfficeService", _RegionRecordingService):

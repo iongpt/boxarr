@@ -197,9 +197,16 @@ def normalize_region_code(region: Optional[str]) -> str:
     Raises:
         BoxOfficeError: If the region is not one area code. The region
             setting can list several, comma-joined; passing it here unsplit
-            would otherwise fetch ?area=DOMESTIC,DE.
+            would otherwise fetch ?area=DOMESTIC,DE. Non-ASCII input is
+            rejected before upper-casing, which turns "ß" into "SS".
     """
-    code = (region or "").strip().upper()
+    raw = (region or "").strip()
+    if not raw.isascii():
+        raise BoxOfficeError(
+            f"Invalid Box Office Mojo region {region!r}: expected one "
+            "two-letter area code, or 'domestic'"
+        )
+    code = raw.upper()
     if code == "DOMESTIC":
         return ""
     if code and not _AREA_CODE.fullmatch(code):
