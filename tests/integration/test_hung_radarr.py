@@ -284,8 +284,19 @@ def _week_missing_metadata(monkeypatch, data_dir) -> None:
     (weekly_pages / "2026W45.json").write_text(json.dumps(week))
 
 
+def _week_missing_metadata_with_mojo_id(monkeypatch, data_dir) -> None:
+    """The same week with Mojo's IMDb id, so repair picks the film by that id."""
+    weekly_pages = data_dir / "weekly_pages"
+    weekly_pages.mkdir()
+    movie = {"rank": 1, "title": "Hung Film", "bom_imdb_id": "tt0000001"}
+    week = {"year": 2026, "week": 45, "movies": [movie]}
+    (weekly_pages / "2026W45.json").write_text(json.dumps(week))
+
+
 # Routes that get to Radarr after other work: the chart fetch, or the scan of
-# the stored weeks that the repair streams its progress through.
+# the stored weeks that the repair streams its progress through. The repair
+# looks a film up one way when the week stores Mojo's IMDb id and another way
+# when it does not, so both are covered.
 LATER_ROUTES = [
     ("GET", "/api/boxoffice/current", None, _current_chart),
     (
@@ -294,13 +305,19 @@ LATER_ROUTES = [
         {"dry_run": True, "rate_limit_delay": 0},
         _week_missing_metadata,
     ),
+    (
+        "POST",
+        "/api/admin/repair-missing-metadata",
+        {"dry_run": True, "rate_limit_delay": 0},
+        _week_missing_metadata_with_mojo_id,
+    ),
 ]
 
 
 @pytest.mark.parametrize(
     "method, path, body, prepare",
     LATER_ROUTES,
-    ids=[f"{m} {p}" for m, p, _, _ in LATER_ROUTES],
+    ids=[f"{m} {p} {prep.__name__}" for m, p, _, prep in LATER_ROUTES],
 )
 def test_a_route_that_asks_radarr_later_does_not_block_other_requests(
     app, hung_radarr, monkeypatch, tmp_path, method, path, body, prepare
