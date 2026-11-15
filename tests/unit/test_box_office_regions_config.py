@@ -225,10 +225,17 @@ class TestValidate:
         with pytest.raises(ValueError, match="at least one"):
             validate_box_office_regions(value)
 
-    @pytest.mark.parametrize("value", ["", [""], ["domestic"], [None]])
+    @pytest.mark.parametrize("value", ["", [""], ["domestic"]])
     def test_empty_strings_still_mean_domestic(self, value):
         # A setup page from before multi-region posts "" for domestic.
         assert validate_box_office_regions(value) == ""
+
+    @pytest.mark.parametrize("value", [[None], [None, "DE"], "[null]"])
+    def test_rejects_a_null_region(self, value):
+        # JSON has no unquoted null region: a posted null is a client's
+        # mistake, not domestic. The lenient loaders still read it as one.
+        with pytest.raises(ValueError, match="two-letter"):
+            validate_box_office_regions(value)
 
     def test_deeply_nested_brackets_are_rejected_not_raised(self):
         with pytest.raises(ValueError, match="two-letter"):
