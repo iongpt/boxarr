@@ -137,6 +137,27 @@ class TestRegionMovies:
         ]
         assert cards[2]["weekend_gross"] is None
 
+    @pytest.mark.parametrize("broken", [True, "7", "<b>7</b>", 2.5, [1], {"a": 1}])
+    def test_an_unusable_rank_in_the_also_line_is_shown_as_none(self, broken):
+        # A hand-edited stored row: its rank is no whole number.
+        movie = {
+            "title": "A",
+            "rank": 1,
+            "region": "",
+            "regions": [
+                {"code": "", "rank": 1, "weekend_gross": 10.0},
+                {"code": "RO", "rank": broken, "weekend_gross": 5.0},
+                {"code": "FR", "rank": 2, "weekend_gross": 4.0},
+            ],
+        }
+
+        (card,) = region_movies([movie], None)
+
+        assert card["also"] == [
+            {"rank": None, "tag": "RO", "name": "Romania"},
+            {"rank": 2, "tag": "FR", "name": "France"},
+        ]
+
     def test_stored_movies_are_not_changed(self):
         before = repr(self.MOVIES)
         region_movies(self.MOVIES, "RO")

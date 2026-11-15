@@ -280,10 +280,14 @@ def _movie_rows(movie: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def _also(rows: List[Dict[str, Any]], shown: str) -> List[Dict[str, Any]]:
-    """The film's other appearances, for its "Also: #5 RO · #4 GB" line."""
+    """The film's other appearances, for its "Also: #5 RO · #4 GB" line.
+
+    A rank that is not a whole number - a hand-edited file - is shown as
+    none, like a missing one.
+    """
     return [
         {
-            "rank": row.get("rank"),
+            "rank": stored_rank(row.get("rank")),
             "tag": region_tag(row.get("code") or ""),
             "name": region_name(row.get("code") or ""),
         }
