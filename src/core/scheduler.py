@@ -206,6 +206,10 @@ class BoxarrScheduler:
                 )
             )
 
+            # Refresh all stored weekly pages against current Radarr
+            # status/details - also when this week's legacy file was kept.
+            refresh_results = await self._refresh_stored_weeks()
+
             if not build.written:
                 # A stored legacy (pre-multi-region) week was kept: a region failed.
                 results = self._failed_results(
@@ -215,23 +219,9 @@ class BoxarrScheduler:
                     build.errors,
                     partial=True,
                 )
+                results["status_refresh"] = refresh_results
                 await self._save_to_history(results, actual_year, actual_week)
                 return results
-
-            # Refresh all stored weekly pages against current Radarr status/details.
-            refresh_results = await self._run_in_executor(
-                partial(
-                    refresh_weekly_data_from_radarr,
-                    radarr_service=self.radarr_service,
-                    ignore_cache=True,
-                )
-            )
-            logger.info(
-                "Refreshed weekly data from Radarr: %s weeks updated, %s movies refreshed, %s movies linked",
-                refresh_results.get("weeks_updated", 0),
-                refresh_results.get("movies_refreshed", 0),
-                refresh_results.get("movies_linked", 0),
-            )
 
             # Process results for history
             results = self._process_match_results(build.match_results)
@@ -268,6 +258,15 @@ class BoxarrScheduler:
                     # The week was written - and films may have been added to
                     # Radarr - before the run failed: record what it holds.
                     failed = self._written_then_failed_results(str(e), regions, build)
+                elif build is not None:
+                    # A stored legacy week was kept, then the refresh failed.
+                    failed = self._failed_results(
+                        str(e),
+                        regions,
+                        build.region_status,
+                        build.errors + [str(e)],
+                        partial=True,
+                    )
                 elif isinstance(e, WeekBuildError):
                     # Nothing was written; the error carries each region's
                     # status.
@@ -282,6 +281,23 @@ class BoxarrScheduler:
             raise SchedulerError(f"Update failed: {e}") from e
         finally:
             WEEKLY_WRITE_LOCK.release()
+
+    async def _refresh_stored_weeks(self) -> Dict[str, Any]:
+        """Refresh every stored week against Radarr's current status."""
+        refresh_results: Dict[str, Any] = await self._run_in_executor(
+            partial(
+                refresh_weekly_data_from_radarr,
+                radarr_service=self.radarr_service,
+                ignore_cache=True,
+            )
+        )
+        logger.info(
+            "Refreshed weekly data from Radarr: %s weeks updated, %s movies refreshed, %s movies linked",
+            refresh_results.get("weeks_updated", 0),
+            refresh_results.get("movies_refreshed", 0),
+            refresh_results.get("movies_linked", 0),
+        )
+        return refresh_results
 
     def _written_then_failed_results(
         self, error: str, regions: List[str], build: WeekBuildResult

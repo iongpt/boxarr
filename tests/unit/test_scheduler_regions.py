@@ -262,8 +262,39 @@ class TestUpdateBoxOffice:
         assert results["success"] is False
         assert results["message"] == "Kept the existing data for 2026W44; DE failed"
         assert week_file.read_bytes() == before
-        assert refreshes == []
+        # The other stored weeks are refreshed from Radarr, as on every run.
+        assert refreshes == [
+            {"radarr_service": scheduler.radarr_service, "ignore_cache": True}
+        ]
+        assert "status_refresh" in results
         assert latest(tmp_path)["success"] is False
+
+    def test_kept_legacy_week_then_a_failed_refresh_keeps_region_status(
+        self, env, monkeypatch
+    ):
+        tmp_path, _ = env
+        week_file = tmp_path / "weekly_pages" / "2026W44.json"
+        week_file.parent.mkdir(parents=True)
+        week_file.write_text('{"year": 2026, "week": 44, "movies": []}')
+
+        def broken_refresh(*args, **kwargs):
+            raise RuntimeError("Radarr went away")
+
+        monkeypatch.setattr(
+            scheduler_core, "refresh_weekly_data_from_radarr", broken_refresh
+        )
+        scheduler = make_scheduler(
+            {"": [bom(1, "The Odyssey")], "DE": BoxOfficeError("HTTP 503")}
+        )
+
+        with pytest.raises(SchedulerError, match="Radarr went away"):
+            asyncio.run(scheduler.update_box_office(2026, 44))
+
+        run = latest(tmp_path)
+        assert (run["success"], run["partial"]) == (False, True)
+        assert run["error"] == "Radarr went away"
+        assert run["errors"] == ["DE: HTTP 503", "Radarr went away"]
+        assert [s["status"] for s in run["region_status"]] == ["ok", "error"]
 
     def test_an_error_that_is_not_a_week_build_error_is_still_saved(
         self, env, monkeypatch
