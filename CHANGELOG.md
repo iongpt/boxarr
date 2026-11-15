@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-11-15
+
+### Added
+- **Several box office regions at once**: pick up to 5 Box Office Mojo regions in the setup page's new region picker, or set `box_office_region` to `domestic,FR,DE` or a YAML list (`BOXARR_FEATURES_BOX_OFFICE_REGION` takes the same forms). Every run fetches each region and stores the week as one combined list (#159, #160, #166):
+  - A film that charts in several regions appears once. Regions are matched by Box Office Mojo's IMDb id, then by title.
+  - The weekly page has `All | <region>` tabs. A region tab shows that region's own ranks and grosses. Cards carry a region tag ("#1 DOM") and an "Also: #3 RO · #2 GB" line. In weeks with several regions, the overview's best-rank badge ("#2 FR") and the widget name the region too.
+  - `box_office_limit` applies to each region. `auto_add_limit` is one cap per run across all regions. The minimum-gross filter uses the film's best weekend gross in any region.
+  - If a region fails, the others are still saved. The weekly page shows a banner, the run is marked partial, and a region that failed keeps the chart it had stored, marked as stale. A region that has no chart that weekend is not a failure.
+  - `/api/boxoffice/current` and `/api/boxoffice/history/{year}/W{week}` take `?region=`. Run history, `/api/scheduler/status`, `/trigger` and `/update-week` report each region's status.
+  - With one region configured, the stored week and the pages are the same as in 2.1.2, apart from the changes listed under Changed.
+
+### Fixed
+- **Saved settings apply without a restart**: after a new Radarr URL or API key was saved, Run Now and the weekly job kept calling the old Radarr (and auto-added films to it). Turning automatic updates on or off, or changing the schedule, did nothing until a restart. Now each run uses the settings it starts with, the Radarr library and quality-profile caches only answer the Radarr they came from, and Save applies the schedule to the running scheduler. If the scheduler cannot take the new settings, the save still succeeds and the setup page shows a warning. Reload now starts a scheduler that was off at startup (#137, #167).
+- **The schedule runs in its configured timezone**: the job fired in the host's timezone (UTC in the Docker image), whatever `boxarr.scheduler.timezone` said. A scheduled run also picks its weekend by the date in that zone. The default schedule `0 23 * * 2` runs on **Wednesday** at 23:00 (APScheduler counts Monday as 0); the docs that said Tuesday are corrected and no schedule changes day (#145, #167).
+- **"Add to Radarr", auto-add, Ignore and the metadata repair act on the film that charted**: a title search can return several films with the same title (Superman 1978 and 2025). Every lookup now takes the result with Box Office Mojo's IMDb id, then tries Radarr's IMDb lookup, and never uses a film with another IMDb id as the charted film. The status refresh also unlinks stored cards that point at a film with another IMDb id (#141, #168).
+- **A new film is matched to your library even when an older film of the same title is in it**: since 2.1.2, a chart entry with an IMDb id stays unmatched when the library film it lands on has another id. The matcher now skips only that film and tries one with the same whole title. Auto-add no longer spends an attempt on a film already in Radarr (part of #135, #168).
+- **The auto-add limit counts only the films actually added**: films that a filter drops, ignored films and films Radarr rejects no longer use a slot. A pass stops after three Radarr failures in a row (#139, #159).
+- **Run history reports successful runs as successful** and lists the 20 newest runs; each week's `_latest` copy took a slot before (#150, #159).
+- **Settings in `config.yaml` survive the first save**: Boxarr reads `local.yaml` when it exists, otherwise `config.yaml`. The setup page's first save created `local.yaml` from the form alone, so settings kept only in `config.yaml` (such as `url_base`, the scheduler timezone, `log_level`, `radarr.search_for_movie` and the genre root folders) went back to their defaults. The first save now starts from `config.yaml`. An install that already has a `local.yaml` is not changed: copy any setting still missing into `local.yaml`. Boxarr logs a warning while an unread `config.yaml` sits next to `local.yaml` (#166).
+- **A hung Radarr no longer freezes Boxarr from `/api/boxoffice/current` or the metadata repair**, and the weekly page no longer piles up status requests while Radarr is slow (#138, #166).
+
+### Changed
+- **Installs with no timezone set now run at 23:00 New York time**: with neither `TZ` nor `boxarr.scheduler.timezone` set, the default zone America/New_York now applies. Before, these installs ran at 23:00 host time, which is UTC in Docker (18:00 or 19:00 in New York). Set `TZ` or `boxarr.scheduler.timezone` to choose another zone. A timezone name Boxarr does not know means the host's zone (#167).
+- **Daylight-saving caveat**: a schedule close to a daylight-saving change can skip a week or run twice that weekend. This is an APScheduler 3.x behaviour. The default Wednesday 23:00 is not affected. Examples: Monday 00:00 or Sunday 01:00 in New York, Monday 00:00 in London, Sunday 02:00 in Berlin (#167).
+- **When Box Office Mojo and TMDB disagree on a film's IMDb id, Boxarr treats them as different films**: the card is not linked through its TMDB id, auto-add skips it, and "Add to Radarr" refuses with a message naming both ids. Add such a film in Radarr directly. This replaces the 2.1.2 behaviour, which linked those films by TMDB id (#168).
+- **An area code Box Office Mojo does not know fails the run**: Box Office Mojo answers an unknown code (such as `UK` instead of `GB`) with the US & Canada chart, which was stored as that region's week. The run now fails with "Box Office Mojo has no market 'UK' (did you mean GB?)" (#159).
+- **Failed runs are saved to history**: the setup page's Last Run shows "(failed)", "(no chart)" or the regions that failed (#159, #160).
+- **With a low auto-add limit, films further down the chart can be added**: a limit of 1 with an ignored #1 now adds #2 (#139).
+- **A week stored before 2.2.0 whose regions are not all fetched is kept**: if any region fails while updating such a week, the stored week is left as it was and the run reports a failure. It is replaced once every region answers (#159).
+- **Weeks stored before 2.2.0 do not have Box Office Mojo's IMDb id**: press Update Week on a week to get exact-film picks for it. Films ignored from a wrong card in an earlier version may have stored another film's TMDB id; ignore them again from the corrected card (#168).
+- **The setup region picker calls the domestic chart "US & Canada"**, as every other page does. Search still finds it by "domestic", "usa" or "canada" (#166).
+- **Dependencies**: `tzlocal` is now listed (Boxarr imports it directly), and `apscheduler` is capped below 4, whose API differs.
+- **Responses**: `/api/config/save` can return a `warning`. `/api/scheduler/status` reports the timezone the job fires in. `/api/scheduler/reload` starts a stopped scheduler and succeeds when updates are off (#167).
+
+### Downgrading
+- 2.1.2 can read weeks written by 2.2.0 (the new keys are additive), but shows a week with several regions as one list. Its `/api/scheduler/status` reports every saved run as successful, so a failed run saved by 2.2.0 shows there as a success with 0/0 matched.
+
 ## [2.1.2] - 2026-11-15
 
 ### Security
