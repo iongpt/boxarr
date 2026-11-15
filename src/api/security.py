@@ -13,10 +13,13 @@ routes cannot rely on the preflight either.
 So every request that is not GET, HEAD or OPTIONS passes this check first:
 
 1. ``Sec-Fetch-Site`` is set by the browser itself, so a page cannot fake it.
-   ``cross-site`` is refused; ``same-origin``, ``same-site`` and ``none``
-   (typed or bookmarked) are let through without looking at the host, which
-   keeps https reverse proxies that rewrite ``Host`` working. Browsers send it
-   to https and localhost URLs only, so a plain-http install never sees it.
+   ``cross-site`` is refused; ``same-origin`` and ``none`` (typed or
+   bookmarked) are let through without looking at the host, which keeps https
+   reverse proxies that rewrite ``Host`` working. ``same-site`` - another
+   origin of the same site, such as a sibling app on another subdomain or
+   another localhost port - gets the checks below, like a request without the
+   header. Browsers send it to https and localhost URLs only, so a plain-http
+   install never sees it.
 2. Otherwise a request that another site's page could only send after a CORS
    preflight is let through: one carrying ``X-Boxarr-Request`` (any non-blank
    value), which Boxarr's own pages add to every such request (app.js wraps
@@ -54,8 +57,9 @@ SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 _CORS_SAFELISTED_METHODS = frozenset({"GET", "HEAD", "POST"})
 
 # Values a browser sends for a request this server's own pages made (or that
-# the user typed). Anything else falls through to the checks below.
-_SAME_SITE_FETCHES = frozenset({"same-origin", "same-site", "none"})
+# the user typed). Anything else - same-site included, since a sibling app on
+# the same domain is another origin - falls through to the checks below.
+_SAME_SITE_FETCHES = frozenset({"same-origin", "none"})
 
 # The custom header Boxarr's own pages send with every state-changing request
 # (app.js, BOXARR_REQUEST_HEADER).

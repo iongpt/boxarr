@@ -402,7 +402,13 @@ ALLOWED_HEADERS = {
     # curl, scripts and Boxarr's own server-side callers send neither header.
     "no-browser-headers": {},
     "same-origin": {"Sec-Fetch-Site": "same-origin", "Origin": "http://testserver"},
-    "same-site": {"Sec-Fetch-Site": "same-site"},
+    # Another origin of the same site gets the normal checks; Boxarr's own
+    # pages pass them with their request header.
+    "same-site-with-request-header": {
+        "Sec-Fetch-Site": "same-site",
+        "Origin": "http://sibling.testserver",
+        "X-Boxarr-Request": "1",
+    },
     "typed-or-bookmarked": {"Sec-Fetch-Site": "none"},
     # A reverse proxy that rewrites Host: the browser still says same-origin.
     "same-origin-host-rewritten": {
@@ -512,7 +518,27 @@ def test_cross_site_reads_are_not_blocked(env):
         ({"sec-fetch-site": "Cross-Site"}, True),
         ({"sec-fetch-site": "same-origin", "origin": EVIL}, False),
         ({"sec-fetch-site": "none", "origin": EVIL}, False),
-        ({"sec-fetch-site": "same-site", "origin": EVIL, "host": "boxarr"}, False),
+        # same-site is another origin (a sibling subdomain, another localhost
+        # port): it gets the header / method / Origin checks like no header
+        ({"sec-fetch-site": "same-site", "origin": EVIL, "host": "boxarr"}, True),
+        (
+            {
+                "sec-fetch-site": "same-site",
+                "origin": "http://localhost:7575",
+                "host": "localhost:8888",
+            },
+            True,
+        ),
+        (
+            {
+                "sec-fetch-site": "same-site",
+                "origin": EVIL,
+                "host": "boxarr",
+                "x-boxarr-request": "1",
+            },
+            False,
+        ),
+        ({"sec-fetch-site": "same-site"}, False),
         # the request header stands in for a matching Origin, never for cross-site
         ({"origin": EVIL, "host": "boxarr", "x-boxarr-request": "1"}, False),
         ({"origin": "null", "x-boxarr-request": "yes"}, False),
