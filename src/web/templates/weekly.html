@@ -455,6 +455,13 @@
     color: var(--text-secondary);
     margin-top: 2rem;
 }
+
+/* The "Also: #3 RO · #2 FR" line is one line: undo .movie-meta span's
+   display: block for the appearances inside it. */
+.movie-meta .region-also span {
+    display: inline;
+    margin: 0;
+}
 </style>
 {% endif %}{% endblock %}
 

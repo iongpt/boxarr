@@ -12,6 +12,7 @@ before: none of those elements, whatever ?region says.
 
 import copy
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -354,6 +355,20 @@ class TestCombinedList:
         ]
         assert tabs[0]["current"] == "page"
 
+    def test_also_line_stays_on_one_line(self, page):
+        """``.movie-meta span`` is display: block; the appearances are inline.
+
+        The rule lives in the region-only style block, so a one-region page
+        (which has no "region-also" at all) is unchanged.
+        """
+        html = page(copy.deepcopy(MULTI_WEEK))
+
+        styles = "".join(s.get_text() for s in _soup(html).find_all("style"))
+        rule = re.search(r"\.movie-meta \.region-also span\s*\{([^}]*)\}", styles)
+        assert rule is not None
+        assert re.search(r"display:\s*inline\s*;", rule.group(1))
+        assert re.search(r"margin:\s*0\s*;", rule.group(1))
+
     def test_summary_counts_every_film(self, page):
         assert _summary(page(copy.deepcopy(MULTI_WEEK))) == {
             "total": "4",
@@ -589,6 +604,28 @@ class TestStoredDataIsEscaped:
         assert "/2026W44?region=%22%3E%3Cscript%3Ealert%281%29%3C/script%3E" in (
             tab_hrefs
         )
+
+    def test_a_hostile_code_in_the_also_line_is_escaped(self, page):
+        """A non-lead row's code is shown only in the "Also:" line."""
+        evil = '"><script>alert(1)</script>'
+        week = copy.deepcopy(MULTI_WEEK)
+        week["regions"] = ["", "RO", evil]
+        # Clayface leads with its domestic row; its third row is the evil one.
+        week["movies"][0]["regions"][2]["code"] = evil
+
+        html = page(week)
+
+        clayface = _soup(html).find("div", class_="movie-card")
+        also = clayface.find(class_="region-also")
+        assert also.find("script") is None
+        assert also.get_text(" ", strip=True) == f"Also: #3 RO · #2 {evil}"
+        appearance = also.find_all("span")[1]
+        assert appearance["title"] == evil
+        assert "<script>alert(1)</script>" not in html
+        assert (
+            'title="&#34;&gt;&lt;script&gt;alert(1)&lt;/script&gt;">#2 '
+            "&#34;&gt;&lt;script&gt;alert(1)&lt;/script&gt;</span>"
+        ) in html
 
     def test_a_stored_odd_code_is_selectable_but_never_raw(self, page):
         week = copy.deepcopy(MULTI_WEEK)
