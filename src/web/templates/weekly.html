@@ -698,7 +698,7 @@
                     {% if movie.year %}<span>{{ movie.year }}</span>{% endif %}
                     {% if movie.genres %}<span>{{ movie.genres }}</span>{% endif %}
                     {% if movie.weekend_gross %}
-                    <span>Weekend: ${{ "{:,.0f}".format(movie.weekend_gross) }}</span>
+                    <span>Weekend{% if region_view and region_view.selected is none and region_view.regions|length > 1 %} ({{ movie.region_tag }}){% endif %}: ${{ "{:,.0f}".format(movie.weekend_gross) }}</span>
                     {% endif %}{% if region_view and movie.also %}
                     <span class="region-also">Also: {% for also in movie.also %}<span title="{{ also.name }}">{% if also.rank is not none %}#{{ also.rank }} {% endif %}{{ also.tag }}</span>{% if not loop.last %} · {% endif %}{% endfor %}</span>{% endif %}
                 </div>

@@ -335,8 +335,37 @@ class TestCombinedList:
             ("Wicker", "#1 GB", "Also: #2 DOM · #2 RO"),
             ("Dom Only", "#3 DOM", None),
         ]
-        # The lead row's gross.
-        assert "Weekend: $11,000,000" in cards[0]["meta"]
+        # The lead row's gross, named by its region.
+        assert "Weekend (DOM): $11,000,000" in cards[0]["meta"]
+
+    def test_the_weekend_gross_names_its_region(self, page):
+        cards = _cards(page(copy.deepcopy(MULTI_WEEK)))
+
+        weekend = [re.search(r"Weekend[^$]*\$[\d,]+", c["meta"]).group() for c in cards]
+        assert weekend == [
+            "Weekend (DOM): $11,000,000",
+            "Weekend (RO): $200,000",
+            "Weekend (GB): $3,000,000",
+            "Weekend (DOM): $1,000,000",
+        ]
+
+    def test_a_region_tab_needs_no_region_on_the_weekend_line(self, page):
+        # The tab's note already says whose grosses they are.
+        cards = _cards(page(copy.deepcopy(MULTI_WEEK), "/2026W44?region=RO"))
+
+        assert "Weekend: $60,800" in cards[2]["meta"]
+        assert all("Weekend (" not in c["meta"] for c in cards)
+
+    def test_one_failed_region_keeps_the_plain_weekend_line(self, page):
+        week = _single_region_week()
+        week["region_status"] = [
+            _status("NL", "stale", carried_from="2026-11-02T09:00:00")
+        ]
+
+        cards = _cards(page(week))
+
+        assert cards and all("Weekend (" not in c["meta"] for c in cards)
+        assert any("Weekend: $" in c["meta"] for c in cards)
 
     def test_one_card_per_film_keeps_its_ids(self, page):
         cards = _cards(page(copy.deepcopy(MULTI_WEEK)))
