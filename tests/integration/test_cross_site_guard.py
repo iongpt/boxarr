@@ -19,6 +19,8 @@ send no Sec-Fetch-Site and the Origin has nothing to match.
 
 import json
 import logging
+import re
+import subprocess  # nosec B404 - runs the local node binary on a test script
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -718,3 +720,127 @@ def test_boxarr_pages_work_behind_a_plain_http_proxy_that_rewrites_host(
     headers = {"Origin": origin, **proxy_headers}
     refused = _trigger(env["client"], headers, b"x=1").status_code == 403
     assert refused is refused_without_header
+
+
+# --------------------------------------------------------------------------
+# The API docs page (Swagger UI) marks its requests too
+# --------------------------------------------------------------------------
+
+INLINE_SCRIPT = re.compile(r"<script>(.*?)</script>", re.DOTALL)
+
+# Runs the docs page's own inline script with a stand-in SwaggerUIBundle that
+# returns its config, then puts requests through the config's interceptor.
+DOCS_DRIVER = r"""
+const fs = require('fs');
+const vm = require('vm');
+const input = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+const page = new URL(input.page);
+const SwaggerUIBundle = (config) => config;
+SwaggerUIBundle.presets = { apis: 'apis' };
+SwaggerUIBundle.SwaggerUIStandalonePreset = 'standalone';
+const context = vm.createContext({
+    SwaggerUIBundle, URL, window: { location: { href: page.href, origin: page.origin } },
+});
+vm.runInContext(input.script + '\n;this.config = ui;', context);
+const out = input.requests.map((request) => context.config.requestInterceptor(request));
+process.stdout.write(JSON.stringify({ url: context.config.url, requests: out }));
+"""
+
+
+def _docs_config_script(html: str) -> str:
+    scripts = [s for s in INLINE_SCRIPT.findall(html) if "SwaggerUIBundle(" in s]
+    assert len(scripts) == 1, html
+    return scripts[0]
+
+
+@pytest.mark.parametrize("url_base, prefix", [("", ""), ("boxarr", "/boxarr")])
+def test_the_api_docs_page_marks_its_requests(env, monkeypatch, url_base, prefix):
+    """Swagger UI loads no Boxarr script, so app.js cannot mark its "Try it
+    out" requests: its config carries an interceptor that does."""
+    monkeypatch.setattr(cfg_utils.settings, "boxarr_url_base", url_base)
+    client = TestClient(create_app())
+
+    response = client.get(f"{prefix}/api/docs")
+
+    assert response.status_code == 200
+    assert "swagger-ui-bundle.js" in response.text
+    config = _docs_config_script(response.text)
+    assert "requestInterceptor" in config and REQUEST_HEADER in config
+    assert f"'{prefix}/openapi.json'" in config
+    assert client.get(f"{prefix}/openapi.json").status_code == 200
+    # Still not part of the API description.
+    assert "/api/docs" not in client.get(f"{prefix}/openapi.json").json()["paths"]
+
+
+DOCS_PAGE = "http://nas.lan:8080/api/docs"
+DOCS_REQUESTS = [
+    # (what Swagger UI hands its interceptor, whether the header must be added)
+    (
+        {
+            "url": "http://nas.lan:8080/api/scheduler/trigger",
+            "method": "POST",
+            "headers": {"accept": "application/json"},
+        },
+        True,
+    ),
+    ({"url": "/api/movies/42/upgrade", "method": "post"}, True),
+    (
+        {"url": "http://nas.lan:8080/api/weeks/2026/W45/delete", "method": "DELETE"},
+        True,
+    ),
+    (
+        {"url": "http://nas.lan:8080/openapi.json", "method": "GET", "headers": {}},
+        False,
+    ),
+    ({"url": "http://nas.lan:8080/api/health", "headers": {}}, False),
+    # Never to another origin: it would turn a simple request into a preflighted one.
+    ({"url": "http://evil.example/api/x", "method": "POST", "headers": {}}, False),
+    ({"url": "http://nas.lan/api/x", "method": "POST", "headers": {}}, False),
+]
+
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+def test_the_api_docs_page_adds_the_header_to_state_changing_requests(env, tmp_path):
+    html = env["client"].get("/api/docs").text
+    driver = tmp_path / "docs_driver.js"
+    driver.write_text(DOCS_DRIVER)
+    scenario = tmp_path / "docs.json"
+    scenario.write_text(
+        json.dumps(
+            {
+                "page": DOCS_PAGE,
+                "script": _docs_config_script(html),
+                "requests": [request for request, _ in DOCS_REQUESTS],
+            }
+        )
+    )
+    proc = subprocess.run(  # nosec B603 - fixed argv, no shell
+        [str(NODE), str(driver), str(scenario)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    report = json.loads(proc.stdout)
+
+    assert report["url"] == "/openapi.json"
+    for sent, (request, marked) in zip(report["requests"], DOCS_REQUESTS):
+        headers = sent.get("headers") or {}
+        assert (headers.get(REQUEST_HEADER) == "1") is marked, request
+        for name, value in (request.get("headers") or {}).items():
+            assert headers[name] == value, request  # kept
+
+    # What the browser then sends over plain http through nginx's default
+    # proxy_pass, which rewrites Host: the guard lets it through.
+    trigger = report["requests"][0]
+    response = env["client"].post(
+        "/api/scheduler/trigger",
+        headers={
+            **trigger["headers"],
+            "Origin": "http://nas.lan:8080",
+            "Host": "127.0.0.1:8888",
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert env["scheduler"].runs == 1

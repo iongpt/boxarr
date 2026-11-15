@@ -214,21 +214,23 @@ def _comparable_radarr_url(url: str) -> Optional[Tuple[Any, ...]]:
     ever compared with the stored URL, which is what Boxarr then connects to, so
     a spelling two parsers read differently cannot send the stored key anywhere.
     """
+    # httpx decodes some parts only when they are read (.host decodes IDNA), so
+    # every read stays inside the try: a URL that cannot be decoded is no match.
     try:
         parsed = httpx.URL(url.strip())
+        if parsed.scheme not in ("http", "https") or not parsed.host:
+            return None
+        return (
+            parsed.scheme,
+            parsed.userinfo,
+            parsed.host,
+            parsed.port,
+            parsed.path.rstrip("/"),
+            parsed.query,
+            parsed.fragment,
+        )
     except (httpx.InvalidURL, TypeError, ValueError):
         return None
-    if parsed.scheme not in ("http", "https") or not parsed.host:
-        return None
-    return (
-        parsed.scheme,
-        parsed.userinfo,
-        parsed.host,
-        parsed.port,
-        parsed.path.rstrip("/"),
-        parsed.query,
-        parsed.fragment,
-    )
 
 
 def _radarr_credentials(posted_url: str, posted_key: str) -> Tuple[str, str]:

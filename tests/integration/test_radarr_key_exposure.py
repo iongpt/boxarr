@@ -296,6 +296,8 @@ OTHER_URL = [
     "http://radarr.local:7878@evil.example",
     "http://radarr.local:7878?next=evil",
     "http://radarr.local:7878#@evil.example",
+    # A punycode label that does not decode: httpx raises only when .host is read.
+    "http://xn--radarr.local:7878",
     "",
     "not a url",
 ]

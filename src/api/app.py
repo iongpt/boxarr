@@ -6,7 +6,8 @@ from typing import Optional, Union
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
@@ -23,7 +24,7 @@ from .routes import (
     scheduler_router,
     web_router,
 )
-from .security import CrossSiteRequestGuard
+from .security import REQUEST_HEADER, CrossSiteRequestGuard
 
 logger = get_logger(__name__)
 
@@ -31,6 +32,41 @@ logger = get_logger(__name__)
 def _json_safe_float(value: float) -> Union[float, str]:
     """Render a non-finite float as text - JSON has no literal for one."""
     return value if math.isfinite(value) else repr(value)
+
+
+# Swagger UI loads no Boxarr script, so app.js's fetch wrapper never marks the
+# requests its "Try it out" sends. This interceptor does the same: it adds the
+# header the cross-site guard trusts (#136) to every state-changing request to
+# this origin. Without it, over plain http behind a reverse proxy that rewrites
+# Host, the guard refuses them.
+_SWAGGER_CONFIG_START = "SwaggerUIBundle({"
+_SWAGGER_REQUEST_INTERCEPTOR = f"""
+        requestInterceptor: (request) => {{
+            const method = String(request.method || 'GET').toUpperCase();
+            let sameOrigin = false;
+            try {{
+                const url = new URL(request.url, window.location.href);
+                sameOrigin = url.origin === window.location.origin;
+            }} catch (e) {{}}
+            if (sameOrigin && !['GET', 'HEAD', 'OPTIONS'].includes(method)) {{
+                request.headers = request.headers || {{}};
+                request.headers['{REQUEST_HEADER}'] = '1';
+            }}
+            return request;
+        }},"""
+
+
+def _swagger_ui_html(openapi_url: str, title: str) -> HTMLResponse:
+    """Return FastAPI's Swagger UI page, its requests marked as Boxarr's own."""
+    page = get_swagger_ui_html(openapi_url=openapi_url, title=title)
+    html = bytes(page.body).decode("utf-8")
+    if _SWAGGER_CONFIG_START not in html:  # pragma: no cover - FastAPI changed
+        logger.warning("Could not mark Swagger UI requests; try-it-out may get 403")
+        return page
+    html = html.replace(
+        _SWAGGER_CONFIG_START, _SWAGGER_CONFIG_START + _SWAGGER_REQUEST_INTERCEPTOR, 1
+    )
+    return HTMLResponse(html)
 
 
 def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
@@ -52,9 +88,17 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
         description="Box Office Tracking for Radarr - A local media management tool",
         version=__version__,
         root_path=root_path,
-        docs_url="/api/docs",
+        docs_url=None,  # served below, so its requests pass the guard
         redoc_url="/api/redoc",
     )
+
+    @app.get("/api/docs", include_in_schema=False)
+    async def swagger_ui(request: Request) -> HTMLResponse:
+        """Serve the interactive API docs (what FastAPI's docs_url would)."""
+        prefix = request.scope.get("root_path", "").rstrip("/")
+        return _swagger_ui_html(
+            openapi_url=prefix + app.openapi_url, title=f"{app.title} - Swagger UI"
+        )
 
     # Add ProxyHeadersMiddleware to handle reverse proxy headers
     # Note: Remove trusted_hosts parameter for better security
