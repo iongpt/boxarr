@@ -269,3 +269,101 @@ def test_vetoed_result_is_a_plain_unmatched_result():
     result = MovieMatcher().match_movie(box_movie, library)
 
     assert result == MatchResult(box_office_movie=box_movie)
+
+
+class TestOnlyTheConflictingCandidateIsSkipped:
+    """The veto skips the film with another IMDb id, not the whole match.
+
+    Radarr can list a new film without an IMDb id (TMDB has not linked one
+    yet). A chart entry with Mojo's id must still title-match it, also when
+    an older film of the title with an id is in the library too.
+    """
+
+    @ENTRY_POINTS
+    @pytest.mark.parametrize("old_last", [True, False], ids=["old-last", "old-first"])
+    def test_same_title_key_matches_the_film_without_an_id(self, match, old_last):
+        old = _lib("Superman", 1978, "tt0078346")
+        new = _lib("Superman", 2025, None)
+        # The title index keeps the film indexed last for a shared key.
+        library = [new, old] if old_last else [old, new]
+
+        result = match(MovieMatcher(), _chart("Superman", "tt5950044"), library)
+
+        assert result.radarr_movie is new
+        assert result.match_method == "exact"
+        assert result.confidence == 1.0
+
+    @ENTRY_POINTS
+    def test_older_film_found_at_an_earlier_stage_is_skipped(self, match):
+        """The exact stage finds the 1987 film; the 2025 one, filed without
+        the article, is found by the normalized stage."""
+        old = _lib("The Running Man", 1987, "tt0093894")
+        new = _lib("Running Man", 2025, None)
+
+        result = match(
+            MovieMatcher(), _chart("The Running Man", "tt14107334"), [old, new]
+        )
+
+        assert result.radarr_movie is new
+        assert result.match_method == "normalized"
+
+    @ENTRY_POINTS
+    def test_same_id_spelled_differently_further_down_matches(self, match):
+        old = _lib("Lilo & Stitch", 2002, "tt0275847")
+        new = _lib("Lilo & Stitch", 2025, " TT11655566")
+
+        result = match(
+            MovieMatcher(), _chart("Lilo & Stitch", "tt11655566"), [new, old]
+        )
+
+        assert result.radarr_movie is new
+
+    @ENTRY_POINTS
+    def test_only_films_with_other_ids_is_no_match(self, match):
+        library = [
+            _lib("Superman", 1978, "tt0078346"),
+            _lib("Superman II", 1980, "tt0081573"),
+        ]
+
+        result = match(MovieMatcher(), _chart("Superman", "tt5950044"), library)
+
+        assert result == MatchResult(box_office_movie=result.box_office_movie)
+
+    def test_shared_index_is_left_for_the_next_entries(self):
+        """A scheduler reuses one matcher: the narrowed search must not
+        change what later entries match."""
+        old = _lib("Superman", 1978, "tt0078346")
+        new = _lib("Superman", 2025, None)
+        wicked = _lib("Wicked", 2024, "tt1262426")
+        matcher = MovieMatcher()
+
+        first, second, third = matcher.match_batch(
+            [
+                _chart("Superman", "tt5950044", rank=1),
+                _chart("Wicked", None, rank=2),
+                _chart("Superman", None, rank=3),
+            ],
+            [new, old, wicked],
+        )
+
+        assert first.radarr_movie is new
+        assert second.radarr_movie is wicked
+        # Without a chart id the whole library is searched, as before.
+        assert third.radarr_movie is old
+        assert (
+            matcher.match_movie(_chart("Wicked", None), [new, old, wicked]).radarr_movie
+            is wicked
+        )
+
+    def test_skipped_film_is_logged(self, caplog):
+        library = [_lib("Superman", 1978, "tt0078346")]
+
+        with caplog.at_level("INFO"):
+            MovieMatcher().match_batch([_chart("Superman", "tt5950044")], library)
+
+        assert any(
+            "tt5950044" in r.message
+            and "tt0078346" in r.message
+            and "different IMDb ids" in r.message
+            for r in caplog.records
+        )
