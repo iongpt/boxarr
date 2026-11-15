@@ -1,5 +1,6 @@
 """Configuration management routes."""
 
+import asyncio
 import os
 import tempfile
 from pathlib import Path
@@ -512,7 +513,9 @@ async def save_configuration(config: SaveConfigRequest):
             return _api_key_required(e)
         test_service = RadarrService(url=radarr_url, api_key=radarr_api_key)
 
-        if not test_service.test_connection():
+        # On a worker thread: an unresponsive URL must not freeze the event
+        # loop, and every other request, for radarr_timeout (#138).
+        if not await asyncio.to_thread(test_service.test_connection):
             return {
                 "success": False,
                 "message": "Cannot save: Radarr connection failed",

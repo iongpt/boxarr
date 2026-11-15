@@ -12,10 +12,10 @@ from fastapi.staticfiles import StaticFiles
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from .. import __version__
-from ..core.radarr import RadarrService
 from ..core.scheduler import BoxarrScheduler
 from ..utils.config import settings
 from ..utils.logger import get_logger
+from .health import RadarrHealthCheck
 from .routes import (
     admin_router,
     boxoffice_router,
@@ -174,16 +174,14 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
             scheduler.stop()
             logger.info("Scheduler stopped")
 
+    # Radarr's status comes from a check that runs off the event loop and is
+    # reused for a while: a hung Radarr must not make the healthcheck hang (#138)
+    app.state.radarr_health = RadarrHealthCheck()
+
     @app.get("/api/health")
     async def health_check():
         """Simple health check endpoint."""
-        radarr_connected = False
-        if settings.radarr_api_key:
-            try:
-                with RadarrService() as r:
-                    radarr_connected = r.test_connection()
-            except Exception:
-                radarr_connected = False
+        radarr_connected = await app.state.radarr_health.connected()
 
         return {
             "status": "healthy",
