@@ -10,9 +10,7 @@ from datetime import datetime, timedelta
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.utils.config import settings
-from src.core.scheduler import BoxarrScheduler
-from apscheduler.triggers.cron import CronTrigger
-import pytz
+from src.core.scheduler import BoxarrScheduler, cron_trigger, scheduler_timezone
 
 
 def check_configuration():
@@ -42,12 +40,13 @@ def parse_cron_schedule():
     print(f"Cron expression: {cron}")
     
     try:
-        # Parse cron expression
-        trigger = CronTrigger.from_crontab(cron, timezone=settings.boxarr_scheduler_timezone)
+        # Parse cron expression, in the timezone the scheduler fires in
+        timezone = scheduler_timezone()
+        trigger = cron_trigger(cron, timezone)
         
         # Get next 5 run times
-        print(f"\nNext 5 scheduled runs (in {settings.boxarr_scheduler_timezone}):")
-        next_time = datetime.now(pytz.timezone(settings.boxarr_scheduler_timezone))
+        print(f"\nNext 5 scheduled runs (in {timezone}):")
+        next_time = datetime.now(timezone)
         
         for i in range(5):
             next_time = trigger.get_next_fire_time(None, next_time)
@@ -92,14 +91,8 @@ def check_scheduler_instance():
     print("="*60)
     
     try:
-        from src.core.boxoffice import BoxOfficeService
-        from src.core.radarr import RadarrService
-        
         print("Creating scheduler instance...")
-        scheduler = BoxarrScheduler(
-            boxoffice_service=BoxOfficeService(),
-            radarr_service=RadarrService() if settings.radarr_api_key else None,
-        )
+        scheduler = BoxarrScheduler()
         
         print("✓ Scheduler instance created successfully")
         
@@ -107,7 +100,7 @@ def check_scheduler_instance():
         print("Testing scheduler startup...")
         scheduler.scheduler.add_job(
             lambda: print("Test job executed"),
-            CronTrigger.from_crontab(settings.boxarr_scheduler_cron),
+            cron_trigger(settings.boxarr_scheduler_cron),
             id="test_job",
             name="Test Job",
             replace_existing=True,

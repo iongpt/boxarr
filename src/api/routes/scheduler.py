@@ -176,11 +176,7 @@ async def get_scheduler_status():
         # Calculate time until next run
         time_until_next = None
         if next_run:
-            from datetime import datetime
-
-            import pytz
-
-            now = datetime.now(pytz.timezone(settings.boxarr_scheduler_timezone))
+            now = datetime.now(next_run.tzinfo)
             delta = next_run - now
             time_until_next = {
                 "days": delta.days,
@@ -200,8 +196,6 @@ async def get_scheduler_status():
                         data = json.load(f)
                         timestamp = data.get("timestamp")
                         if timestamp:
-                            from datetime import datetime
-
                             last_run_time = datetime.fromisoformat(
                                 timestamp.replace("Z", "+00:00")
                             )
@@ -229,7 +223,9 @@ async def get_scheduler_status():
             "enabled": settings.boxarr_scheduler_enabled,
             "running": scheduler._running if scheduler else False,
             "cron_expression": settings.boxarr_scheduler_cron,
-            "timezone": settings.boxarr_scheduler_timezone,
+            # The zone the job fires in and next_run_time is given in: the
+            # configured one, or UTC when that is not a known timezone.
+            "timezone": str(scheduler.scheduler.timezone),
             "next_run_time": next_run.isoformat() if next_run else None,
             "time_until_next": time_until_next,
             "last_run": last_run_info,

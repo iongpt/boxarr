@@ -677,6 +677,21 @@ function describeLastRun(run) {
     return { note: `(${note})`, title: '' };
 }
 
+// A scheduler time (ISO, with its offset) in the scheduler's own timezone,
+// the one the Update Day and Time are in and the job fires in (#145), rather
+// than the browser's. A zone this browser does not know falls back to its own.
+function formatSchedulerTime(iso, timeZone) {
+    const time = new Date(iso);
+    if (timeZone) {
+        try {
+            return time.toLocaleString(undefined, { timeZone, timeZoneName: 'short' });
+        } catch (e) {
+            // RangeError: not a timezone this browser knows
+        }
+    }
+    return time.toLocaleString();
+}
+
 function refreshSchedulerStatus() {
     fetch(apiUrl('/scheduler/status'))
         .then(response => response.json())
@@ -711,12 +726,12 @@ function refreshSchedulerStatus() {
             const nextRun = document.getElementById('debugNextRun');
             if (nextRun) {
                 if (data.next_run_time) {
-                    const nextTime = new Date(data.next_run_time);
+                    const nextTime = formatSchedulerTime(data.next_run_time, data.timezone);
                     const timeUntil = data.time_until_next;
                     if (timeUntil) {
-                        nextRun.innerHTML = `${nextTime.toLocaleString()} <small>(in ${timeUntil.days}d ${timeUntil.hours}h ${timeUntil.minutes}m)</small>`;
+                        nextRun.innerHTML = `${nextTime} <small>(in ${timeUntil.days}d ${timeUntil.hours}h ${timeUntil.minutes}m)</small>`;
                     } else {
-                        nextRun.innerHTML = nextTime.toLocaleString();
+                        nextRun.innerHTML = nextTime;
                     }
                 } else {
                     nextRun.innerHTML = 'No scheduled runs';
