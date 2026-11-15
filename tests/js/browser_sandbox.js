@@ -207,6 +207,10 @@ class FakeElement {
         return child;
     }
     removeChild(child) {
+        // As in a browser, detaching (or moving) the focused element, or one
+        // that contains it, drops focus back to the body.
+        const doc = this.ownerDocument;
+        if (doc.activeElement && child.contains(doc.activeElement)) doc.activeElement = doc.body;
         const index = this.childNodes.indexOf(child);
         if (index >= 0) this.childNodes.splice(index, 1);
         child.parentNode = null;
