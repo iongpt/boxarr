@@ -52,8 +52,14 @@ class TestImdbMatching:
         assert result.is_matched
         assert result.match_method != "imdb_id"
 
-    def test_fallback_when_imdb_not_in_library(self):
-        """Falls back to title matching when IMDb ID not in Radarr library."""
+    def test_different_imdb_id_vetoes_title_fallback(self):
+        """A title match to a film with a different IMDb id is rejected (#135).
+
+        The chart id is not in the library, but the library 'Wicked' carries
+        its own, different id, so it is a different film (a remake or a
+        same-titled sequel). Linking the two used to show the new film as
+        already downloaded and stop auto-add from adding it.
+        """
         radarr_movies = [
             _radarr_movie("Wicked", imdb_id="tt1262426"),
         ]
@@ -62,7 +68,25 @@ class TestImdbMatching:
         box_movie = BoxOfficeMovie(
             rank=1,
             title="Wicked",
-            imdb_id="tt9999999",  # Not in library
+            imdb_id="tt9999999",  # Not in library, and not the library film's id
+        )
+
+        result = self.matcher.match_movie(box_movie, radarr_movies)
+
+        assert not result.is_matched
+        assert result.box_office_movie is box_movie
+
+    def test_fallback_when_imdb_not_in_library_and_library_film_has_no_id(self):
+        """Falls back to title matching when the library film has no IMDb id."""
+        radarr_movies = [
+            _radarr_movie("Wicked", imdb_id=None),
+        ]
+        self.matcher.build_movie_index(radarr_movies)
+
+        box_movie = BoxOfficeMovie(
+            rank=1,
+            title="Wicked",
+            imdb_id="tt9999999",  # Not in library; nothing to compare against
         )
 
         result = self.matcher.match_movie(box_movie, radarr_movies)
