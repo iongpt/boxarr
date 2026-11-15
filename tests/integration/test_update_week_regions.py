@@ -505,10 +505,28 @@ class TestPartialFailure:
 
         body = resp.json()
         assert (body["success"], body["partial"]) == (True, False)
+        assert body["message"] == "Updated week 2026W44; DE: no data"
         stored = h.stored()
         assert [m["title"] for m in stored["movies"]] == ["The Odyssey"]
         assert [s["status"] for s in stored["region_status"]] == ["ok", "no_data"]
         assert "error" not in stored["region_status"][1]
+
+    def test_the_message_names_failed_and_empty_regions(self, harness, caplog):
+        h = harness("domestic,FR,DE,RO")
+        FakeBoxOffice.charts = {
+            "": [bom(1, "The Odyssey", 9.0, "tt1")],
+            "FR": BoxOfficeError("HTTP 503"),
+            "DE": BoxOfficeNoData("No movies found"),
+            "RO": [],
+        }
+
+        with caplog.at_level("INFO"):
+            body = h.update().json()
+
+        assert (body["success"], body["partial"]) == (True, True)
+        message = "Updated week 2026W44; FR failed; DE: no data, RO: no data"
+        assert body["message"] == message
+        assert message in [r.message for r in caplog.records]
 
 
 def odyssey(radarr_id=11):

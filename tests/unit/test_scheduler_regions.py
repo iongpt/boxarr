@@ -22,7 +22,7 @@ import src.core.week_builder as week_builder
 import src.utils.config as cfg_utils
 from src.api.app import create_app
 from src.core.boxoffice import BoxOfficeMovie
-from src.core.exceptions import BoxOfficeError, SchedulerError
+from src.core.exceptions import BoxOfficeError, BoxOfficeNoData, SchedulerError
 from src.core.radarr import QualityProfile, RadarrMovie
 from src.core.scheduler import BoxarrScheduler
 
@@ -178,6 +178,22 @@ class TestUpdateBoxOffice:
         run = latest(tmp_path)
         assert (run["total_count"], run["matched_count"]) == (2, 1)
         assert run["unmatched_count"] == 1
+
+    def test_a_region_without_data_is_named_but_not_a_failure(self, env, caplog):
+        tmp_path, _ = env
+        scheduler = make_scheduler(
+            {"": [bom(1, "The Odyssey")], "DE": BoxOfficeNoData("No movies found")}
+        )
+
+        with caplog.at_level("INFO"):
+            results = asyncio.run(scheduler.update_box_office(2026, 44))
+
+        assert (results["success"], results["partial"]) == (True, False)
+        assert results["message"] == "Updated week 2026W44; DE: no data"
+        assert results["errors"] == []
+        assert latest(tmp_path)["message"] == "Updated week 2026W44; DE: no data"
+        notes = [r for r in caplog.records if r.message.endswith("DE: no data")]
+        assert [r.levelname for r in notes] == ["INFO"]
 
     def test_partial_run_is_written_and_flagged(self, env):
         tmp_path, _ = env

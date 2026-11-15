@@ -70,6 +70,21 @@ def describe_failed_regions(fetches: Sequence[RegionFetch]) -> str:
     return ", ".join(parts)
 
 
+def describe_regions_without_data(fetches: Sequence[RegionFetch]) -> str:
+    """Name the regions Mojo had no chart for, e.g. 'DE: no data'."""
+    return ", ".join(
+        f"{region_label(fetch.region)}: no data"
+        for fetch in fetches
+        if fetch.status == STATUS_NO_DATA
+    )
+
+
+def _region_notes(fetches: Sequence[RegionFetch]) -> str:
+    """The regions to name after a run's message: failed, then without data."""
+    parts = (describe_failed_regions(fetches), describe_regions_without_data(fetches))
+    return "; ".join(part for part in parts if part)
+
+
 class WeekBuildError(BoxOfficeError):
     """No configured region produced a chart for the week."""
 
@@ -214,8 +229,8 @@ def build_week(  # noqa: C901
     if any(fetch.status == STATUS_ERROR for fetch in fetches):
         stored = _read_stored(generator.weekly_data_path(year, week))
         if stored is not None and "regions" not in stored:
-            failed = describe_failed_regions(fetches)
-            message = f"Kept the existing data for {year}W{week:02d}; {failed}"
+            notes = _region_notes(fetches)
+            message = f"Kept the existing data for {year}W{week:02d}; {notes}"
             logger.warning(message)
             return WeekBuildResult(
                 year=year,
@@ -281,10 +296,14 @@ def build_week(  # noqa: C901
     data_path = generator.write_weekly_data(metadata)
 
     message = f"Updated week {year}W{week:02d}"
-    failed = describe_failed_regions(fetches)
-    if failed:
-        message += f"; {failed}"
-        logger.warning(message)
+    notes = _region_notes(fetches)
+    if notes:
+        # e.g. "Updated week 2026W46; FR failed; DE: no data"
+        message += f"; {notes}"
+        if any(fetch.failed for fetch in fetches):
+            logger.warning(message)
+        else:
+            logger.info(message)
     return WeekBuildResult(
         year=year,
         week=week,
