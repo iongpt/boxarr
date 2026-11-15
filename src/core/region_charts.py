@@ -507,6 +507,21 @@ def collapse_match_results(
     return kept
 
 
+def _stored_chart(stored: Dict[str, Any], code: str) -> List[Tuple[int, str]]:
+    """Return one market's stored chart as (rank, title) pairs, by rank."""
+    chart: List[Tuple[int, str]] = []
+    for movie in stored.get("movies") or []:
+        if not isinstance(movie, dict):
+            continue
+        for row in movie.get("regions") or []:
+            if not isinstance(row, dict) or (row.get("code") or "") != code:
+                continue
+            rank = _rank(row.get("rank"))
+            if rank != _NO_RANK:
+                chart.append((rank, row.get("title") or movie.get("title") or ""))
+    return sorted(chart)
+
+
 def stored_region_fetch(stored: Dict[str, Any], failed: RegionFetch) -> RegionFetch:
     """Rebuild a failed market from a stored week, as a stale fetch.
 
@@ -517,14 +532,17 @@ def stored_region_fetch(stored: Dict[str, Any], failed: RegionFetch) -> RegionFe
     Returns:
         A ``stale`` fetch carrying the market's stored rows, or ``failed``
         unchanged when the stored week did not hold that market's chart, or
-        when Mojo has no such market (rows stored for it were the domestic
-        chart Mojo answers an unknown area code with)
+        when Mojo answered the market with the domestic chart and the rows
+        stored for it are that chart (a week written before such answers
+        were caught stored them as the market's own)
     """
     code = failed.region
     if code not in (stored.get("regions") or []):
         return failed
     if isinstance(failed.exception, BoxOfficeUnknownMarket):
-        return failed
+        own = _stored_chart(stored, code)
+        if own and own == _stored_chart(stored, ""):
+            return failed
     previous = next(
         (
             status

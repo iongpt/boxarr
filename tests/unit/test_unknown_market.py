@@ -213,6 +213,40 @@ class TestStoredRows:
 
         assert stored_region_fetch(stored, failed) is failed
 
+    def test_a_real_market_answered_with_domestic_keeps_its_rows(self):
+        # DE was fetched before; this run Mojo answered it with the domestic
+        # chart. Its stored rows are its own chart, kept like after any error.
+        stored = {
+            "regions": ["", "DE"],
+            "region_status": [
+                {"region": "", "status": STATUS_OK},
+                {"region": "DE", "status": STATUS_OK},
+            ],
+            "movies": [
+                {
+                    "title": "Film",
+                    "regions": [
+                        {"code": "", "rank": 1, "title": "Film"},
+                        {"code": "DE", "rank": 2, "title": "Film"},
+                    ],
+                },
+                {"title": "Heimat", "regions": [{"code": "DE", "rank": 1}]},
+            ],
+        }
+        error = BoxOfficeUnknownMarket("Box Office Mojo has no market 'DE'")
+        failed = RegionFetch(
+            region="DE", status=STATUS_ERROR, error=str(error), exception=error
+        )
+
+        fetch = stored_region_fetch(stored, failed)
+
+        assert fetch.status == "stale"
+        assert [(m.rank, m.title) for m in fetch.movies] == [
+            (1, "Heimat"),
+            (2, "Film"),
+        ]
+        assert fetch.to_status()["error"] == str(error)
+
     def test_rows_of_a_market_that_merely_failed_are_carried_over(self):
         stored = {
             "regions": ["", "DE"],

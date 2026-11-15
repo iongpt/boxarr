@@ -641,6 +641,32 @@ class TestUnknownMarket:
         assert "(did you mean GB?)" in uk["error"]
         assert {r["code"] for m in stored["movies"] for r in m["regions"]} == {""}
 
+    def test_a_known_market_answered_with_domestic_keeps_its_chart(
+        self, harness, monkeypatch
+    ):
+        h = harness("domestic,DE")
+        FakeBoxOffice.charts = {
+            "": [bom(1, "Film A", 9.0), bom(2, "Film B", 8.0)],
+            "DE": [
+                bom(1, "Heimat", 5.0, region="DE"),
+                bom(2, "Film A", 4.0, region="DE"),
+            ],
+        }
+        assert h.update().json()["success"] is True
+
+        page = UNKNOWN_MARKET_PAGE.read_text()
+        self.use_mojo_pages(monkeypatch, {"": page, "DE": page})
+        resp = h.update()
+
+        body = resp.json()
+        assert body["partial"] is True
+        assert (
+            body["message"] == "Updated week 2026W44; DE failed (kept its last chart)"
+        )
+        de = h.stored()["region_status"][1]
+        assert (de["region"], de["status"], de["movies"]) == ("DE", "stale", 2)
+        assert "no market 'DE'" in de["error"]
+
 
 class TestMergesAfterMatching:
     def ov_charts(self):

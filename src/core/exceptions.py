@@ -36,7 +36,8 @@ class BoxOfficeUnknownMarket(BoxOfficeError):
 
     Mojo answers ?area=ZZ (or UK, for GB) with the domestic chart instead of
     an error. That chart must not be stored as the region's own: the region
-    fails, and rows stored for it earlier are not carried over either.
+    fails. Rows stored for it earlier are carried over like after any other
+    error, unless they repeat the stored domestic chart.
     """
 
     pass
