@@ -187,6 +187,11 @@ async def get_scheduler_status():
                                 # Failed runs are saved too; older history
                                 # files only ever recorded successful runs.
                                 "success": data.get("success", True),
+                                # Whether a region failed while the week was
+                                # still written, and each region's status;
+                                # older files: one region, never partial.
+                                "partial": data.get("partial", False),
+                                "region_status": data.get("region_status", []),
                                 "matched_count": data.get("matched_count", 0),
                                 "total_count": data.get("total_count", 0),
                             }
@@ -265,6 +270,8 @@ async def get_scheduler_history():
                             ),
                             "movies_added": added_count,
                             "error": result.get("error"),
+                            "partial": result.get("partial", False),
+                            "region_status": result.get("region_status", []),
                         }
                     )
                 except Exception as e:

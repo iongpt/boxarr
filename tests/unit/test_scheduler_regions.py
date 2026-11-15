@@ -446,6 +446,27 @@ class TestTriggerAndStatus:
 
         assert last_run["success"] is False
 
+    def test_status_reports_a_partial_last_run(self, client):
+        c = client({"": [bom(1, "The Odyssey")], "DE": BoxOfficeError("HTTP 503")})
+        c.post("/api/scheduler/trigger")
+
+        last_run = c.get("/api/scheduler/status").json()["last_run"]
+
+        assert (last_run["success"], last_run["partial"]) == (True, True)
+        assert [s["status"] for s in last_run["region_status"]] == ["ok", "error"]
+
+    def test_history_reports_partial_runs_and_region_status(self, client):
+        c = client({"": [bom(1, "The Odyssey")], "DE": BoxOfficeError("HTTP 503")})
+        c.post("/api/scheduler/trigger")
+
+        [run] = c.get("/api/scheduler/history").json()["runs"]
+
+        assert (run["success"], run["partial"]) == (True, True)
+        assert [(s["region"], s["status"]) for s in run["region_status"]] == [
+            ("", "ok"),
+            ("DE", "error"),
+        ]
+
     def test_status_treats_older_history_as_successful(self, client, env):
         tmp_path, _ = env
         (tmp_path / "history").mkdir()
@@ -461,6 +482,7 @@ class TestTriggerAndStatus:
         c = client({})
         last_run = c.get("/api/scheduler/status").json()["last_run"]
         assert (last_run["success"], last_run["matched_count"]) == (True, 7)
+        assert (last_run["partial"], last_run["region_status"]) == (False, [])
 
     def test_history_lists_failed_and_successful_runs(self, client, env):
         tmp_path, _ = env
@@ -497,3 +519,5 @@ class TestTriggerAndStatus:
             ("2026W43", True, 10, 0),
         ]
         assert listed[0]["error"].startswith("No box office region")
+        # Older runs carry neither field: one region, never partial.
+        assert (listed[2]["partial"], listed[2]["region_status"]) == (False, [])
