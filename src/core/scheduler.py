@@ -22,7 +22,7 @@ from .library_sync import WEEKLY_WRITE_LOCK, refresh_weekly_data_from_radarr
 from .matcher import MatchResult, MovieMatcher
 from .models import MovieStatus
 from .radarr import RadarrService
-from .week_builder import WeekBuildResult, build_week
+from .week_builder import WeekBuildError, WeekBuildResult, build_week
 
 logger = get_logger(__name__)
 
@@ -267,15 +267,16 @@ class BoxarrScheduler:
                     # The week was written - and films may have been added to
                     # Radarr - before the run failed: record what it holds.
                     failed = self._written_then_failed_results(str(e), regions, build)
-                else:
-                    # Nothing was written; a WeekBuildError carries each
-                    # region's status.
+                elif isinstance(e, WeekBuildError):
+                    # Nothing was written; the error carries each region's
+                    # status.
                     failed = self._failed_results(
-                        str(e),
-                        regions,
-                        getattr(e, "region_status", []),
-                        getattr(e, "errors", [str(e)]),
+                        str(e), regions, e.region_status, e.errors
                     )
+                else:
+                    # Only a WeekBuildError has region statuses. Others may
+                    # have an unrelated ``errors`` (pydantic's is a method).
+                    failed = self._failed_results(str(e), regions, [], [str(e)])
                 await self._save_to_history(failed, actual_year, actual_week)
             raise SchedulerError(f"Update failed: {e}") from e
         finally:

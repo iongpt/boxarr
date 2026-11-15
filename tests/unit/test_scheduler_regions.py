@@ -10,6 +10,7 @@ import asyncio
 import json
 from dataclasses import replace
 
+import pydantic
 import pytest
 import yaml
 from fastapi.testclient import TestClient
@@ -200,6 +201,34 @@ class TestUpdateBoxOffice:
         assert week_file.read_bytes() == before
         assert refreshes == []
         assert latest(tmp_path)["success"] is False
+
+    def test_an_error_that_is_not_a_week_build_error_is_still_saved(
+        self, env, monkeypatch
+    ):
+        """pydantic's ValidationError has an ``errors()`` method, not a list."""
+        tmp_path, _ = env
+
+        class Model(pydantic.BaseModel):
+            year: int
+
+        with pytest.raises(pydantic.ValidationError) as caught:
+            Model(year="not a year")
+        error = caught.value
+
+        def failing_build(*args, **kwargs):
+            raise error
+
+        monkeypatch.setattr(scheduler_core, "build_week", failing_build)
+        scheduler = make_scheduler({})
+
+        with pytest.raises(SchedulerError) as exc_info:
+            asyncio.run(scheduler.update_box_office(2026, 44))
+
+        assert exc_info.value.__cause__ is error
+        run = latest(tmp_path)
+        assert run["success"] is False
+        assert run["errors"] == [str(error)]
+        assert run["region_status"] == []
 
     def test_regions_matching_one_radarr_movie_are_one_film(self, env):
         """'The Odyssey (OV)' only joins the film once both are matched."""
