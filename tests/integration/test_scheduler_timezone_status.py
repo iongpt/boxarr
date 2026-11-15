@@ -16,6 +16,7 @@ import yaml
 from fastapi.testclient import TestClient
 
 import src.api.routes.scheduler as scheduler_route
+import src.core.scheduler as scheduler_core
 import src.utils.config as cfg_utils
 from src.api.app import create_app
 from src.core.scheduler import WEEKLY_JOB_ID, BoxarrScheduler
@@ -34,6 +35,9 @@ def app_with_scheduler(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(
         "apscheduler.triggers.cron.get_localzone",
         lambda: pytz.timezone("Pacific/Auckland"),
+    )
+    monkeypatch.setattr(
+        scheduler_core, "get_localzone", lambda: pytz.timezone("Pacific/Auckland")
     )
     # create_app() installs its scheduler here; restored when the test ends.
     monkeypatch.setattr(scheduler_route, "_scheduler", None)
@@ -71,18 +75,25 @@ def test_status_reports_the_trigger_next_run_and_zone(app_with_scheduler):
     assert (next_run.weekday(), next_run.hour) == (2, 23)  # Wednesday 23:00
 
 
-def test_status_with_an_unknown_zone_reports_utc_and_still_works(app_with_scheduler):
-    """It used to fail on the unknown zone and report the scheduler stopped."""
+def test_status_with_an_unknown_zone_reports_the_host_zone_and_still_works(
+    app_with_scheduler,
+):
+    """It used to fail on the unknown zone and report the scheduler stopped.
+
+    The job then fires in the host's zone, as it did before the configured
+    zone was honoured.
+    """
     scheduler, client = app_with_scheduler("Mars/Olympus_Mons")
 
     with client:
         status = client.get("/api/scheduler/status").json()
 
     assert status["running"] is True
-    assert status["timezone"] == "UTC"
+    assert status["timezone"] == "Pacific/Auckland"
     next_run = datetime.fromisoformat(status["next_run_time"])
-    assert next_run.utcoffset().total_seconds() == 0
-    assert (next_run.weekday(), next_run.hour) == (2, 23)
+    auckland = next_run.astimezone(pytz.timezone("Pacific/Auckland"))
+    assert next_run.utcoffset() == auckland.utcoffset()  # given in that zone
+    assert (auckland.weekday(), auckland.hour) == (2, 23)
 
 
 # The Scheduler Debug panel's Next Run for one /api/scheduler/status body.

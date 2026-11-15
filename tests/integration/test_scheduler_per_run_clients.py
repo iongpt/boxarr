@@ -46,11 +46,20 @@ class Call(NamedTuple):
 
 
 class FakeRadarr:
-    """One Radarr instance: its own key, quality profile and library."""
+    """One Radarr instance: its own key, quality profile, root folder and library."""
 
-    def __init__(self, key: str, profile_id: int, library_title: str):
+    def __init__(
+        self,
+        key: str,
+        profile_id: int,
+        library_title: str,
+        root: str = "/movies",
+        profile_name: str = "HD-1080p",
+    ):
         self.key = key
         self.profile_id = profile_id
+        self.profile_name = profile_name
+        self.root = root
         self.library: List[Dict[str, Any]] = [
             {"id": profile_id * 10, "title": library_title, "tmdbId": profile_id}
         ]
@@ -62,6 +71,10 @@ class FakeRadarr:
         method, path = request.method, request.url.path
         if path == "/api/v3/movie" and method == "POST":
             body = json.loads(request.content)
+            if body.get("rootFolderPath") != self.root:
+                return httpx.Response(
+                    400, json=[{"errorMessage": "Root folder does not exist"}]
+                )
             self.added.append(body)
             movie = {"id": 99, "title": body["title"], "tmdbId": body["tmdbId"]}
             self.library.append(movie)
@@ -71,9 +84,14 @@ class FakeRadarr:
         answers: Dict[str, Any] = {
             "/api/v3/system/status": {"version": "5.9.0"},
             "/api/v3/movie": self.library,
-            "/api/v3/qualityProfile": [{"id": self.profile_id, "name": "HD-1080p"}],
+            # A profile not configured comes first: the one used without
+            # a match by name.
+            "/api/v3/qualityProfile": [
+                {"id": self.profile_id + 100, "name": "Any"},
+                {"id": self.profile_id, "name": self.profile_name},
+            ],
             "/api/v3/movie/lookup": [LOOKUP],
-            "/api/v3/rootFolder": [{"path": "/movies", "freeSpace": 1}],
+            "/api/v3/rootFolder": [{"path": self.root, "freeSpace": 1}],
         }
         return httpx.Response(200, json=answers.get(path, []))
 
@@ -148,13 +166,15 @@ def app(tmp_path: Path, monkeypatch, radarrs):
     # create_app() installs its scheduler here; restored when the test ends.
     monkeypatch.setattr(scheduler_route, "_scheduler", None)
 
-    def _start(auto_add: bool) -> TestClient:
+    def _start(
+        auto_add: bool, root: str = "/movies", profile: str = "HD-1080p"
+    ) -> TestClient:
         config = {
             "radarr": {
                 "url": URL_A,
                 "api_key": KEY_A,
-                "root_folder": "/movies",
-                "quality_profile_default": "HD-1080p",
+                "root_folder": root,
+                "quality_profile_default": profile,
             },
             "boxarr": {
                 "scheduler": {"enabled": False},
@@ -230,39 +250,74 @@ def test_a_run_closes_the_clients_it_built(app, radarrs, monkeypatch):
         closed.append(self.url)
         real_close(self)
 
+    built_charts: List[Any] = []
+    closed_charts: List[Any] = []
+
+    class CountedBoxOffice(FakeBoxOffice):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            built_charts.append(self)
+
+        def close(self):
+            closed_charts.append(self)
+
     monkeypatch.setattr(core_radarr.RadarrService, "close", close)
     with app(auto_add=False) as client:
+        monkeypatch.setattr(scheduler_core, "BoxOfficeService", CountedBoxOffice)
         _run(client, radarrs["calls"])
         _save_radarr_b(client, auto_add=False)
         _run(client, radarrs["calls"])
 
     assert URL_A in closed and URL_B in closed
+    # Each run built its own Box Office Mojo client too, and closed it.
+    assert len(built_charts) == 2
+    assert built_charts[0] is not built_charts[1]
+    assert closed_charts == built_charts
 
 
 def test_a_save_during_a_run_leaves_that_run_on_its_own_radarr(
     app, radarrs, tmp_path, monkeypatch
 ):
-    """The run in flight keeps the clients it started with; the next one switches."""
-    calls = radarrs["calls"]
+    """The run in flight keeps its clients and its settings; the next one switches.
+
+    Radarr A and B have their own root folder and quality profile, and each
+    rejects a root folder it does not have. The run in flight adds to A with
+    A's root folder and profile - not with B's, saved while it ran.
+    """
+    calls, radarr_a, radarr_b = radarrs["calls"], radarrs["a"], radarrs["b"]
+    radarr_a.root, radarr_a.profile_name = "/movies-a", "HD-A"
+    radarr_b.root, radarr_b.profile_name = "/movies-b", "HD-B"
 
     class SavedMidRun(FakeBoxOffice):
         def fetch_weekend_box_office(self, *args, **kwargs):
             # What a save in /setup does while this run is fetching the chart.
             config_path = tmp_path / "local.yaml"
             config = yaml.safe_load(config_path.read_text())
-            config["radarr"].update(url=URL_B, api_key=KEY_B)
+            config["radarr"].update(
+                url=URL_B,
+                api_key=KEY_B,
+                root_folder="/movies-b",
+                quality_profile_default="HD-B",
+            )
             config_path.write_text(yaml.safe_dump(config))
             cfg_utils.Settings.reload_from_file(config_path)
             return super().fetch_weekend_box_office(*args, **kwargs)
 
-    with app(auto_add=False) as client:
+    with app(auto_add=True, root="/movies-a", profile="HD-A") as client:
         monkeypatch.setattr(scheduler_core, "BoxOfficeService", SavedMidRun)
         during = _run(client, calls)
+        radarr_a.library.clear()  # the next run finds the film unmatched again
         monkeypatch.setattr(scheduler_core, "BoxOfficeService", FakeBoxOffice)
         after = _run(client, calls)
 
     assert during and {(c.host, c.api_key) for c in during} == {("radarr-a", KEY_A)}
     assert after and {(c.host, c.api_key) for c in after} == {("radarr-b", KEY_B)}
+    assert [(m["rootFolderPath"], m["qualityProfileId"]) for m in radarr_a.added] == [
+        ("/movies-a", 1)
+    ]
+    assert [(m["rootFolderPath"], m["qualityProfileId"]) for m in radarr_b.added] == [
+        ("/movies-b", 7)
+    ]
 
 
 def test_auto_add_after_a_save_uses_the_new_radarr_quality_profile(

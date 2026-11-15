@@ -15,6 +15,7 @@ APScheduler's numbering (Monday=0): the default "0 23 * * 2" is Wednesday.
 import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfoNotFoundError
 
 import pytest
 import pytz
@@ -47,10 +48,11 @@ def configure(tmp_path: Path, monkeypatch):
     monkeypatch.delenv("TZ", raising=False)
     monkeypatch.setenv("BOXARR_DATA_DIRECTORY", str(tmp_path))
     # What tzlocal answers on this "host": a trigger built without a timezone
-    # fires here.
+    # fires here, and so does one whose configured zone names no zone.
     monkeypatch.setattr(
         "apscheduler.triggers.cron.get_localzone", lambda: HOST_ZONE, raising=True
     )
+    monkeypatch.setattr(scheduler_core, "get_localzone", lambda: HOST_ZONE)
 
     def _configure(**scheduler) -> None:
         config = {
@@ -121,14 +123,69 @@ class TestTrigger:
         tokyo = pytz.timezone("Asia/Tokyo")
         assert _fires(trigger) == tokyo.localize(datetime(2026, 11, 18, 23, 0))
 
-    def test_an_unknown_zone_falls_back_to_utc(self, configure):
+    def test_an_unknown_zone_falls_back_to_the_hosts(self, configure):
+        """The zone the job fired in before the configured one was honoured."""
         configure(cron=DEFAULT_CRON, timezone="Mars/Olympus_Mons")
+
+        assert scheduler_timezone() is HOST_ZONE
+        trigger = _with_started_scheduler(
+            lambda s: s.scheduler.get_job(WEEKLY_JOB_ID).trigger
+        )
+        assert str(trigger.timezone) == "Pacific/Auckland"
+
+    def test_an_unknown_zone_on_a_host_without_one_falls_back_to_utc(
+        self, configure, monkeypatch
+    ):
+        configure(cron=DEFAULT_CRON, timezone="Mars/Olympus_Mons")
+
+        def unreadable():
+            # What tzlocal raises for a TZ like "Europe/Berlinn".
+            raise ZoneInfoNotFoundError("tzlocal() does not support Mars/Olympus_Mons")
+
+        monkeypatch.setattr(scheduler_core, "get_localzone", unreadable)
 
         assert scheduler_timezone() is pytz.UTC
         trigger = _with_started_scheduler(
             lambda s: s.scheduler.get_job(WEEKLY_JOB_ID).trigger
         )
         assert str(trigger.timezone) == "UTC"
+
+    @pytest.mark.parametrize(
+        "tz, zone",
+        [
+            ("Europe/Berlin", "Europe/Berlin"),
+            (":Europe/Berlin", "Europe/Berlin"),
+            ("/usr/share/zoneinfo/Asia/Tokyo", "Asia/Tokyo"),
+            (":/usr/share/zoneinfo/Asia/Tokyo", "Asia/Tokyo"),
+            # The host's own zone file: the host's zone.
+            (":/etc/localtime", "Pacific/Auckland"),
+        ],
+    )
+    def test_every_form_of_tz_names_its_zone(self, configure, monkeypatch, tz, zone):
+        """TZ takes a leading ':' and zoneinfo paths, not only a zone name."""
+        monkeypatch.setenv("TZ", tz)
+        configure(cron=DEFAULT_CRON, timezone="America/New_York")  # TZ wins
+
+        assert str(scheduler_timezone()) == zone
+        assert str(cron_trigger(DEFAULT_CRON).timezone) == zone
+
+    @pytest.mark.parametrize("tz", ["", "  "])
+    def test_a_blank_tz_leaves_the_configured_zone(self, configure, monkeypatch, tz):
+        monkeypatch.setenv("TZ", tz)
+        configure(cron=DEFAULT_CRON, timezone="Asia/Tokyo")
+
+        assert str(scheduler_timezone()) == "Asia/Tokyo"
+
+    def test_a_blank_tz_and_no_configured_zone_is_the_default(
+        self, configure, monkeypatch
+    ):
+        monkeypatch.setenv("TZ", "")
+        configure(cron=DEFAULT_CRON)
+
+        assert cfg_utils.get_settings().boxarr_scheduler_timezone == (
+            "America/New_York"
+        )
+        assert str(scheduler_timezone()) == "America/New_York"
 
     def test_the_helper_defaults_to_the_configured_zone(self, configure):
         configure(timezone="America/New_York")

@@ -13,9 +13,10 @@ The app runs its real BoxarrScheduler on the TestClient's event loop (`with
 TestClient(...)`, as uvicorn runs it); Radarr's connection test is faked.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pytest
 import pytz
@@ -25,6 +26,7 @@ from fastapi.testclient import TestClient
 
 import src.api.routes.config as cfg_routes
 import src.api.routes.scheduler as scheduler_route
+import src.core.scheduler as scheduler_core
 import src.utils.config as cfg_utils
 from src.api.app import create_app
 from src.core.scheduler import WEEKLY_JOB_ID, BoxarrScheduler
@@ -222,6 +224,107 @@ def test_a_save_the_scheduler_cannot_apply_still_saves_and_warns(
         and record.levelname == "WARNING"
         for record in caplog.records
     )
+
+
+def test_after_a_failed_start_the_status_answers_and_a_save_recovers(
+    boxarr, monkeypatch
+):
+    """The job of a start that failed does not stay behind, half added."""
+    scheduler, client = boxarr(enabled=False)
+    real_start = scheduler.scheduler.start
+    failures = ["the event loop is closed"]
+
+    def start_failing_once(*args, **kwargs):
+        if failures:
+            raise RuntimeError(failures.pop())
+        return real_start(*args, **kwargs)
+
+    with client:
+        monkeypatch.setattr(scheduler.scheduler, "start", start_failing_once)
+        failed = _save(client, enabled=True)
+        status = _status(client)
+        _save(client, enabled=True, cron="0 8 * * 4")
+        recovered = _status(client)
+        next_run = _next_run(client)
+
+    assert "the event loop is closed" in failed["warning"]
+    assert "error" not in status, status
+    assert (status["running"], status["jobs"], status["next_run_time"]) == (
+        False,
+        [],
+        None,
+    )
+    assert recovered["running"] is True
+    assert [job["id"] for job in recovered["jobs"]] == [WEEKLY_JOB_ID]
+    assert _when(next_run) == (4, 8, 0)
+
+
+def test_a_timezone_tzlocal_cannot_read_does_not_fail_the_save(boxarr, monkeypatch):
+    """A cron is checked for its syntax only, not in the host's zone.
+
+    tzlocal rejects a TZ such as "Europe/Berlinn" or a POSIX rule; the
+    scheduler then runs in UTC, and every save used to fail on it.
+    """
+
+    def unreadable():
+        raise ZoneInfoNotFoundError("tzlocal() does not support Europe/Berlinn")
+
+    monkeypatch.setattr("apscheduler.triggers.cron.get_localzone", unreadable)
+    monkeypatch.setattr(scheduler_core, "get_localzone", unreadable)
+    scheduler, client = boxarr(enabled=True, timezone="Europe/Berlinn")
+
+    with client:
+        body = _save(client, enabled=True, cron="0 8 * * 4")
+        status = _status(client)
+
+    assert "warning" not in body
+    assert status["timezone"] == "UTC"
+    next_run = datetime.fromisoformat(status["next_run_time"])
+    assert (next_run.utcoffset(), next_run.weekday(), next_run.hour) == (
+        timedelta(0),
+        4,
+        8,
+    )
+
+
+def test_run_now_dates_its_weekend_in_a_timezone_saved_while_updates_are_off(
+    boxarr, tmp_path, monkeypatch
+):
+    """Manual runs pick their weekend by the date in the scheduler's zone.
+
+    Pago Pago (UTC-11) and Kiritimati (UTC+14) are always a day or more
+    apart, so the date the run used shows which zone it was in.
+    """
+    scheduler, client = boxarr(enabled=False, timezone="Pacific/Pago_Pago")
+    dates: List[datetime] = []
+
+    class _Stop(Exception):
+        pass
+
+    class RecordingBoxOffice:
+        def __init__(self, *_, **__):
+            pass
+
+        def get_weekend_dates(self, date=None):
+            dates.append(date)
+            raise _Stop("the run's date is recorded")
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(scheduler_core, "BoxOfficeService", RecordingBoxOffice)
+
+    with client:
+        config_path = tmp_path / "local.yaml"
+        config = yaml.safe_load(config_path.read_text())
+        config["boxarr"]["scheduler"]["timezone"] = "Pacific/Kiritimati"
+        config_path.write_text(yaml.safe_dump(config))
+        _save(client, enabled=False)
+        client.post("/api/scheduler/trigger")
+        kiritimati_now = datetime.now(ZoneInfo("Pacific/Kiritimati"))
+
+    assert len(dates) == 1
+    assert abs(dates[0] - kiritimati_now.replace(tzinfo=None)) < timedelta(minutes=5)
 
 
 def test_an_app_without_a_scheduler_saves_without_a_warning(boxarr, monkeypatch):

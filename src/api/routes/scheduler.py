@@ -157,12 +157,14 @@ async def get_scheduler_status():
         job_info = []
 
         for job in jobs:
+            # A job of a scheduler not started has no next_run_time yet.
+            job_next_run = getattr(job, "next_run_time", None)
             job_info.append(
                 {
                     "id": job.id,
                     "name": job.name,
                     "next_run_time": (
-                        job.next_run_time.isoformat() if job.next_run_time else None
+                        job_next_run.isoformat() if job_next_run else None
                     ),
                     "pending": job.pending,
                 }
@@ -222,7 +224,7 @@ async def get_scheduler_status():
             "running": scheduler._running if scheduler else False,
             "cron_expression": settings.boxarr_scheduler_cron,
             # The zone the job fires in and next_run_time is given in: the
-            # configured one, or UTC when that is not a known timezone.
+            # configured one, or the host's when that names no known zone.
             "timezone": str(scheduler.scheduler.timezone),
             "next_run_time": next_run.isoformat() if next_run else None,
             "time_until_next": time_until_next,

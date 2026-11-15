@@ -528,10 +528,13 @@ async def save_configuration(config: SaveConfigRequest):
         # Validate cron expression first
         if config.boxarr_scheduler_enabled:
             try:
-                from apscheduler.triggers.cron import CronTrigger
+                import pytz
 
-                # Test if cron expression is valid
-                CronTrigger.from_crontab(config.boxarr_scheduler_cron)
+                from ...core.scheduler import cron_trigger
+
+                # Test if cron expression is valid. Only its syntax is checked,
+                # in a fixed zone: no timezone setting can fail the save.
+                cron_trigger(config.boxarr_scheduler_cron, timezone=pytz.UTC)
             except (ValueError, TypeError) as e:
                 return {
                     "success": False,

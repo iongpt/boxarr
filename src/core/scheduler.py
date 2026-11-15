@@ -1,6 +1,7 @@
 """Scheduler service for automated box office updates."""
 
 import asyncio
+import contextvars
 import json
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, tzinfo
@@ -10,12 +11,14 @@ from typing import Any, Callable, Dict, List, Optional
 
 import pytz
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
+from apscheduler.jobstores.base import JobLookupError
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.util import astimezone
+from tzlocal import get_localzone
 
 from ..utils.atomic import atomic_write_json
-from ..utils.config import configured_box_office_regions, settings
+from ..utils.config import configured_box_office_regions, pinned_settings, settings
 from ..utils.logger import get_logger
 from .boxoffice import BoxOfficeService
 from .exceptions import SchedulerError
@@ -30,14 +33,47 @@ logger = get_logger(__name__)
 WEEKLY_JOB_ID = "box_office_update"
 
 
+def _zone_name(value: Optional[str]) -> str:
+    """
+    Return the zone name in a TZ-style value.
+
+    TZ also takes a leading ':' (":Europe/Berlin") and a zoneinfo file
+    ("/usr/share/zoneinfo/Asia/Tokyo"); both name the zone after it.
+    """
+    name = (value or "").strip()
+    if name.startswith(":"):
+        name = name[1:].strip()
+    if "zoneinfo/" in name:
+        name = name.rsplit("zoneinfo/", 1)[1]
+    return name
+
+
 def scheduler_timezone() -> tzinfo:
-    """Return the configured scheduler timezone, or UTC when it is unknown."""
-    name = settings.boxarr_scheduler_timezone
+    """
+    Return the configured scheduler timezone.
+
+    A value that names no zone - blank, a path such as /etc/localtime, or not
+    a known zone - means the host's timezone, the one the job fired in before
+    the configured one was honoured (#145); UTC when even that is unknown.
+    """
+    configured = settings.boxarr_scheduler_timezone
+    name = _zone_name(configured)
+    if name and not name.startswith("/"):
+        try:
+            return pytz.timezone(name)
+        except pytz.exceptions.UnknownTimeZoneError:
+            pass
     try:
-        return pytz.timezone(name)
-    except pytz.exceptions.UnknownTimeZoneError:
-        logger.warning(f"Unknown timezone: {name}, using UTC")
+        host = get_localzone()
+    except Exception as e:
+        # tzlocal rejects a TZ it cannot read, like a typo or a POSIX rule.
+        logger.warning(f"Unknown timezone: {configured!r}, using UTC ({e})")
         return pytz.UTC
+    if name and not name.startswith("/"):
+        logger.warning(
+            f"Unknown timezone: {configured!r}, using the host's timezone: {host}"
+        )
+    return host
 
 
 def cron_trigger(cron: str, timezone: Optional[tzinfo] = None) -> CronTrigger:
@@ -139,6 +175,12 @@ class BoxarrScheduler:
             except Exception as e:
                 logger.error(f"Failed to start scheduler: {e}", exc_info=True)
                 self._running = False
+                # The job added above stays pending in a scheduler that did
+                # not start; a later start adds it again.
+                try:
+                    self.scheduler.remove_job(WEEKLY_JOB_ID)
+                except JobLookupError:
+                    pass
                 raise
         else:
             logger.info("Scheduler is disabled in configuration")
@@ -153,7 +195,7 @@ class BoxarrScheduler:
         self._running = False
         logger.info("Scheduler stopped")
 
-    async def update_box_office(  # noqa: C901
+    async def update_box_office(
         self, year: Optional[int] = None, week: Optional[int] = None
     ) -> Dict[str, Any]:
         """
@@ -178,6 +220,16 @@ class BoxarrScheduler:
                 fetched (the week's file is then left as it was), or anything
                 else failed.
         """
+        # The whole run reads the settings as they are when it starts (#137):
+        # a save made meanwhile - to another Radarr, say - cannot mix that
+        # Radarr's root folder or quality profile into this run's adds.
+        with pinned_settings():
+            return await self._update_box_office(year, week)
+
+    async def _update_box_office(  # noqa: C901
+        self, year: Optional[int], week: Optional[int]
+    ) -> Dict[str, Any]:
+        """Run one update, as :meth:`update_box_office` describes."""
         if year and week:
             logger.info(f"Starting box office update for {year} Week {week:02d}")
         else:
@@ -199,8 +251,9 @@ class BoxarrScheduler:
         build: Optional[WeekBuildResult] = None
         # This run's own clients, built from the settings as they are now
         # (#137): a Radarr URL, API key or timeout saved since the last run
-        # applies to this one, and a save made during it cannot change the
-        # clients it holds. Only the clients built here are closed at the end.
+        # applies to this one, and a save made during it changes neither the
+        # clients it holds nor the settings it reads. Only the clients built
+        # here are closed at the end.
         built: List[Any] = []
         try:
             boxoffice_service = self.boxoffice_service
@@ -424,9 +477,11 @@ class BoxarrScheduler:
         }
 
     async def _run_in_executor(self, func: Callable, *args) -> Any:
-        """Run blocking function in executor."""
+        """Run blocking function in executor, with the run's pinned settings."""
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(self._executor, func, *args)
+        # run_in_executor does not carry the context into the worker thread.
+        context = contextvars.copy_context()
+        return await loop.run_in_executor(self._executor, context.run, func, *args)
 
     def _process_match_results(
         self, match_results: List[MatchResult]
@@ -693,7 +748,8 @@ class BoxarrScheduler:
         """
         job = self.scheduler.get_job(WEEKLY_JOB_ID)
         if job is not None:
-            next_time = job.next_run_time
+            # A job of a scheduler not started has no next_run_time yet.
+            next_time = getattr(job, "next_run_time", None)
             return next_time if isinstance(next_time, datetime) else None
         return None
 
