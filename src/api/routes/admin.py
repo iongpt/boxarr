@@ -4,7 +4,7 @@ import asyncio
 import json
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, AsyncGenerator, Dict, List, Optional
+from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
@@ -12,6 +12,8 @@ from pydantic import BaseModel
 
 from ...core.json_generator import collapse_stored_week
 from ...core.radarr import RadarrService
+from ...core.region_charts import imdb_ids_conflict
+from ...core.tmdb_pick import pick_tmdb_film
 from ...utils.atomic import atomic_write_json
 from ...utils.config import settings
 from ...utils.logger import get_logger
@@ -37,6 +39,35 @@ class RepairRequest(BaseModel):
 
     dry_run: bool = False
     rate_limit_delay: int = 250  # milliseconds
+
+
+def _repair_key(movie: Dict[str, Any]) -> Tuple[str, str]:
+    """A stored entry's film for the repair: its title and Mojo IMDb id.
+
+    Two films of one title (a remake and the original) carry different Box
+    Office Mojo IMDb ids and are repaired apart.
+    """
+    imdb_id = movie.get("bom_imdb_id")
+    imdb_key = imdb_id.strip().lower() if isinstance(imdb_id, str) else ""
+    return movie.get("title", ""), imdb_key
+
+
+def _poster_then_newest(search_results: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """The repair's pick for an entry without a Mojo IMDb id.
+
+    Prefer: 1) movies with posters, 2) newer movies.
+    """
+    tmdb_movie = search_results[0]
+    for result in search_results:
+        # Prefer movies with posters
+        if result.get("remotePoster") and not tmdb_movie.get("remotePoster"):
+            tmdb_movie = result
+        # If both have posters or both don't, prefer newer movie
+        elif (
+            bool(result.get("remotePoster")) == bool(tmdb_movie.get("remotePoster"))
+        ) and result.get("year", 0) > tmdb_movie.get("year", 0):
+            tmdb_movie = result
+    return tmdb_movie
 
 
 class RepairProgress(BaseModel):
@@ -141,9 +172,8 @@ async def repair_missing_metadata(request: RepairRequest):
             # Phase 1: Collect unique movies missing data
             yield f"data: {json.dumps({'stage': 'scanning', 'message': 'Scanning for movies with missing metadata...'})}\n\n"
 
-            unique_movies: Dict[str, Dict[str, Any]] = (
-                {}
-            )  # title -> {sample_data, weeks: []}
+            # (title, Mojo IMDb id) -> {sample_data, weeks: []}
+            unique_movies: Dict[Tuple[str, str], Dict[str, Any]] = {}
 
             json_files = list(weekly_pages_dir.glob("*.json"))
             for idx, json_file in enumerate(json_files, 1):
@@ -154,17 +184,17 @@ async def repair_missing_metadata(request: RepairRequest):
 
                         for movie in data.get("movies", []):
                             if not movie.get("radarr_id"):
-                                title = movie.get("title", "")
                                 has_poster = bool(movie.get("poster"))
                                 has_tmdb = bool(movie.get("tmdb_id"))
 
                                 if not has_poster or not has_tmdb:
-                                    if title not in unique_movies:
-                                        unique_movies[title] = {
+                                    key = _repair_key(movie)
+                                    if key not in unique_movies:
+                                        unique_movies[key] = {
                                             "sample_data": movie,
                                             "weeks": [],
                                         }
-                                    unique_movies[title]["weeks"].append(week_key)
+                                    unique_movies[key]["weeks"].append(week_key)
 
                     if idx % 10 == 0:
                         message = f"Scanned {idx}/{len(json_files)} weeks..."
@@ -181,40 +211,41 @@ async def repair_missing_metadata(request: RepairRequest):
             message = f"Found {len(unique_movies)} unique movies to process..."
             yield f"data: {json.dumps({'stage': 'fetching', 'message': message})}\n\n"
 
-            tmdb_cache: Dict[str, Dict[str, Any]] = {}
+            tmdb_cache: Dict[Tuple[str, str], Dict[str, Any]] = {}
             errors: List[str] = []
             total_movies = len(unique_movies)
 
-            for idx, title in enumerate(unique_movies, 1):
+            for idx, key in enumerate(unique_movies, 1):
+                title = key[0]
                 try:
                     message = (
                         f'Fetching TMDB data for "{title}" ({idx}/{total_movies})...'
                     )
                     yield f"data: {json.dumps({'stage': 'fetching', 'progress': idx, 'total': total_movies, 'message': message})}\n\n"
 
-                    # Search for movie in TMDB via Radarr
-                    search_results = radarr_service.search_movie(title)
-                    if search_results and len(search_results) > 0:
-                        # Select the best match from search results
-                        # Prefer: 1) Movies with posters, 2) Newer movies
-                        tmdb_movie = search_results[0]
-
-                        # Try to find a better match with a poster
-                        for result in search_results:
-                            # Prefer movies with posters
-                            if result.get("remotePoster") and not tmdb_movie.get(
-                                "remotePoster"
-                            ):
-                                tmdb_movie = result
-                            # If both have posters or both don't, prefer newer movie
-                            elif (
-                                bool(result.get("remotePoster"))
-                                == bool(tmdb_movie.get("remotePoster"))
-                            ) and result.get("year", 0) > tmdb_movie.get("year", 0):
-                                tmdb_movie = result
+                    # Search for movie in TMDB via Radarr. Mojo's IMDb id,
+                    # when stored, names the film: pick the result with it,
+                    # and never a fallback with another IMDb id (another
+                    # film, which the status refresh would clear again).
+                    bom_imdb_id = unique_movies[key]["sample_data"].get("bom_imdb_id")
+                    tmdb_movie: Optional[Dict[str, Any]]
+                    if key[1]:
+                        tmdb_movie = pick_tmdb_film(radarr_service, title, bom_imdb_id)
+                        if tmdb_movie and imdb_ids_conflict(
+                            bom_imdb_id, tmdb_movie.get("imdbId")
+                        ):
+                            tmdb_movie = None
+                    else:
+                        search_results = radarr_service.search_movie(title)
+                        tmdb_movie = (
+                            _poster_then_newest(search_results)
+                            if search_results
+                            else None
+                        )
+                    if tmdb_movie:
                         # Only cache if we have meaningful data (at least a poster or tmdb_id)
                         if tmdb_movie.get("remotePoster") or tmdb_movie.get("tmdbId"):
-                            tmdb_cache[title] = {
+                            tmdb_cache[key] = {
                                 "tmdb_id": tmdb_movie.get("tmdbId"),
                                 "year": tmdb_movie.get("year"),
                                 "overview": (
@@ -255,15 +286,16 @@ async def repair_missing_metadata(request: RepairRequest):
                     continue
 
             if request.dry_run:
-                yield f"data: {json.dumps({'stage': 'complete', 'success': True, 'dry_run': True, 'would_fix_movies': len(tmdb_cache), 'movies_found': list(tmdb_cache.keys()), 'errors': errors})}\n\n"
+                movies_found = [title for title, _ in tmdb_cache]
+                yield f"data: {json.dumps({'stage': 'complete', 'success': True, 'dry_run': True, 'would_fix_movies': len(tmdb_cache), 'movies_found': movies_found, 'errors': errors})}\n\n"
                 return
 
             # Phase 3: Update all affected week files
             yield f"data: {json.dumps({'stage': 'updating', 'message': 'Updating week files with new metadata...'})}\n\n"
 
             weeks_to_update = set()
-            for title, movie_data in unique_movies.items():
-                if title in tmdb_cache:
+            for key, movie_data in unique_movies.items():
+                if key in tmdb_cache:
                     for week in movie_data["weeks"]:
                         weeks_to_update.add(week)
 
@@ -281,14 +313,14 @@ async def repair_missing_metadata(request: RepairRequest):
 
                     updated = False
                     for movie in data.get("movies", []):
-                        title = movie.get("title", "")
+                        key = _repair_key(movie)
                         if (
                             not movie.get("radarr_id")
-                            and title in tmdb_cache
+                            and key in tmdb_cache
                             and (not movie.get("poster") or not movie.get("tmdb_id"))
                         ):
                             # Update with TMDB data
-                            movie.update(tmdb_cache[title])
+                            movie.update(tmdb_cache[key])
                             updated = True
 
                     if updated:

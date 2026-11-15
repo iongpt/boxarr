@@ -16,6 +16,7 @@ from .radarr import (
     RadarrService,
     get_all_movies_with_optional_cache_bypass,
 )
+from .region_charts import imdb_ids_conflict
 
 logger = get_logger(__name__)
 
@@ -29,7 +30,8 @@ WEEKLY_WRITE_LOCK = threading.Lock()
 
 # Fields reset when a stored movie's Radarr link no longer resolves (the movie
 # was deleted in Radarr). Display metadata (title, tmdb_id, year, poster, …) is
-# intentionally left untouched.
+# intentionally left untouched, unless it describes another film than the
+# charted one (see _OTHER_FILM_FIELDS).
 _UNLINKED_FIELDS: Dict[str, Any] = {
     "radarr_id": None,
     "radarr_title": None,
@@ -41,6 +43,30 @@ _UNLINKED_FIELDS: Dict[str, Any] = {
     "has_file": False,
     "can_upgrade_quality": False,
 }
+
+# Fields describing the film an entry shows: the Radarr film it was linked
+# to, or the TMDB film its lookup picked. When that film's IMDb id differs
+# from the entry's Box Office Mojo IMDb id it is another film (an older film
+# of the same title, the lookup's fallback when TMDB lacks the charted one),
+# so they are cleared, linked or not: the card then offers the charted film,
+# which Update Week or the metadata repair looks up again, instead of the
+# other film's TMDB id, poster and Ignore id.
+_OTHER_FILM_FIELDS: Dict[str, Any] = {
+    "poster": None,
+    "year": None,
+    "genres": None,
+    "overview": None,
+    "imdb_id": None,
+    "tmdb_id": None,
+    "original_language": None,
+}
+
+
+def _imdb_key(imdb_id: Any) -> Optional[str]:
+    """An IMDb id for lookup (case and whitespace insensitive), or None."""
+    if not imdb_id or not isinstance(imdb_id, str):
+        return None
+    return imdb_id.strip().lower() or None
 
 
 def _truncate_overview(overview: Optional[str]) -> Optional[str]:
@@ -114,6 +140,14 @@ def refresh_weekly_data_from_radarr(
     it was built (admin repair, a lookup that failed at build time): those
     entries are merged first, so the film is linked once, not once per region.
 
+    An entry's Box Office Mojo IMDb id (``bom_imdb_id``) names its film: the
+    library film with that id is linked, and a film with another IMDb id is
+    never linked, by its Radarr id or its TMDB id. An existing link to such a
+    film is dropped together with that film's metadata (TMDB id, IMDb id,
+    year, poster, overview, genres, language), and so is that metadata on an
+    unlinked entry whose TMDB pick is such a film. Entries without a Mojo id
+    link as before.
+
     Args:
         radarr_service: Service to read quality profiles (and the library) from.
         data_directory: Data root holding ``weekly_pages``; defaults to settings.
@@ -151,6 +185,11 @@ def refresh_weekly_data_from_radarr(
 
     movies_by_id = {movie.id: movie for movie in radarr_movies}
     movies_by_tmdb_id = {movie.tmdbId: movie for movie in radarr_movies if movie.tmdbId}
+    movies_by_imdb_id: Dict[str, RadarrMovie] = {}
+    for movie in radarr_movies:
+        imdb_key = _imdb_key(getattr(movie, "imdbId", None))
+        if imdb_key:
+            movies_by_imdb_id.setdefault(imdb_key, movie)
 
     weeks_scanned = 0
     weeks_updated = 0
@@ -185,26 +224,58 @@ def refresh_weekly_data_from_radarr(
             radarr_movie = None
             existing_radarr_id = stored_movie.get("radarr_id")
             stored_tmdb_id = stored_movie.get("tmdb_id")
+            bom_imdb_id = stored_movie.get("bom_imdb_id")
+            other_film = None
 
-            if existing_radarr_id:
+            # Box Office Mojo's IMDb id names the charted film: the library
+            # film carrying it is the one, and a film with another IMDb id
+            # never is, however the entry was linked or looked up.
+            radarr_movie = movies_by_imdb_id.get(_imdb_key(bom_imdb_id) or "")
+
+            if not radarr_movie and existing_radarr_id:
                 radarr_movie = movies_by_id.get(existing_radarr_id)
+                if radarr_movie and imdb_ids_conflict(
+                    bom_imdb_id, getattr(radarr_movie, "imdbId", None)
+                ):
+                    other_film, radarr_movie = radarr_movie, None
 
-            if not radarr_movie and stored_tmdb_id:
+            # The entry's own metadata (its TMDB pick) names another film.
+            holds_other_film = imdb_ids_conflict(
+                bom_imdb_id, stored_movie.get("imdb_id")
+            )
+
+            if not radarr_movie and stored_tmdb_id and not holds_other_film:
                 radarr_movie = movies_by_tmdb_id.get(stored_tmdb_id)
+                if radarr_movie and imdb_ids_conflict(
+                    bom_imdb_id, getattr(radarr_movie, "imdbId", None)
+                ):
+                    holds_other_film, radarr_movie = True, None
 
             if not radarr_movie:
-                if existing_radarr_id:
-                    # Was linked to Radarr but no longer resolves (deleted in
-                    # Radarr): reset to the not-in-Radarr shape, keeping the
-                    # display metadata, and count it as a change.
-                    changed = False
-                    for key, value in _UNLINKED_FIELDS.items():
-                        if stored_movie.get(key) != value:
-                            stored_movie[key] = value
-                            changed = True
-                    if changed:
-                        movies_refreshed += 1
-                        file_updated = True
+                # Was linked to Radarr but no longer resolves (deleted in
+                # Radarr): reset to the not-in-Radarr shape, keeping the
+                # display metadata, and count it as a change. Linked to, or
+                # looked up as, another film than the charted one: its
+                # metadata goes too.
+                unlinked: Dict[str, Any] = (
+                    dict(_UNLINKED_FIELDS) if existing_radarr_id else {}
+                )
+                if other_film is not None:
+                    logger.info(
+                        f"Unlinked '{stored_movie.get('title')}' "
+                        f"({bom_imdb_id}) from '{other_film.title}' "
+                        f"({other_film.imdbId}): different IMDb ids"
+                    )
+                if other_film is not None or holds_other_film:
+                    unlinked.update(_OTHER_FILM_FIELDS)
+                changed = False
+                for key, value in unlinked.items():
+                    if stored_movie.get(key) != value:
+                        stored_movie[key] = value
+                        changed = True
+                if changed:
+                    movies_refreshed += 1
+                    file_updated = True
                 continue
 
             was_unmatched = not existing_radarr_id

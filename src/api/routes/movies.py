@@ -17,7 +17,9 @@ from ...core.radarr import (
     RadarrService,
     get_all_movies_with_optional_cache_bypass,
 )
+from ...core.region_charts import imdb_ids_conflict
 from ...core.root_folder_manager import RootFolderManager
+from ...core.tmdb_pick import pick_tmdb_film
 from ...utils.atomic import atomic_write_json
 from ...utils.config import settings
 from ...utils.logger import get_logger
@@ -81,6 +83,10 @@ class AddMovieRequest(BaseModel):
     title: Optional[str] = None
     movie_title: Optional[str] = None
     tmdb_id: Optional[int] = None
+    # A card without a TMDB id sends Box Office Mojo's IMDb id and its year,
+    # so the title search picks that film, not the first result.
+    imdb_id: Optional[str] = None
+    year: Optional[Any] = None
 
 
 class IgnoreMovieRequest(BaseModel):
@@ -468,10 +474,51 @@ def _add_movie_to_radarr(request: AddMovieRequest) -> Dict[str, Any]:
                 None,
             )
         else:
-            search_results = radarr_service.search_movie_tmdb(req_title)
-            movie_data = search_results[0] if search_results else None
+            # Without a TMDB id, pick the title search result with the card's
+            # Mojo IMDb id; else one of the card's year; else the first.
+            movie_data = pick_tmdb_film(
+                radarr_service,
+                req_title,
+                request.imdb_id,
+                year=_known_year(request.year),
+            )
         if not movie_data:
             return {"success": False, "message": "Movie not found on TMDB"}
+
+        # Box Office Mojo's IMDb id names the charted film: a lookup result
+        # with another IMDb id (the title search's fallback, or a card still
+        # showing such a pick) is another film. Neither add it nor report a
+        # film of that title already in Radarr as the charted one.
+        if imdb_ids_conflict(request.imdb_id, movie_data.get("imdbId")):
+            logger.warning(
+                f"Not adding '{req_title}' ({request.imdb_id}): the lookup found "
+                f"'{movie_data.get('title')}' ({movie_data.get('year')}), which "
+                f"has IMDb id {movie_data.get('imdbId')}"
+            )
+            found = f"'{movie_data.get('title')}' ({movie_data.get('year')})"
+            if request.tmdb_id:
+                # No search ran: the card itself still shows another film
+                # (stored before its status was refreshed).
+                return {
+                    "success": False,
+                    "message": "This card shows another film",
+                    "error": (
+                        f"The card's TMDB film {found} has IMDb id "
+                        f"{movie_data.get('imdbId')}, but the charted film is "
+                        f"{request.imdb_id}, so nothing was added. Refresh the "
+                        "week's status or press Update Week, then try again."
+                    ),
+                }
+            return {
+                "success": False,
+                "message": "Charted film not found on TMDB",
+                "error": (
+                    f"TMDB has no film with IMDb id {request.imdb_id}. Its "
+                    f"lookup for '{req_title}' found {found}, another film by "
+                    f"its IMDb id ({movie_data.get('imdbId')}), so nothing was "
+                    "added."
+                ),
+            }
 
         # Determine root folder based on genres
         root_folder_manager = RootFolderManager(radarr_service)
@@ -635,7 +682,7 @@ def regenerate_weeks_with_movie(
       "Alien" never touches "Aliens". An entry is skipped when its week is more
       than a year older than the film (it charted before the film existed, so
       it is the original of a remake), or when the entry itself stores a year
-      that differs from the film's.
+      or a Box Office Mojo IMDb id that differs from the film's.
 
     Weeks that do not list the film are never rewritten, and when no stored week
     lists it, Radarr is not queried at all.
@@ -741,6 +788,10 @@ def _relink_weeks_with_movie(movie_title: str, tmdb_id: Optional[int]) -> None:
         stamped = 0
         for movie in legacy_entries:
             if _years_conflict(movie.get("year"), added.year):
+                continue
+            # Box Office Mojo's IMDb id names the charted film: another id
+            # is another film of that title.
+            if imdb_ids_conflict(movie.get("bom_imdb_id"), added.imdbId):
                 continue
             movie["tmdb_id"] = tmdb_id
             stamped += 1

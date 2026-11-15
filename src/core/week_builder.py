@@ -283,7 +283,11 @@ def build_week(  # noqa: C901
         if auto_add:
             logger.info("Auto-add is enabled, adding missing movies to Radarr")
             added_movies = auto_add_missing_movies(
-                match_results, radarr_service, year, regions=regions
+                match_results,
+                radarr_service,
+                year,
+                regions=regions,
+                radarr_movies=radarr_movies,
             )
         else:
             unmatched_count = sum(1 for r in match_results if not r.is_matched)

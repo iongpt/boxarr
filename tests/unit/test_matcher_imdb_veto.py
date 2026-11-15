@@ -269,3 +269,160 @@ def test_vetoed_result_is_a_plain_unmatched_result():
     result = MovieMatcher().match_movie(box_movie, library)
 
     assert result == MatchResult(box_office_movie=box_movie)
+
+
+class TestOnlyTheConflictingCandidateIsSkipped:
+    """The veto skips the film with another IMDb id, not the whole match.
+
+    Radarr can list a new film without an IMDb id (TMDB has not linked one
+    yet). A chart entry with Mojo's id must still title-match it, also when
+    an older film of the title with an id is in the library too.
+    """
+
+    @ENTRY_POINTS
+    @pytest.mark.parametrize("old_last", [True, False], ids=["old-last", "old-first"])
+    def test_same_title_key_matches_the_film_without_an_id(self, match, old_last):
+        old = _lib("Superman", 1978, "tt0078346")
+        new = _lib("Superman", 2025, None)
+        # The title index keeps the film indexed last for a shared key.
+        library = [new, old] if old_last else [old, new]
+
+        result = match(MovieMatcher(), _chart("Superman", "tt5950044"), library)
+
+        assert result.radarr_movie is new
+        assert result.match_method == "exact"
+        assert result.confidence == 1.0
+
+    @ENTRY_POINTS
+    def test_older_film_found_at_an_earlier_stage_is_skipped(self, match):
+        """The exact stage finds the 1987 film; the 2025 one, filed without
+        the article, is found by the normalized stage."""
+        old = _lib("The Running Man", 1987, "tt0093894")
+        new = _lib("Running Man", 2025, None)
+
+        result = match(
+            MovieMatcher(), _chart("The Running Man", "tt14107334"), [old, new]
+        )
+
+        assert result.radarr_movie is new
+        assert result.match_method == "normalized"
+
+    @ENTRY_POINTS
+    def test_same_id_spelled_differently_further_down_matches(self, match):
+        old = _lib("Lilo & Stitch", 2002, "tt0275847")
+        new = _lib("Lilo & Stitch", 2025, " TT11655566")
+
+        result = match(
+            MovieMatcher(), _chart("Lilo & Stitch", "tt11655566"), [new, old]
+        )
+
+        assert result.radarr_movie is new
+
+    @ENTRY_POINTS
+    def test_only_films_with_other_ids_is_no_match(self, match):
+        library = [
+            _lib("Superman", 1978, "tt0078346"),
+            _lib("Superman II", 1980, "tt0081573"),
+        ]
+
+        result = match(MovieMatcher(), _chart("Superman", "tt5950044"), library)
+
+        assert result == MatchResult(box_office_movie=result.box_office_movie)
+
+    def test_shared_index_is_left_for_the_next_entries(self):
+        """A scheduler reuses one matcher: skipping the film with another
+        IMDb id must not change what later entries match."""
+        old = _lib("Superman", 1978, "tt0078346")
+        new = _lib("Superman", 2025, None)
+        wicked = _lib("Wicked", 2024, "tt1262426")
+        matcher = MovieMatcher()
+
+        first, second, third = matcher.match_batch(
+            [
+                _chart("Superman", "tt5950044", rank=1),
+                _chart("Wicked", None, rank=2),
+                _chart("Superman", None, rank=3),
+            ],
+            [new, old, wicked],
+        )
+
+        assert first.radarr_movie is new
+        assert second.radarr_movie is wicked
+        # Without a chart id the whole library is searched, as before.
+        assert third.radarr_movie is old
+        assert (
+            matcher.match_movie(_chart("Wicked", None), [new, old, wicked]).radarr_movie
+            is wicked
+        )
+
+    def test_skipped_film_is_logged(self, caplog):
+        library = [_lib("Superman", 1978, "tt0078346")]
+
+        with caplog.at_level("INFO"):
+            MovieMatcher().match_batch([_chart("Superman", "tt5950044")], library)
+
+        assert any(
+            "tt5950044" in r.message
+            and "tt0078346" in r.message
+            and "different IMDb ids" in r.message
+            for r in caplog.records
+        )
+
+
+# (chart title, chart IMDb id, library): the title match lands on an older
+# film with another IMDb id, and the only film without an id is another film
+# of the franchise, not one of the chart's whole title.
+FRANCHISE_FILM_WITHOUT_AN_ID = [
+    pytest.param(
+        "Avatar: Fire and Ash",
+        "tt1757678",
+        [("Avatar", 2009, "tt0499549"), ("Avatar: The Way of Water", 2022, None)],
+        id="avatar-fire-and-ash-vs-way-of-water",
+    ),
+    pytest.param(
+        "Avatar: Fire and Ash",
+        "tt1757678",
+        [("Avatar", 2009, "tt0499549"), ("Avatar 4", 2029, None)],
+        id="avatar-fire-and-ash-vs-avatar-4",
+    ),
+    pytest.param(
+        "Mission: Impossible - The Final Reckoning",
+        "tt9603208",
+        [
+            ("Mission: Impossible", 1996, "tt0117060"),
+            ("Mission: Impossible - Dead Reckoning Part One", 2023, None),
+        ],
+        id="final-reckoning-vs-dead-reckoning",
+    ),
+]
+
+
+class TestNoLossyMatchPastTheSkippedFilm:
+    """Skipping the film with another IMDb id does not run the lossy title
+    fallbacks over the rest of the library: only a film of the chart's whole
+    title can be taken instead."""
+
+    @ENTRY_POINTS
+    @pytest.mark.parametrize("title, imdb_id, library", FRANCHISE_FILM_WITHOUT_AN_ID)
+    @pytest.mark.parametrize("reverse", [False, True], ids=["id-first", "id-last"])
+    def test_another_film_of_the_franchise_is_not_matched(
+        self, match, title, imdb_id, library, reverse
+    ):
+        films = [_lib(*film) for film in library]
+        if reverse:
+            films.reverse()
+
+        result = match(MovieMatcher(), _chart(title, imdb_id), films)
+
+        assert result == MatchResult(box_office_movie=result.box_office_movie)
+
+    @ENTRY_POINTS
+    def test_subtitled_title_still_matches_a_film_without_an_id(self, match):
+        """Nothing in the library conflicts with the title match: the lossy
+        fallbacks apply as before, other films with ids notwithstanding."""
+        f1 = _lib("F1", 2025, None)
+        library = [_lib("Heat", 1995, "tt0113277"), f1]
+
+        result = match(MovieMatcher(), _chart("F1: The Movie", "tt16311594"), library)
+
+        assert result.radarr_movie is f1

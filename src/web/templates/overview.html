@@ -944,7 +944,7 @@ select.filter-input {
            "In Cinemas", then everything else - and updateMovieStatuses()
            repaints it from live Radarr after load, so it is not a safe stand-in
            for the bucket a counter was rendered from. #}
-        <div class="movie-card{% if is_ignored %} ignored{% endif %}" data-movie-id="{{ movie.radarr_id or '' }}" data-tmdb-id="{{ movie.tmdb_id or '' }}"
+        <div class="movie-card{% if is_ignored %} ignored{% endif %}" data-movie-id="{{ movie.radarr_id or '' }}" data-tmdb-id="{{ movie.tmdb_id or '' }}" data-bom-imdb-id="{{ movie.bom_imdb_id or '' }}"
              data-stat-bucket="{% if movie.status == 'Downloaded' %}downloaded{% elif movie.status == 'Missing' %}missing{% endif %}">
             <div class="rank-badge">#{{ movie.best_rank }}</div>
             {% if is_ignored %}

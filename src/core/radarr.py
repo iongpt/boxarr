@@ -913,7 +913,8 @@ class RadarrService:
     def search_movie_tmdb(self, title: str) -> List[Dict[str, Any]]:
         """
         Search for a movie on TMDB via Radarr.
-        Routes expect this method.
+        Kept for compatibility: nothing in Boxarr calls it any more; picks go
+        through src.core.tmdb_pick.
 
         Args:
             title: Movie title to search

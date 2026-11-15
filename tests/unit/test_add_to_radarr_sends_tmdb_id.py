@@ -54,3 +54,32 @@ def test_add_button_sits_inside_a_card_carrying_its_tmdb_id(template_name):
         assert card_start != -1, "Add to Radarr button outside a .movie-card"
         card_tag = content[card_start : content.index(">", card_start)]
         assert "data-tmdb-id=\"{{ movie.tmdb_id or '' }}\"" in card_tag
+
+
+def test_add_to_radarr_sends_the_cards_mojo_imdb_id():
+    """A card without a TMDB id still names its film by Mojo's IMDb id (#141)."""
+    body = _add_to_radarr_source()
+
+    assert "dataset.bomImdbId" in body
+    assert re.search(r"payload\.imdb_id\s*=\s*bomImdbId", body)
+
+
+@pytest.mark.parametrize("template_name", ["weekly.html", "overview.html"])
+def test_add_button_card_carries_its_mojo_imdb_id(template_name):
+    content = (TEMPLATES / template_name).read_text(encoding="utf-8")
+
+    for match in re.finditer(r"addToRadarr\(", content):
+        card_start = content.rfind('<div class="movie-card', 0, match.start())
+        card_tag = content[card_start : content.index(">", card_start)]
+        assert "data-bom-imdb-id=\"{{ movie.bom_imdb_id or '' }}\"" in card_tag
+
+
+@pytest.mark.parametrize("template_name", ["weekly.html", "overview.html"])
+def test_ignore_buttons_post_the_cards_own_tmdb_id(template_name):
+    """Ignore and Unignore act on the film the card shows: its stored
+    tmdb_id, never a fresh title search or the Radarr id (#141)."""
+    content = (TEMPLATES / template_name).read_text(encoding="utf-8")
+
+    calls = re.findall(r"toggleIgnore\(([^,]*),", content)
+    assert len(calls) >= 2
+    assert all(call.strip() == "{{ movie.tmdb_id }}" for call in calls)
