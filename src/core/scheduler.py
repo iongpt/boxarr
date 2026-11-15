@@ -235,6 +235,7 @@ class BoxarrScheduler:
 
             # Process results for history
             results = self._process_match_results(build.match_results)
+            results.update(self._stored_counts(build))
             results["data_path"] = str(build.data_path)
             results["added_movies"] = build.added_movies
             results["status_refresh"] = refresh_results
@@ -292,6 +293,7 @@ class BoxarrScheduler:
         ``success`` is False and ``error`` says what failed afterwards.
         """
         results = self._process_match_results(build.match_results)
+        results.update(self._stored_counts(build))
         results.update(
             {
                 "data_path": str(build.data_path),
@@ -306,6 +308,21 @@ class BoxarrScheduler:
             }
         )
         return results
+
+    @staticmethod
+    def _stored_counts(build: WeekBuildResult) -> Dict[str, int]:
+        """
+        Count the films of the week as written.
+
+        The stored week merges films whose TMDB lookups found the same film,
+        so it can hold fewer than the match results; the run reports the
+        week's counts. The per-film lists stay those of the match results.
+        """
+        return {
+            "total_count": build.total_movies,
+            "matched_count": build.matched_movies,
+            "unmatched_count": build.total_movies - build.matched_movies,
+        }
 
     @staticmethod
     def _failed_results(

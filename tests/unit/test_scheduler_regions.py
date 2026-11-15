@@ -43,8 +43,9 @@ class FakeBoxOffice:
 
 
 class FakeRadarr:
-    def __init__(self, library=()):
+    def __init__(self, library=(), lookups=None):
         self.library = list(library)
+        self.lookups = lookups or {}
 
     def get_all_movies(self, ignore_cache=False):
         return list(self.library)
@@ -53,7 +54,7 @@ class FakeRadarr:
         return [QualityProfile(id=1, name="HD-1080p")]
 
     def search_movie(self, title):
-        return []
+        return list(self.lookups.get(title, []))
 
 
 def bom(rank, title, imdb=None):
@@ -88,10 +89,24 @@ def env(tmp_path, monkeypatch):
     return tmp_path, refreshes
 
 
-def make_scheduler(charts, library=()):
+def make_scheduler(charts, library=(), lookups=None):
     return BoxarrScheduler(
-        boxoffice_service=FakeBoxOffice(charts), radarr_service=FakeRadarr(library)
+        boxoffice_service=FakeBoxOffice(charts),
+        radarr_service=FakeRadarr(library, lookups),
     )
+
+
+# Two regions' rows the chart merge cannot join (a localized title, no IMDb
+# id) that resolve to one TMDB film: the stored week merges them.
+HOUSEMAID = {"tmdbId": 5, "title": "The Housemaid", "year": 2025}
+ONE_TMDB_FILM = {
+    "charts": {
+        "": [bom(1, "The Housemaid"), bom(2, "The Odyssey", "tt1")],
+        "DE": [bom(1, "Die Haushaelterin")],
+    },
+    "library": [RadarrMovie(id=11, title="The Odyssey", tmdbId=1, imdbId="tt1")],
+    "lookups": {"The Housemaid": [HOUSEMAID], "Die Haushaelterin": [HOUSEMAID]},
+}
 
 
 def history(tmp_path):
@@ -131,6 +146,38 @@ class TestUpdateBoxOffice:
         stored = json.loads((tmp_path / "weekly_pages" / "2026W44.json").read_text())
         assert stored["regions"] == ["", "DE"]
         assert latest(tmp_path)["region_status"] == results["region_status"]
+
+    def test_counts_are_those_of_the_stored_week(self, env):
+        tmp_path, _ = env
+        scheduler = make_scheduler(**ONE_TMDB_FILM)
+
+        results = asyncio.run(scheduler.update_box_office(2026, 44))
+
+        stored = json.loads((tmp_path / "weekly_pages" / "2026W44.json").read_text())
+        assert (stored["total_movies"], stored["matched_movies"]) == (2, 1)
+        counts = ("total_count", "matched_count", "unmatched_count")
+        assert tuple(results[key] for key in counts) == (2, 1, 1)
+        assert tuple(latest(tmp_path)[key] for key in counts) == (2, 1, 1)
+
+    def test_a_run_failing_after_the_write_counts_the_stored_week(
+        self, env, monkeypatch
+    ):
+        tmp_path, _ = env
+
+        def broken_refresh(*args, **kwargs):
+            raise RuntimeError("Radarr went away")
+
+        monkeypatch.setattr(
+            scheduler_core, "refresh_weekly_data_from_radarr", broken_refresh
+        )
+        scheduler = make_scheduler(**ONE_TMDB_FILM)
+
+        with pytest.raises(SchedulerError):
+            asyncio.run(scheduler.update_box_office(2026, 44))
+
+        run = latest(tmp_path)
+        assert (run["total_count"], run["matched_count"]) == (2, 1)
+        assert run["unmatched_count"] == 1
 
     def test_partial_run_is_written_and_flagged(self, env):
         tmp_path, _ = env
@@ -297,6 +344,15 @@ class TestTriggerAndStatus:
             return TestClient(create_app())
 
         return _client
+
+    def test_trigger_counts_the_films_of_the_stored_week(self, env, monkeypatch):
+        monkeypatch.setattr(
+            scheduler_route, "_scheduler", make_scheduler(**ONE_TMDB_FILM)
+        )
+
+        body = TestClient(create_app()).post("/api/scheduler/trigger").json()
+
+        assert (body["success"], body["movies_found"]) == (True, 2)
 
     def test_trigger_reports_partial_and_region_status(self, client):
         c = client({"": [bom(1, "The Odyssey")], "DE": BoxOfficeError("HTTP 503")})
