@@ -78,8 +78,10 @@ class BoxarrScheduler:
         Initialize scheduler.
 
         Args:
-            boxoffice_service: Box office service instance
-            radarr_service: Radarr service instance
+            boxoffice_service: Box office service every run uses (tests).
+                Without one, each run builds its own from the settings.
+            radarr_service: Radarr service every run uses (tests). Without
+                one, each run builds its own from the settings.
             matcher: Movie matcher instance
         """
         self.scheduler = AsyncIOScheduler(timezone=scheduler_timezone())
@@ -189,12 +191,20 @@ class BoxarrScheduler:
         actual_year: Optional[int] = None
         actual_week: Optional[int] = None
         build: Optional[WeekBuildResult] = None
+        # This run's own clients, built from the settings as they are now
+        # (#137): a Radarr URL, API key or timeout saved since the last run
+        # applies to this one, and a save made during it cannot change the
+        # clients it holds. Only the clients built here are closed at the end.
+        built: List[Any] = []
         try:
-            # Initialize services if needed
-            if not self.boxoffice_service:
-                self.boxoffice_service = BoxOfficeService()
-            if not self.radarr_service:
-                self.radarr_service = RadarrService()
+            boxoffice_service = self.boxoffice_service
+            if boxoffice_service is None:
+                boxoffice_service = BoxOfficeService()
+                built.append(boxoffice_service)
+            radarr_service = self.radarr_service
+            if radarr_service is None:
+                radarr_service = RadarrService()
+                built.append(radarr_service)
 
             # Determine target (top) year/week for this run
             if year and week:
@@ -205,8 +215,8 @@ class BoxarrScheduler:
                 # as of the date in the scheduler's timezone: the job fires in
                 # that zone (#145), where the host's clock (UTC in Docker) can
                 # already be on Monday and pick the weekend still under way.
-                _, _, actual_year, actual_week = (
-                    self.boxoffice_service.get_weekend_dates(self._scheduler_now())
+                _, _, actual_year, actual_week = boxoffice_service.get_weekend_dates(
+                    self._scheduler_now()
                 )
 
             # Fetch every region, merge, match, auto-add and write the week.
@@ -218,8 +228,8 @@ class BoxarrScheduler:
                     actual_week,
                     regions=regions,
                     limit=settings.boxarr_features_box_office_limit,
-                    boxoffice_service=self.boxoffice_service,
-                    radarr_service=self.radarr_service,
+                    boxoffice_service=boxoffice_service,
+                    radarr_service=radarr_service,
                     matcher=self.matcher,
                     auto_add=settings.boxarr_features_auto_add,
                 )
@@ -227,7 +237,7 @@ class BoxarrScheduler:
 
             # Refresh all stored weekly pages against current Radarr
             # status/details - also when this week's legacy file was kept.
-            refresh_results = await self._refresh_stored_weeks()
+            refresh_results = await self._refresh_stored_weeks(radarr_service)
 
             if not build.written:
                 # A stored legacy (pre-multi-region) week was kept: a region failed.
@@ -299,18 +309,30 @@ class BoxarrScheduler:
                 await self._save_to_history(failed, actual_year, actual_week)
             raise SchedulerError(f"Update failed: {e}") from e
         finally:
+            self._close_services(built)
             WEEKLY_WRITE_LOCK.release()
+
+    @staticmethod
+    def _close_services(services: List[Any]) -> None:
+        """Close the clients a run built; a failure to close is only logged."""
+        for service in services:
+            try:
+                service.close()
+            except Exception as e:
+                logger.debug(f"Could not close {type(service).__name__}: {e}")
 
     def _scheduler_now(self) -> datetime:
         """Return the time now in the scheduler's timezone, naive like now()."""
         return datetime.now(self.scheduler.timezone).replace(tzinfo=None)
 
-    async def _refresh_stored_weeks(self) -> Dict[str, Any]:
+    async def _refresh_stored_weeks(
+        self, radarr_service: RadarrService
+    ) -> Dict[str, Any]:
         """Refresh every stored week against Radarr's current status."""
         refresh_results: Dict[str, Any] = await self._run_in_executor(
             partial(
                 refresh_weekly_data_from_radarr,
-                radarr_service=self.radarr_service,
+                radarr_service=radarr_service,
                 ignore_cache=True,
             )
         )

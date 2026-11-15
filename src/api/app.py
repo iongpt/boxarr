@@ -196,13 +196,7 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
 
 def create_app_with_scheduler() -> FastAPI:
     """Create application with scheduler enabled."""
-    from ..core.boxoffice import BoxOfficeService
-    from ..core.radarr import RadarrService
-
-    # Initialize scheduler with services
-    scheduler = BoxarrScheduler(
-        boxoffice_service=BoxOfficeService(),
-        radarr_service=RadarrService() if settings.radarr_api_key else None,
-    )
-
-    return create_app(scheduler)
+    # No services handed in: each run builds its own Box Office Mojo and Radarr
+    # clients from the settings of the moment, so a saved Radarr URL or API key
+    # applies to the next run without a restart (#137).
+    return create_app(BoxarrScheduler())

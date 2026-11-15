@@ -27,13 +27,8 @@ def get_scheduler() -> BoxarrScheduler:
     """Get the scheduler instance."""
     global _scheduler
     if not _scheduler:
-        from ...core.boxoffice import BoxOfficeService
-        from ...core.radarr import RadarrService
-
-        _scheduler = BoxarrScheduler(
-            boxoffice_service=BoxOfficeService(),
-            radarr_service=RadarrService() if settings.radarr_api_key else None,
-        )
+        # Its runs build their own clients from the current settings (#137).
+        _scheduler = BoxarrScheduler()
     return _scheduler
 
 

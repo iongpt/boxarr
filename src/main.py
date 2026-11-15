@@ -16,7 +16,6 @@ from src.utils.logger import apply_log_level, parse_log_level, setup_logging
 setup_logging()
 
 from src.api.app import create_app_with_scheduler  # noqa: E402
-from src.core.boxoffice import BoxOfficeService  # noqa: E402
 from src.core.radarr import RadarrService  # noqa: E402
 from src.core.scheduler import BoxarrScheduler  # noqa: E402
 from src.utils.config import settings  # noqa: E402
@@ -116,11 +115,8 @@ class BoxarrApplication:
         """Run in CLI mode (no API)."""
         logger.info("Running in CLI mode")
 
-        # Initialize scheduler for CLI mode
-        self.scheduler = BoxarrScheduler(
-            boxoffice_service=BoxOfficeService(),
-            radarr_service=RadarrService() if settings.radarr_api_key else None,
-        )
+        # Initialize scheduler for CLI mode; the run builds its own clients
+        self.scheduler = BoxarrScheduler()
 
         # Run immediate update
         logger.info("Performing box office update...")
