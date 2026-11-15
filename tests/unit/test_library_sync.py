@@ -562,10 +562,14 @@ class TestMojoImdbIdNamesTheFilm:
         assert _refresh(tmp_path, *library)["weeks_updated"] == 0
         assert week_file.read_bytes() == cleared
 
-    def test_pick_of_the_charted_film_is_kept(self, tmp_path):
-        """A pick with Mojo's id (or none) is the card's film: kept as is."""
+    @pytest.mark.parametrize(
+        "pick_imdb_id", ["tt5950044", None], ids=["mojo-id", "no-id"]
+    )
+    def test_pick_of_the_charted_film_is_kept(self, tmp_path, pick_imdb_id):
+        """A pick with Mojo's id (or none, as for a new film TMDB lists
+        without one) is the card's film: kept as is."""
         week_file = _week(tmp_path)
-        _superman_week(week_file, tmdb_id=1061474, imdb_id="tt5950044", year=2025)
+        _superman_week(week_file, tmdb_id=1061474, imdb_id=pick_imdb_id, year=2025)
         before = week_file.read_bytes()
 
         results = _refresh(tmp_path, SUPERMAN_1978)

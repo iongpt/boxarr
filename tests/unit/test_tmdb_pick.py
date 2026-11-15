@@ -169,6 +169,16 @@ class TestFallback:
 
         assert resolve_tmdb_pick(lookup, _chart("Eden", "tt1")) == eden_2025
 
+    @pytest.mark.parametrize("first_year", [0, None])
+    def test_a_first_result_without_a_year_is_not_replaced(self, first_year):
+        """Nothing can be newer than an undated first result: an unrelated
+        older film without an id is not taken for the charted "Eden"."""
+        undated = {"tmdbId": 2, "title": "Eden", "year": first_year, "imdbId": "tt2"}
+        old_eden = {"tmdbId": 3, "title": "Eden", "year": 1950}
+        lookup = _Lookup({"Eden": [undated, old_eden]})
+
+        assert resolve_tmdb_pick(lookup, _chart("Eden", "tt1")) == undated
+
     def test_result_without_an_id_or_a_year_does_not_replace_the_first(self):
         undated = dict(LILO_2025, year=0)
         lookup = _Lookup({"Lilo & Stitch": [LILO_2002, undated]})

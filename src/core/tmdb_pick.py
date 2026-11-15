@@ -68,7 +68,8 @@ def _fallback(
     listed after the older film of its title, before TMDB has its IMDb id).
     One of the same year or older is as likely an unrelated film of the
     title as the charted one, so the first result stays, and callers refuse
-    it as another film.
+    it as another film. So does a first result without a year, since no
+    result can be shown to be newer than it.
     """
     if not results:
         return None
@@ -85,12 +86,10 @@ def _fallback(
     if not imdb_ids_conflict(imdb_id, first.get("imdbId")):
         return first
     first_year = _year_of(first)
+    if first_year is None:
+        return first
     return next(
-        (
-            result
-            for result in eligible
-            if first_year is None or (_year_of(result) or 0) > first_year
-        ),
+        (result for result in eligible if (_year_of(result) or 0) > first_year),
         first,
     )
 

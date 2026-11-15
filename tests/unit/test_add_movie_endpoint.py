@@ -191,6 +191,9 @@ def test_film_with_another_imdb_id_is_never_added_or_reported(
 
     assert result["success"] is False
     assert "tt5950044" in result["error"] and "tt0078346" in result["error"]
+    # Only a title search can say that TMDB has no such film; a card's own
+    # TMDB id ran no search.
+    assert ("TMDB has no film" in result["error"]) == (not payload)
     assert radarr["lookups"] == lookups
     assert radarr["added"] == []
     assert radarr["relinks"] == []

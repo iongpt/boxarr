@@ -495,15 +495,28 @@ def _add_movie_to_radarr(request: AddMovieRequest) -> Dict[str, Any]:
                 f"'{movie_data.get('title')}' ({movie_data.get('year')}), which "
                 f"has IMDb id {movie_data.get('imdbId')}"
             )
+            found = f"'{movie_data.get('title')}' ({movie_data.get('year')})"
+            if request.tmdb_id:
+                # No search ran: the card itself still shows another film
+                # (stored before its status was refreshed).
+                return {
+                    "success": False,
+                    "message": "This card shows another film",
+                    "error": (
+                        f"The card's TMDB film {found} has IMDb id "
+                        f"{movie_data.get('imdbId')}, but the charted film is "
+                        f"{request.imdb_id}, so nothing was added. Refresh the "
+                        "week's status or press Update Week, then try again."
+                    ),
+                }
             return {
                 "success": False,
                 "message": "Charted film not found on TMDB",
                 "error": (
                     f"TMDB has no film with IMDb id {request.imdb_id}. Its "
-                    f"lookup for '{req_title}' found "
-                    f"'{movie_data.get('title')}' ({movie_data.get('year')}), "
-                    f"another film by its IMDb id ({movie_data.get('imdbId')}), "
-                    "so nothing was added."
+                    f"lookup for '{req_title}' found {found}, another film by "
+                    f"its IMDb id ({movie_data.get('imdbId')}), so nothing was "
+                    "added."
                 ),
             }
 

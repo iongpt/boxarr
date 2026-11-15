@@ -327,6 +327,25 @@ def auto_add_missing_movies(  # noqa: C901
                 )
                 continue
 
+            # The lookup fell back to a film with another IMDb id (the
+            # charted film is not on TMDB yet, or its imdb: lookup failed):
+            # that is not the charted film. It uses no slot and is not
+            # remembered, so the next run, or another region's row of that
+            # film, tries again. This comes before the checks below: a
+            # library film with another IMDb id is not the charted film being
+            # already present.
+            if imdb_ids_conflict(
+                result.box_office_movie.imdb_id, movie_info.get("imdbId")
+            ):
+                logger.warning(
+                    f"Skipping '{result.box_office_movie.title}' ({position}) - "
+                    f"TMDB has no film with its IMDb id "
+                    f"{result.box_office_movie.imdb_id}; the lookup found "
+                    f"'{movie_info.get('title')}' ({movie_info.get('year')}), "
+                    f"which has IMDb id {movie_info.get('imdbId')}"
+                )
+                continue
+
             movie_tmdb_id = movie_info.get("tmdbId")
             if movie_tmdb_id and movie_tmdb_id in seen_tmdb_ids:
                 logger.info(
@@ -344,22 +363,6 @@ def auto_add_missing_movies(  # noqa: C901
                 )
                 continue
 
-            # The lookup fell back to a film with another IMDb id (the
-            # charted film is not on TMDB yet, or its imdb: lookup failed):
-            # that is not the charted film. It uses no slot and is not
-            # remembered, so the next run, or another region's row of that
-            # film, tries again.
-            if imdb_ids_conflict(
-                result.box_office_movie.imdb_id, movie_info.get("imdbId")
-            ):
-                logger.warning(
-                    f"Skipping '{result.box_office_movie.title}' ({position}) - "
-                    f"TMDB has no film with its IMDb id "
-                    f"{result.box_office_movie.imdb_id}; the lookup found "
-                    f"'{movie_info.get('title')}' ({movie_info.get('year')}), "
-                    f"which has IMDb id {movie_info.get('imdbId')}"
-                )
-                continue
             if movie_tmdb_id:
                 seen_tmdb_ids.add(movie_tmdb_id)
 

@@ -113,3 +113,48 @@ def test_without_a_library_every_pick_is_tried(run):
     added, radarr = run(["Die Haushaelterin"], {"Die Haushaelterin": 700}, library=None)
 
     assert radarr.attempts == [700]
+
+
+class _SupermanOnlyAsTheOldFilm(_FakeRadarr):
+    """TMDB does not list the 2025 film yet: its title search and its imdb:
+    lookup find only the 1978 film, which is in the library."""
+
+    def search_movie(self, term):
+        if term == "Superman":
+            return [
+                {
+                    "tmdbId": 1924,
+                    "title": "Superman",
+                    "year": 1978,
+                    "imdbId": "tt0078346",
+                }
+            ]
+        return []
+
+
+def test_library_film_with_another_imdb_id_is_not_counted_as_present(
+    monkeypatch, caplog
+):
+    """The 1978 film being in Radarr says nothing about the charted 2025 one:
+    the skip names the IMDb conflict, not "already in Radarr"."""
+    monkeypatch.setattr(auto_add, "IgnoreList", _NoIgnoreList)
+    monkeypatch.setattr(auto_add, "RootFolderManager", _FakeRootFolderManager)
+    monkeypatch.setattr(auto_add, "settings", Settings(radarr_api_key="test"))
+    radarr = _SupermanOnlyAsTheOldFilm({})
+    chart = BoxOfficeMovie(rank=1, title="Superman", imdb_id="tt5950044")
+    library = [RadarrMovie(id=1, title="Superman", tmdbId=1924)]
+
+    with caplog.at_level("INFO"):
+        added = auto_add_missing_movies(
+            [MatchResult(box_office_movie=chart)],
+            radarr,
+            2026,
+            regions=[""],
+            radarr_movies=library,
+        )
+
+    assert added == []
+    assert radarr.attempts == []
+    messages = [r.message for r in caplog.records]
+    assert any("tt5950044" in m and "tt0078346" in m for m in messages)
+    assert not any("already in Radarr" in m for m in messages)
