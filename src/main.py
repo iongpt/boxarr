@@ -4,7 +4,9 @@
 import asyncio
 import signal
 import sys
+import threading
 from pathlib import Path
+from typing import Optional
 
 import uvicorn
 
@@ -31,6 +33,22 @@ class BoxarrApplication:
         self.scheduler = None
         self.app = None
         self._shutdown_event = asyncio.Event()
+        self.radarr_check: Optional[threading.Thread] = None
+
+    @staticmethod
+    def _check_radarr_connection() -> None:
+        """Log whether Radarr answers (runs on a thread of its own)."""
+        try:
+            with RadarrService() as radarr:
+                if not radarr.test_connection():
+                    logger.warning("Failed to connect to Radarr - check configuration")
+                else:
+                    logger.info(
+                        f"Successfully connected to Radarr at {settings.radarr_url}"
+                    )
+        except Exception as e:
+            logger.warning(f"Radarr connection failed: {e}")
+            logger.info("Please check configuration via web UI")
 
     async def startup(self):
         """Application startup."""
@@ -42,20 +60,15 @@ class BoxarrApplication:
             logger.info("Please visit http://localhost:8888 to configure Boxarr")
             # Don't exit - allow API to start so user can configure via web UI
         else:
-            # Test Radarr connection only if configured
-            try:
-                with RadarrService() as radarr:
-                    if not radarr.test_connection():
-                        logger.warning(
-                            "Failed to connect to Radarr - check configuration"
-                        )
-                    else:
-                        logger.info(
-                            f"Successfully connected to Radarr at {settings.radarr_url}"
-                        )
-            except Exception as e:
-                logger.warning(f"Radarr connection failed: {e}")
-                logger.info("Please check configuration via web UI")
+            # Test Radarr connection only if configured. In the background: a
+            # Radarr that hangs must not keep the port closed, and the container
+            # unreachable, for radarr_timeout (#138).
+            self.radarr_check = threading.Thread(
+                target=self._check_radarr_connection,
+                name="radarr-startup-check",
+                daemon=True,
+            )
+            self.radarr_check.start()
 
         # Scheduler will be initialized in app creation
         if settings.is_configured and settings.boxarr_scheduler_enabled:

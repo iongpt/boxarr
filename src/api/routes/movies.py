@@ -12,7 +12,11 @@ from ...core.ignore_list import IgnoreList
 from ...core.library_sync import WEEKLY_WRITE_LOCK, refresh_weekly_data_from_radarr
 from ...core.matcher import MovieMatcher
 from ...core.models import MovieStatus
-from ...core.radarr import RadarrService, get_all_movies_with_optional_cache_bypass
+from ...core.radarr import (
+    LibraryDownloadPending,
+    RadarrService,
+    get_all_movies_with_optional_cache_bypass,
+)
 from ...core.root_folder_manager import RootFolderManager
 from ...utils.atomic import atomic_write_json
 from ...utils.config import settings
@@ -86,8 +90,19 @@ class IgnoreMovieRequest(BaseModel):
     title: str
 
 
+# A status poll waits for a library download another request started only
+# until this many seconds after it began, then answers with no statuses (the
+# page keeps what it shows and polls again). While Radarr hangs, the polls then
+# do not each hold one of the threadpool's workers, which the static files
+# share, for radarr_timeout (#138).
+STATUS_LIBRARY_WAIT = 2.0
+
+
+# The handlers that ask Radarr are plain ``def``: RadarrService is synchronous,
+# so FastAPI runs them in its threadpool and a slow or hung Radarr stalls only
+# that request, not the event loop and every other request with it (#138).
 @router.get("/root-folders/available")
-async def get_available_root_folders():
+def get_available_root_folders():
     """Get list of available root folders from Radarr."""
     try:
         if not settings.radarr_api_key:
@@ -258,7 +273,7 @@ async def refresh_stored_status_progress():
 
 
 @router.get("/{movie_id}")
-async def get_movie_details(movie_id: int):
+def get_movie_details(movie_id: int):
     """Get detailed information about a movie."""
     try:
         if not settings.radarr_api_key:
@@ -291,14 +306,14 @@ async def get_movie_details(movie_id: int):
 
 
 @router.post("/status")
-async def get_movies_status(request: MovieStatusRequest):
+def get_movies_status(request: MovieStatusRequest):
     """Get status for multiple movies (for dynamic updates)."""
     try:
         if not settings.radarr_api_key:
             return {"statuses": {}}
 
         radarr_service = RadarrService()
-        all_movies = radarr_service.get_all_movies()
+        all_movies = radarr_service.get_all_movies(wait=STATUS_LIBRARY_WAIT)
         profiles = radarr_service.get_quality_profiles()
         profiles_by_id = {p.id: p.name for p in profiles}
         # Determine upgrade profile id once
@@ -356,13 +371,16 @@ async def get_movies_status(request: MovieStatusRequest):
                 }
 
         return {"statuses": statuses}
+    except LibraryDownloadPending as e:
+        logger.debug(f"Movie statuses skipped: {e}")
+        return {"statuses": {}}
     except Exception as e:
         logger.error(f"Error getting movie statuses: {e}")
         return {"statuses": {}}
 
 
 @router.post("/{movie_id}/upgrade", response_model=UpgradeResponse)
-async def upgrade_movie_quality(movie_id: int):
+def upgrade_movie_quality(movie_id: int):
     """Upgrade movie to higher quality profile."""
     try:
         if not settings.radarr_api_key:
@@ -423,6 +441,12 @@ async def upgrade_movie_quality(movie_id: int):
 @router.post("/add")
 async def add_movie_to_radarr(request: AddMovieRequest):
     """Add a movie to Radarr and relink the stored weeks that list it."""
+    # Every step asks Radarr or rewrites stored weeks: run them off the loop.
+    return await asyncio.to_thread(_add_movie_to_radarr, request)
+
+
+def _add_movie_to_radarr(request: AddMovieRequest) -> Dict[str, Any]:
+    """Body of :func:`add_movie_to_radarr`; runs on a worker thread."""
     try:
         if not settings.radarr_api_key:
             raise HTTPException(status_code=400, detail="Radarr not configured")
@@ -480,9 +504,7 @@ async def add_movie_to_radarr(request: AddMovieRequest):
 
         if already:
             # Relink affected weeks so UI reflects correct status immediately
-            await asyncio.to_thread(
-                regenerate_weeks_with_movie, req_title, already.tmdbId
-            )
+            regenerate_weeks_with_movie(req_title, already.tmdbId)
 
             return {
                 "success": True,
@@ -501,10 +523,8 @@ async def add_movie_to_radarr(request: AddMovieRequest):
 
         if result:
             # Relink the stored weeks that list this movie
-            await asyncio.to_thread(
-                regenerate_weeks_with_movie,
-                req_title,
-                result.tmdbId or movie_data.get("tmdbId"),
+            regenerate_weeks_with_movie(
+                req_title, result.tmdbId or movie_data.get("tmdbId")
             )
 
             return {
