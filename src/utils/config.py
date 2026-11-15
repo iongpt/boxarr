@@ -513,7 +513,9 @@ class Settings(BaseSettings):
     )
     boxarr_scheduler_cron: str = Field(
         default="0 23 * * 2",
-        description="Cron expression for updates (default: Tuesday 11 PM)",
+        # APScheduler numbers the days of the week from Monday=0 (crontab
+        # starts at Sunday=0), so 2 is Wednesday.
+        description="Cron expression for updates (default: Wednesday 11 PM)",
     )
     boxarr_scheduler_timezone: str = Field(
         default_factory=lambda: os.environ.get("TZ", "America/New_York"),

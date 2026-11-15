@@ -63,7 +63,7 @@ radarr:
 boxarr:
   scheduler:
     enabled: true
-    cron: "0 23 * * 2"  # Tuesday at 11 PM
+    cron: "0 23 * * 2"  # Wednesday at 11 PM (APScheduler numbering: Monday=0)
   
   features:
     auto_add: true  # Automatically add missing movies

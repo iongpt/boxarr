@@ -79,6 +79,7 @@ class SaveConfigRequest(BaseModel):
     # Root folder mapping configuration
     radarr_root_folder_config: Optional[RootFolderConfig] = None
     boxarr_scheduler_enabled: bool = True
+    # Wednesday 11 PM: APScheduler numbers the days from Monday=0
     boxarr_scheduler_cron: str = "0 23 * * 2"
     boxarr_features_auto_add: bool = True
     boxarr_features_quality_upgrade: bool = True

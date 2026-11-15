@@ -60,16 +60,18 @@ def parse_cron_schedule():
         if len(parts) >= 5:
             minute, hour, day_of_month, month, day_of_week = parts[:5]
             
-            days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+            # APScheduler numbering: Monday=0 ... Sunday=6 (not crontab's Sunday=0)
+            days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
             
             print(f"\nSchedule breakdown:")
             print(f"  Minute: {minute}")
             print(f"  Hour: {hour}")
             print(f"  Day of month: {day_of_month}")
             print(f"  Month: {month}")
-            print(f"  Day of week: {day_of_week} ({days[int(day_of_week)] if day_of_week.isdigit() else day_of_week})")
+            known_day = day_of_week.isdigit() and int(day_of_week) < len(days)
+            print(f"  Day of week: {day_of_week} ({days[int(day_of_week)] if known_day else day_of_week})")
             
-            if day_of_week.isdigit():
+            if known_day:
                 print(f"\n📅 Runs every {days[int(day_of_week)]} at {hour}:{minute.zfill(2)}")
         
         return True
@@ -77,10 +79,11 @@ def parse_cron_schedule():
     except Exception as e:
         print(f"❌ Error parsing cron expression: {e}")
         print("\nValid cron format: 'minute hour day_of_month month day_of_week'")
+        print("Day of week uses APScheduler numbering: Monday=0 ... Sunday=6")
         print("Examples:")
-        print("  0 23 * * 2  - Every Tuesday at 23:00 (11 PM)")
-        print("  0 20 * * 5  - Every Friday at 20:00 (8 PM)")
-        print("  30 14 * * 1 - Every Monday at 14:30 (2:30 PM)")
+        print("  0 23 * * 2  - Every Wednesday at 23:00 (11 PM)")
+        print("  0 20 * * 4  - Every Friday at 20:00 (8 PM)")
+        print("  30 14 * * 0 - Every Monday at 14:30 (2:30 PM)")
         return False
 
 

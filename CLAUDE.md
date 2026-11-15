@@ -242,7 +242,8 @@ For movies not in Radarr:
 ### Scheduling System
 
 Uses APScheduler with ThreadPoolExecutor:
-- Default: Tuesday 11 PM (`0 23 * * 2`)
+- Default: Wednesday 11 PM (`0 23 * * 2`: APScheduler numbers the days of the week from Monday=0, not crontab's Sunday=0)
+- Fires in the scheduler timezone: `BOXARR_SCHEDULER_TIMEZONE` or `TZ` when set, else `boxarr.scheduler.timezone`, else America/New_York
 - Configurable via web UI
 - Background execution
 - Error recovery and logging

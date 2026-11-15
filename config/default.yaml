@@ -20,7 +20,11 @@ boxarr:
   # Scheduler configuration  
   scheduler:
     enabled: true
-    cron: "0 23 * * 2"  # Tuesday at 11 PM
+    # Day of week uses APScheduler numbering, Monday=0 ... Sunday=6 (not
+    # crontab's Sunday=0), so 2 is Wednesday. The time is in the scheduler
+    # timezone: BOXARR_SCHEDULER_TIMEZONE or TZ when set, else
+    # boxarr.scheduler.timezone, else America/New_York.
+    cron: "0 23 * * 2"  # Wednesday at 11 PM
     
   # Feature flags
   features:
