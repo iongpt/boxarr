@@ -319,6 +319,8 @@ def test_refresh_keeps_the_region_keys_of_a_multi_region_week(tmp_path):
         quality_profile_id=1,
         poster_url="https://example.com/202.jpg",
     )
+    # The film Box Office Mojo lists as tt2002.
+    radarr_movie.imdbId = "tt2002"
 
     results = refresh_weekly_data_from_radarr(
         radarr_service=_FakeRadarrService([radarr_movie], [_FakeProfile(1, "HD")]),
@@ -371,7 +373,7 @@ def _two_region_week(week_file, *movies):
 
 
 def _odyssey():
-    return _FakeMovie(
+    movie = _FakeMovie(
         11,
         101,
         "The Odyssey",
@@ -381,6 +383,9 @@ def _odyssey():
         quality_profile_id=1,
         poster_url="https://example.com/11.jpg",
     )
+    # The film Box Office Mojo lists as tt1 below.
+    movie.imdbId = "tt1"
+    return movie
 
 
 def test_one_film_of_two_regions_is_merged_before_it_is_linked(tmp_path):
@@ -432,3 +437,145 @@ def test_two_films_with_different_mojo_ids_are_not_merged(tmp_path):
     stored = json.loads(week_file.read_text())
     assert [m["bom_imdb_id"] for m in stored["movies"]] == ["tt1", "tt9"]
     assert stored["total_movies"] == 2
+
+
+def _superman(movie_id, tmdb_id, year, imdb_id):
+    movie = _FakeMovie(
+        movie_id,
+        tmdb_id,
+        "Superman",
+        has_file=year < 2000,
+        status=MovieStatus.RELEASED,
+        is_available=True,
+        quality_profile_id=1,
+        poster_url=f"https://example.com/{movie_id}.jpg",
+    )
+    movie.year = year
+    movie.imdbId = imdb_id
+    return movie
+
+
+SUPERMAN_1978 = _superman(7, 1924, 1978, "tt0078346")
+SUPERMAN_2025 = _superman(8, 1061474, 2025, "tt5950044")
+
+
+def _superman_week(week_file, **entry):
+    """2025W28 charting the 2025 "Superman" (Mojo id tt5950044)."""
+    stored = {
+        "rank": 1,
+        "title": "Superman",
+        "radarr_id": None,
+        "radarr_title": None,
+        "status": "Not in Radarr",
+        "tmdb_id": None,
+        "imdb_id": None,
+        "year": None,
+        "poster": None,
+        "bom_imdb_id": "tt5950044",
+    }
+    stored.update(entry)
+    week_file.write_text(
+        json.dumps({"year": 2025, "week": 28, "matched_movies": 0, "movies": [stored]})
+    )
+
+
+def _refresh(tmp_path, *library):
+    return refresh_weekly_data_from_radarr(
+        radarr_service=_FakeRadarrService(list(library), [_FakeProfile(1, "HD")]),
+        data_directory=tmp_path,
+    )
+
+
+def _week(tmp_path):
+    weekly_pages_dir = tmp_path / "weekly_pages"
+    weekly_pages_dir.mkdir(exist_ok=True)
+    return weekly_pages_dir / "2025W28.json"
+
+
+def _stored(week_file):
+    return json.loads(week_file.read_text())["movies"][0]
+
+
+class TestMojoImdbIdNamesTheFilm:
+    """A stored entry is only ever linked to the film with its Mojo IMDb id."""
+
+    def test_link_to_an_older_film_of_the_title_is_healed(self, tmp_path):
+        """Linked to the 1978 film by an earlier build: unlinked, and the
+        1978 film's TMDB id and poster go with the link."""
+        week_file = _week(tmp_path)
+        _superman_week(
+            week_file,
+            radarr_id=7,
+            radarr_title="Superman",
+            status="Downloaded",
+            tmdb_id=1924,
+            imdb_id="tt0078346",
+            year=1978,
+            poster="https://example.com/7.jpg",
+        )
+
+        results = _refresh(tmp_path, SUPERMAN_1978)
+
+        entry = _stored(week_file)
+        assert (entry["radarr_id"], entry["status"]) == (None, "Not in Radarr")
+        assert (entry["tmdb_id"], entry["imdb_id"], entry["year"]) == (None, None, None)
+        assert entry["poster"] is None
+        assert (entry["title"], entry["bom_imdb_id"]) == ("Superman", "tt5950044")
+        assert results["movies_refreshed"] == 1
+        assert json.loads(week_file.read_text())["matched_movies"] == 0
+
+    def test_lookup_fallback_to_an_older_film_is_not_linked(self, tmp_path):
+        """The TMDB pick fell back to the 1978 film, which is in Radarr."""
+        week_file = _week(tmp_path)
+        _superman_week(week_file, tmdb_id=1924, imdb_id="tt0078346", year=1978)
+        before = week_file.read_bytes()
+
+        results = _refresh(tmp_path, SUPERMAN_1978)
+
+        assert week_file.read_bytes() == before
+        assert results["movies_linked"] == 0
+
+    def test_film_with_the_mojo_imdb_id_is_linked(self, tmp_path):
+        """Once the 2025 film is in Radarr, the entry links to it - also when
+        it was linked to the 1978 film."""
+        week_file = _week(tmp_path)
+        _superman_week(week_file, radarr_id=7, tmdb_id=1924, imdb_id="tt0078346")
+
+        _refresh(tmp_path, SUPERMAN_1978, SUPERMAN_2025)
+
+        entry = _stored(week_file)
+        assert (entry["radarr_id"], entry["tmdb_id"], entry["year"]) == (
+            8,
+            1061474,
+            2025,
+        )
+        assert entry["imdb_id"] == "tt5950044"
+
+    def test_film_with_the_mojo_imdb_id_links_without_a_tmdb_id(self, tmp_path):
+        """An entry whose TMDB lookup failed links by its Mojo IMDb id."""
+        week_file = _week(tmp_path)
+        _superman_week(week_file, bom_imdb_id=" TT5950044 ")
+
+        results = _refresh(tmp_path, SUPERMAN_1978, SUPERMAN_2025)
+
+        assert _stored(week_file)["radarr_id"] == 8
+        assert results["movies_linked"] == 1
+
+    def test_entry_without_a_mojo_imdb_id_links_as_before(self, tmp_path):
+        """Weeks stored before v2.2.0 carry no Mojo id: nothing changes."""
+        week_file = _week(tmp_path)
+        _superman_week(week_file, bom_imdb_id=None, radarr_id=7, tmdb_id=1924)
+
+        _refresh(tmp_path, SUPERMAN_1978, SUPERMAN_2025)
+
+        entry = _stored(week_file)
+        assert (entry["radarr_id"], entry["tmdb_id"]) == (7, 1924)
+
+    def test_library_film_without_an_imdb_id_stays_linked(self, tmp_path):
+        week_file = _week(tmp_path)
+        _superman_week(week_file, radarr_id=9, tmdb_id=1061474)
+        no_id = _superman(9, 1061474, 2025, None)
+
+        _refresh(tmp_path, no_id)
+
+        assert _stored(week_file)["radarr_id"] == 9
