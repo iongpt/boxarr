@@ -13,7 +13,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
 from ... import __version__
-from ...core.boxoffice import BOX_OFFICE_REGIONS
+from ...core.boxoffice import BOX_OFFICE_REGIONS, area_code_hint
 from ...core.ignore_list import IgnoreList
 from ...core.languages import (
     RADARR_LANGUAGES,
@@ -632,8 +632,10 @@ def _region_picker_rows(configured: List[str]) -> List[Dict[str, object]]:
 
     Each row has ``value`` (what the checkbox posts: the code, or "domestic"
     for the US & Canada chart, whose code is ""), ``code``, ``name`` (the
-    name every page uses, see region_name), ``checked`` and ``aliases``
-    (REGION_SEARCH_ALIASES joined by "|").
+    name every page uses, see region_name), ``checked``, ``aliases``
+    (REGION_SEARCH_ALIASES joined by "|") and ``hint``: for a code outside
+    the catalogue that people use for one in it, that one ("GB" for "UK"),
+    else None.
     """
     names = dict(BOX_OFFICE_REGIONS)
 
@@ -645,6 +647,7 @@ def _region_picker_rows(configured: List[str]) -> List[Dict[str, object]]:
             "name": region_name(code) if listed else f"{code} (not in list)",
             "checked": checked,
             "aliases": "|".join(REGION_SEARCH_ALIASES.get(code, ())),
+            "hint": None if listed else area_code_hint(code),
         }
 
     rows = [row(code, True) for code in configured]

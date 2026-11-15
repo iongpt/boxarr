@@ -328,6 +328,22 @@ class TestSetupPage:
         suggestions = soup.find(id="languageSuggestions")
         assert suggestions["data-region-name"] == "ZZ (not in list), Netherlands"
 
+    def test_a_code_used_for_a_listed_region_suggests_that_one(self, client, tmp_path):
+        # Mojo files the United Kingdom under GB; ?area=UK is the domestic
+        # chart, so the region fails every week. The weekly page's banner
+        # says so; the picker, where the code is fixed, says it too.
+        soup = self._soup(client, tmp_path, "[UK, ZZ]")
+
+        def label(value: str):
+            box = _picker(soup).find("input", attrs={"value": value})
+            return box.find_parent("label")
+
+        assert "did you mean GB?" in label("UK").get_text()
+        # The name the status line and the language label read is unchanged.
+        assert label("UK")["data-region-name"] == "UK (not in list)"
+        assert "did you mean" not in label("ZZ").get_text()
+        assert "did you mean" not in label("GB").get_text()
+
     def test_status_counts_the_selection(self, client, tmp_path):
         soup = self._soup(client, tmp_path, "[DE, domestic, NO]")
 

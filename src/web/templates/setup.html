@@ -237,7 +237,8 @@
                                    data-region-code="{{ region.code }}"
                                    {% if region.checked %}checked{% endif %}
                                    {% if box_office_region_env_locked %}disabled{% endif %}>
-                            <span>{{ region.name }}</span>
+                            <span>{{ region.name }}</span>{% if region.hint %}
+                            <small class="text-muted region-hint">did you mean {{ region.hint }}?</small>{% endif %}
                         </label>
                         {% endfor %}
                     </div>
