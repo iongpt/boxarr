@@ -22,6 +22,7 @@ from fastapi.testclient import TestClient
 
 import src.utils.config as cfg_utils
 from src.api.app import create_app
+from src.api.routes.weekly_regions import named_region_status
 from src.core.region_charts import RegionFetch
 from tests.js_sandbox import (
     dom_tree,
@@ -39,11 +40,18 @@ DATA = Path(__file__).parent / "data"
 FAILURE_WORDS = ("Update failed", "Regeneration failed", "Fetch failed", "❌")
 
 
+# The text a region failed with: it may reach the log, never the page.
+RAW = "HTTPSConnectionPool: Read timed out"
+
+
 def _status(*pairs: Any) -> List[dict]:
-    return [
-        RegionFetch(region=code, status=status, error="HTTP 503").to_status()
-        for code, status in pairs
-    ]
+    """region_status entries as the server answers them: with names."""
+    return named_region_status(
+        [
+            RegionFetch(region=code, status=status, error=RAW).to_status()
+            for code, status in pairs
+        ]
+    )
 
 
 SUCCESS = {
@@ -57,7 +65,7 @@ SUCCESS = {
 PARTIAL = {
     "success": True,
     "partial": True,
-    "message": "Updated week 2026W44; FR failed",
+    "message": f"Box office update completed with errors: FR: {RAW}",
     "movies_found": 7,
     "movies_added": 1,
     "region_status": _status(("", "ok"), ("FR", "error"), ("DE", "ok")),
@@ -73,10 +81,20 @@ FAILED = {
     "success": False,
     "message": "No data found for week 2026W44",
 }
-# /update-week when no region could be fetched: FastAPI's HTTP 500.
-FAILED_HTTP = {"detail": "No box office region could be fetched for 2026W44"}
+# /update-week when its one region could not be fetched: FastAPI's HTTP 500.
+FAILED_HTTP = {"detail": "Failed to fetch box office data: HTTP 503"}
+# /update-week when none of several regions could be: the same 500, with
+# each region's status.
+FAILED_REGIONS = {
+    "detail": f"No box office region could be fetched for 2026W44: FR: {RAW}",
+    "success": False,
+    "partial": False,
+    "region_status": _status(("", "error"), ("FR", "error")),
+}
 
-PARTIAL_SUMMARY = "Updated 2 of 3 regions (FR failed)"
+PARTIAL_SUMMARY = "Updated 2 of 3 regions (France failed)"
+KEPT_MESSAGE = "France failed, so the stored week was kept as it was"
+FAILED_REGIONS_MESSAGE = "No region could be updated (US & Canada, France failed)"
 
 
 def _seed_config(dir_path: Path) -> None:
@@ -196,6 +214,11 @@ def _shown(result: Dict[str, Any]) -> str:
     )
 
 
+def _assert_no_error_text(results: List[Dict[str, Any]]) -> None:
+    for result in results:
+        assert RAW not in _shown(result), _shown(result)
+
+
 def _assert_not_a_failure(result: Dict[str, Any]) -> None:
     shown = _shown(result)
     for word in FAILURE_WORDS:
@@ -220,14 +243,17 @@ class TestWeeklyRegenerate:
         return _run("regenerateWeek(2026, 44)", list(replies), self.SCRIPTS, page)
 
     def test_outcomes(self, render):
-        success, partial, kept, failed, failed_http = self._run(
+        results = self._run(
             render,
             _reply(SUCCESS),
             _reply(PARTIAL),
             _reply(KEPT),
             _reply(FAILED),
             _reply(FAILED_HTTP, 500),
+            _reply(FAILED_REGIONS, 500),
         )
+        success, partial, kept, failed, failed_http, failed_regions = results
+        _assert_no_error_text(results)
 
         assert success["changed"]["regenerate-btn"] == "✓ Done!"
         assert success["alerts"] == [] and success["reloads"] == 1
@@ -237,12 +263,15 @@ class TestWeeklyRegenerate:
         assert partial["alerts"] == [] and partial["reloads"] == 1
 
         _assert_not_a_failure(kept)
-        assert kept["alerts"] == [f"Week not updated: {KEPT['message']}"]
+        assert kept["alerts"] == [f"Week not updated: {KEPT_MESSAGE}"]
         assert kept["reloads"] == 0
 
         assert failed["alerts"] == [f"Regeneration failed: {FAILED['message']}"]
         assert failed_http["alerts"] == [
             f"Regeneration failed: {FAILED_HTTP['detail']}"
+        ]
+        assert failed_regions["alerts"] == [
+            f"Regeneration failed: {FAILED_REGIONS_MESSAGE}"
         ]
 
     def test_network_error(self, render):
@@ -270,7 +299,7 @@ class TestDashboard:
         ],
     )
     def test_update_outcomes(self, render, call, setup):
-        success, partial, kept, failed = self._run(
+        results = self._run(
             render,
             call,
             _reply(SUCCESS),
@@ -279,6 +308,8 @@ class TestDashboard:
             _reply(FAILED),
             setup=setup,
         )
+        success, partial, kept, failed = results
+        _assert_no_error_text(results)
 
         assert success["changed"]["progressMessage"] == (
             "✅ Updated successfully! Found 9 movies."
@@ -293,7 +324,7 @@ class TestDashboard:
 
         _assert_not_a_failure(kept)
         assert kept["changed"]["progressMessage"] == (
-            f"⚠️ Week not updated: {KEPT['message']}"
+            f"⚠️ Week not updated: {KEPT_MESSAGE}"
         )
         assert kept["reloads"] == 0
 
@@ -315,6 +346,20 @@ class TestDashboard:
             f"❌ Update failed: {FAILED_HTTP['detail']}"
         )
 
+    def test_historical_update_names_the_regions_of_a_failed_week(self, render):
+        setup = (
+            "document.getElementById('historicalYear').value = '2026';"
+            "document.getElementById('historicalWeek').value = '44';"
+        )
+        (result,) = self._run(
+            render, "updateHistoricalWeek()", _reply(FAILED_REGIONS, 500), setup=setup
+        )
+
+        _assert_no_error_text([result])
+        assert result["changed"]["progressMessage"] == (
+            f"❌ Update failed: {FAILED_REGIONS_MESSAGE}"
+        )
+
     def test_range_summary_lists_each_outcome_once(self, render):
         replies = {
             "byWeek": {
@@ -331,6 +376,7 @@ class TestDashboard:
             replies,
         )
 
+        _assert_no_error_text([result])
         changed = result["changed"]
         assert result["posted"] == ["/api/scheduler/update-week"] * 5
         assert changed["summarySuccess"] == "2"
@@ -341,10 +387,10 @@ class TestDashboard:
         assert changed["partialCount"] == "1"
         assert changed["partialList"] == f"2026W44: {PARTIAL_SUMMARY}"
         assert changed["keptCount"] == "1"
-        assert changed["keptList"] == f"2026W43: {KEPT['message']}"
+        assert changed["keptList"] == f"2026W43: {KEPT_MESSAGE}"
         log = changed["progressLog"]
         assert f"Completed 2026W44 - {PARTIAL_SUMMARY}" in log
-        assert f"Kept 2026W43 - {KEPT['message']}" in log
+        assert f"Kept 2026W43 - {KEPT_MESSAGE}" in log
 
 
 class TestDashboardHandlersDefinedOnce:
@@ -390,13 +436,22 @@ class TestAppJs:
         )
 
     def test_trigger_scheduler(self):
-        success, partial, kept, failed = self._run(
+        # /trigger's answer when none of several regions could be fetched.
+        trigger_failed = {
+            "success": False,
+            "message": f"Update failed: {FAILED_REGIONS['detail']}",
+            "region_status": FAILED_REGIONS["region_status"],
+        }
+        results = self._run(
             "triggerScheduler()",
             _reply(SUCCESS),
             _reply(PARTIAL),
             _reply(KEPT),
             _reply(FAILED),
+            _reply(trigger_failed),
         )
+        success, partial, kept, failed, failed_regions = results
+        _assert_no_error_text(results)
 
         assert success["alerts"] == [
             "Update completed! Found 9 movies, added 0 new movies.\n"
@@ -407,6 +462,7 @@ class TestAppJs:
             "Update completed! Found 7 movies, added 1 new movies.\n" + PARTIAL_SUMMARY
         ]
         _assert_not_a_failure(kept)
-        assert kept["alerts"] == [f"Week not updated: {KEPT['message']}"]
+        assert kept["alerts"] == [f"Week not updated: {KEPT_MESSAGE}"]
         assert failed["alerts"] == [f"Update failed: {FAILED['message']}"]
+        assert failed_regions["alerts"] == [f"Update failed: {FAILED_REGIONS_MESSAGE}"]
         assert partial["button"] == "▶ Trigger Now"

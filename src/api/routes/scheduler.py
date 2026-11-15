@@ -4,15 +4,17 @@ import asyncio
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from ...core.library_sync import WEEKLY_WRITE_LOCK
 from ...core.scheduler import BoxarrScheduler
 from ...utils.config import configured_box_office_regions, settings
 from ...utils.logger import get_logger
+from .weekly_regions import named_region_status
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/api/scheduler", tags=["scheduler"])
@@ -80,7 +82,7 @@ async def trigger_update():
                 success=False,
                 message=result.get("message") or "Box office update failed",
                 partial=result.get("partial"),
-                region_status=result.get("region_status"),
+                region_status=named_region_status(result.get("region_status")),
             )
 
         # Handle added_movies which is a list
@@ -99,14 +101,16 @@ async def trigger_update():
             ),  # Fixed: was "total_movies" but scheduler returns "total_count"
             movies_added=movies_added_count,
             partial=result.get("partial", False),
-            region_status=result.get("region_status"),
+            region_status=named_region_status(result.get("region_status")),
         )
     except Exception as e:
         logger.error(f"Error triggering update: {e}")
         return TriggerResponse(
             success=False,
             message=str(e),
-            region_status=getattr(e.__cause__, "region_status", None),
+            region_status=named_region_status(
+                getattr(e.__cause__, "region_status", None)
+            ),
         )
 
 
@@ -210,7 +214,9 @@ async def get_scheduler_status():
                                 # still written, and each region's status;
                                 # older files: one region, never partial.
                                 "partial": data.get("partial", False),
-                                "region_status": data.get("region_status", []),
+                                "region_status": named_region_status(
+                                    data.get("region_status", [])
+                                ),
                                 # Shown on hover in the setup page's Last Run row.
                                 "error": _first_error(data),
                                 "matched_count": data.get("matched_count", 0),
@@ -299,7 +305,9 @@ async def get_scheduler_history():
                             "movies_added": added_count,
                             "error": result.get("error"),
                             "partial": result.get("partial", False),
-                            "region_status": result.get("region_status", []),
+                            "region_status": named_region_status(
+                                result.get("region_status", [])
+                            ),
                         }
                     )
                 except Exception as e:
@@ -343,7 +351,9 @@ async def update_specific_week(request: UpdateWeekRequest):  # noqa: C901
         raise HTTPException(status_code=500, detail=str(e))
 
 
-def _update_specific_week(year: int, week: int) -> dict:  # noqa: C901
+def _update_specific_week(  # noqa: C901
+    year: int, week: int
+) -> Union[Dict[str, Any], JSONResponse]:
     """Fetch, match and persist box office data for one week.
 
     Every configured region is fetched and merged into the week's one list
@@ -393,8 +403,22 @@ def _update_specific_week(year: int, week: int) -> dict:  # noqa: C901
                     "success": False,
                     "message": f"No data found for week {year}W{week:02d}",
                     "partial": False,
-                    "region_status": e.region_status,
+                    "region_status": named_region_status(e.region_status),
                 }
+            if len(e.fetches) > 1:
+                # The same 500 and detail as below, plus each region's
+                # status, so a page can name the failed regions instead of
+                # showing the error text. One region answers as before.
+                logger.error(f"Error updating week: {e}")
+                return JSONResponse(
+                    status_code=500,
+                    content={
+                        "detail": str(e),
+                        "success": False,
+                        "partial": False,
+                        "region_status": named_region_status(e.region_status),
+                    },
+                )
             raise
 
         if not build.written:
@@ -403,7 +427,7 @@ def _update_specific_week(year: int, week: int) -> dict:  # noqa: C901
                 "success": False,
                 "message": build.message,
                 "partial": True,
-                "region_status": build.region_status,
+                "region_status": named_region_status(build.region_status),
             }
 
         return {
@@ -412,7 +436,7 @@ def _update_specific_week(year: int, week: int) -> dict:  # noqa: C901
             "movies_found": build.total_movies,
             "movies_added": len(build.added_movies),
             "partial": build.partial,
-            "region_status": build.region_status,
+            "region_status": named_region_status(build.region_status),
         }
     finally:
         WEEKLY_WRITE_LOCK.release()

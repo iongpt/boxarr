@@ -4,8 +4,10 @@ A week can be built from several box office regions, and one can fail while
 the others are written. Every page that runs an update words its message from
 this helper, so a partial success reads e.g. "Updated 2 of 3 regions (FR
 failed)" instead of a failure, and an older stored week that was kept says
-so instead of "Regeneration failed". Skipped when node is not installed; the
-call-site guard at the end needs no node. Each page's handlers are run on
+so instead of "Regeneration failed". A region is named as the weekly page
+names it (the server's "name"), and the error text a region failed with is
+never shown. Skipped when node is not installed; the call-site guard at the
+end needs no node. Each page's handlers are run on
 such responses in tests/integration/test_update_outcome_js.py.
 """
 
@@ -18,6 +20,7 @@ from typing import Any, List
 
 import pytest
 
+from src.api.routes.weekly_regions import named_region_status
 from src.core.region_charts import RegionFetch
 
 STATIC_JS = Path(__file__).resolve().parents[2] / "src" / "web" / "static" / "js"
@@ -37,12 +40,21 @@ process.stdout.write(JSON.stringify(out));
 """
 
 
-def _status(*pairs: Any) -> List[dict]:
-    """region_status entries exactly as the server builds them."""
+# The text a region failed with, which no message may show.
+RAW = "HTTPSConnectionPool: Read timed out (boom)"
+
+
+def _stored_status(*pairs: Any) -> List[dict]:
+    """region_status entries as a week stores them: codes, no names."""
     return [
-        RegionFetch(region=code, status=status, error="boom").to_status()
+        RegionFetch(region=code, status=status, error=RAW).to_status()
         for code, status in pairs
     ]
+
+
+def _status(*pairs: Any) -> List[dict]:
+    """region_status entries exactly as the server answers them, named."""
+    return named_region_status(_stored_status(*pairs))
 
 
 def _describe(*cases: Any) -> List[dict]:
@@ -108,8 +120,39 @@ class TestDescribe:
         )
         assert result == {
             "outcome": "partial",
-            "summary": "Updated 2 of 3 regions (FR failed)",
-            "message": "Updated 2 of 3 regions (FR failed)",
+            "summary": "Updated 2 of 3 regions (France failed)",
+            "message": "Updated 2 of 3 regions (France failed)",
+        }
+
+    def test_names_fall_back_to_the_code_without_a_server_name(self):
+        (result,) = _describe(
+            (
+                {
+                    "success": True,
+                    "partial": True,
+                    "region_status": _stored_status(("", "error"), ("FR", "ok")),
+                },
+                True,
+            )
+        )
+        assert result["message"] == "Updated 1 of 2 regions (US & Canada failed)"
+
+    def test_one_region_partial_names_its_region_not_the_error(self):
+        (result,) = _describe(
+            (
+                {
+                    "success": True,
+                    "partial": True,
+                    "message": f"Box office update completed with errors: NL: {RAW}",
+                    "region_status": _status(("NL", "stale")),
+                },
+                True,
+            )
+        )
+        assert result == {
+            "outcome": "partial",
+            "summary": "",
+            "message": "Updated, but Netherlands failed",
         }
 
     def test_stale_region_counts_as_failed(self):
@@ -147,27 +190,28 @@ class TestDescribe:
             ),
         )
         assert result[0]["message"] == (
-            "Updated 2 of 4 regions (FR, GB failed; no chart for DE)"
+            "Updated 2 of 4 regions "
+            "(France, United Kingdom failed; no chart for Germany)"
         )
         assert result[1] == {
             "outcome": "success",
-            "summary": "Updated 2 of 2 regions (no chart for DE)",
-            "message": "Updated 2 of 2 regions (no chart for DE)",
+            "summary": "Updated 2 of 2 regions (no chart for Germany)",
+            "message": "Updated 2 of 2 regions (no chart for Germany)",
         }
 
-    def test_partial_without_region_status_uses_the_server_message(self):
+    def test_partial_without_region_status_never_shows_the_server_message(self):
         (result,) = _describe(
             (
                 {
                     "success": True,
                     "partial": True,
-                    "message": "Box office update completed with errors: FR: boom",
+                    "message": f"Box office update completed with errors: FR: {RAW}",
                 },
                 True,
             )
         )
         assert result["outcome"] == "partial"
-        assert result["message"] == "Box office update completed with errors: FR: boom"
+        assert result["message"] == "Updated, but a region failed"
 
     def test_kept_legacy_week_is_not_a_failure(self):
         (result,) = _describe(
@@ -183,9 +227,91 @@ class TestDescribe:
         )
         assert result == {
             "outcome": "kept",
-            "summary": "Updated 1 of 2 regions (FR failed)",
-            "message": "Kept the existing data for 2026W44; FR failed",
+            "summary": "Updated 1 of 2 regions (France failed)",
+            "message": "France failed, so the stored week was kept as it was",
         }
+
+    def test_several_regions_that_all_failed_are_named(self):
+        # /update-week's 500 when no region could be fetched, and /trigger's
+        # failure: both carry each region's status.
+        detail = f"No box office region could be fetched for 2026W44: DE: {RAW}"
+        result = _describe(
+            (
+                {
+                    "detail": detail,
+                    "success": False,
+                    "partial": False,
+                    "region_status": _status(("", "error"), ("DE", "no_data")),
+                },
+                False,
+            ),
+            (
+                {
+                    "success": False,
+                    "message": f"Update failed: {detail}",
+                    "region_status": _status(("", "error"), ("DE", "error")),
+                },
+                None,
+            ),
+        )
+        assert [r["outcome"] for r in result] == ["failed", "failed"]
+        assert result[0]["message"] == (
+            "No region could be updated (US & Canada failed; no chart for Germany)"
+        )
+        assert result[1]["message"] == (
+            "No region could be updated (US & Canada, Germany failed)"
+        )
+
+    def test_a_failure_after_the_regions_came_through_keeps_its_error(self):
+        # Every region was fetched; the run failed later (e.g. Radarr).
+        (result,) = _describe(
+            (
+                {
+                    "success": False,
+                    "message": "Update failed: Radarr went away",
+                    "region_status": _status(("", "ok"), ("DE", "ok")),
+                },
+                None,
+            )
+        )
+        assert result["message"] == "Update failed: Radarr went away"
+
+    @pytest.mark.parametrize(
+        "data, http_ok",
+        [
+            (
+                {
+                    "success": True,
+                    "partial": True,
+                    "message": f"completed with errors: DE: {RAW}",
+                    "region_status": _status(("", "ok"), ("DE", "error")),
+                },
+                True,
+            ),
+            (
+                {
+                    "success": False,
+                    "partial": True,
+                    "message": f"Kept: DE: {RAW}",
+                    "region_status": _status(("", "ok"), ("DE", "error")),
+                },
+                True,
+            ),
+            (
+                {
+                    "detail": f"No box office region could be fetched: {RAW}",
+                    "success": False,
+                    "region_status": _status(("", "error"), ("DE", "error")),
+                },
+                False,
+            ),
+        ],
+        ids=["partial", "kept", "failed"],
+    )
+    def test_a_regions_error_text_is_never_shown(self, data, http_ok):
+        (result,) = _describe((data, http_ok))
+        assert "boom" not in result["message"]
+        assert "boom" not in result["summary"]
 
     @pytest.mark.parametrize(
         "data, http_ok, message",

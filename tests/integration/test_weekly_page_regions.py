@@ -582,12 +582,12 @@ class TestRegionBanners:
         ]
         assert banners == [
             (
-                "⚠️ Romania: the last update could not fetch this chart "
-                "(HTTP 503), so the chart fetched on Nov 2, 2026 is shown.",
+                "⚠️ Romania: the last update could not fetch this chart, "
+                "so the chart fetched on Nov 2, 2026 is shown.",
                 False,
             ),
             (
-                "⚠️ United Kingdom: the chart could not be fetched (timed out); "
+                "⚠️ United Kingdom: the chart could not be fetched; "
                 "its movies are missing from this week.",
                 True,
             ),
@@ -598,6 +598,36 @@ class TestRegionBanners:
             for s in _soup(html).find(id="regionLine").find_all("span")
         ]
         assert names == ["US & Canada", "Romania ⚠️", "United Kingdom ⚠️", "Germany ⚠️"]
+
+    def test_banners_never_show_the_error_text(self, page):
+        # The raw error stays in the stored file and the log.
+        raw = "HTTPSConnectionPool(host='www.boxofficemojo.com'): Read timed out"
+        week = copy.deepcopy(MULTI_WEEK)
+        week["region_status"][1] = _status(
+            "RO", "stale", error=raw, carried_from="2026-11-02T09:00:00"
+        )
+        week["region_status"][2] = _status("GB", "error", error=raw, movies=0)
+
+        html = page(week)
+
+        assert len(_soup(html).find_all(class_="region-banner")) == 2
+        assert "Read timed out" not in html
+        assert "HTTPSConnectionPool" not in html
+
+    def test_a_stale_region_without_a_kept_chart_says_so(self, page):
+        # Carried over from an answer without data: no chart was kept.
+        week = copy.deepcopy(MULTI_WEEK)
+        week["region_status"][1] = _status(
+            "RO", "stale", error="HTTP 503", movies=0, carried_from="2026-11-02"
+        )
+
+        html = page(week)
+
+        (banner,) = _soup(html).find_all(class_="region-banner")
+        assert banner.get_text(" ", strip=True) == (
+            "⚠️ Romania: the last update could not fetch this chart, and Box "
+            "Office Mojo had no chart for this weekend before."
+        )
 
     def test_one_region_that_failed_still_gets_the_region_view(self, page):
         week = _single_region_week()

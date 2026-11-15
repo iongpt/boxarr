@@ -14,6 +14,10 @@
  *
  * Every page that runs an update (dashboard, weekly page, setup) words its
  * messages from describe(), so a partial success never reads as a failure.
+ * A region is named by the "name" the server puts in its region_status entry
+ * - the name the weekly page uses ("US & Canada", "Germany") - and its
+ * outcome in a few words ("Germany failed", "no chart for France"). The
+ * error text a region failed with is never shown: it is in the log.
  *
  * Pure functions only: no DOM. The pages read it as window.BoxarrUpdateResult;
  * the unit tests require() it under node (tests/unit/test_update_result_js.py).
@@ -33,9 +37,16 @@
 
     var FAILED = { error: true, stale: true };
 
-    // How a region is named in a message: its area code, or "US & Canada".
+    // How a region is named when its entry has no name: its area code, or
+    // "US & Canada".
     function regionLabel(code) {
         return code ? String(code) : 'US & Canada';
+    }
+
+    // A region's name: the one the server sent (the weekly page's), else
+    // regionLabel().
+    function regionName(entry) {
+        return typeof entry.name === 'string' && entry.name ? entry.name : regionLabel(entry.region);
     }
 
     function statusEntries(regionStatus) {
@@ -46,7 +57,24 @@
     }
 
     function names(entries) {
-        return entries.map(function (entry) { return regionLabel(entry.region); }).join(', ');
+        return entries.map(regionName).join(', ');
+    }
+
+    function failedEntries(entries) {
+        return entries.filter(function (entry) { return FAILED[entry.status] === true; });
+    }
+
+    /*
+     * What the regions that did not come through say, in a few words, e.g.
+     * "FR, GB failed; no chart for DE". Empty when every region is ok.
+     */
+    function regionNotes(entries) {
+        var failed = failedEntries(entries);
+        var noData = entries.filter(function (entry) { return entry.status === 'no_data'; });
+        var notes = [];
+        if (failed.length) notes.push(names(failed) + ' failed');
+        if (noData.length) notes.push('no chart for ' + names(noData));
+        return notes.join('; ');
     }
 
     /*
@@ -57,14 +85,10 @@
         var entries = statusEntries(regionStatus);
         if (entries.length < 2) return '';
 
-        var failed = entries.filter(function (entry) { return FAILED[entry.status] === true; });
-        var noData = entries.filter(function (entry) { return entry.status === 'no_data'; });
-        var notes = [];
-        if (failed.length) notes.push(names(failed) + ' failed');
-        if (noData.length) notes.push('no chart for ' + names(noData));
-
+        var failed = failedEntries(entries);
+        var notes = regionNotes(entries);
         var text = 'Updated ' + (entries.length - failed.length) + ' of ' + entries.length + ' regions';
-        if (notes.length) text += ' (' + notes.join('; ') + ')';
+        if (notes) text += ' (' + notes + ')';
         return text;
     }
 
@@ -83,40 +107,52 @@
      *   outcome: 'success', 'partial', 'kept' or 'failed'
      *   summary: regionSummary() of the response ('' for one region)
      *   message: the line to show - for 'success' the summary (may be empty),
-     *            for 'partial' the summary or the server's message, for 'kept'
-     *            the server's message, for 'failed' its error
+     *            for 'partial' the summary (with one region, what failed),
+     *            for 'kept' which regions failed, for 'failed' which regions
+     *            failed when several were tried and none came through, else
+     *            the server's error (one region: as before multi-region)
      */
     function describe(data, httpOk) {
         var body = data && typeof data === 'object' ? data : {};
-        var summary = regionSummary(body.region_status);
+        var entries = statusEntries(body.region_status);
+        var summary = regionSummary(entries);
+        var notes = regionNotes(entries);
         var ok = httpOk !== false && body.success === true;
 
         if (ok && body.partial) {
+            // The server's message carries the error text: never shown.
             return {
                 outcome: 'partial',
                 summary: summary,
-                message: summary || text(body.message) || 'Updated, but a region failed'
+                message: summary || (notes ? 'Updated, but ' + notes : 'Updated, but a region failed')
             };
         }
         if (ok) {
             return { outcome: 'success', summary: summary, message: summary };
         }
         if (httpOk !== false && body.partial) {
+            var failed = failedEntries(entries);
             return {
                 outcome: 'kept',
                 summary: summary,
-                message: text(body.message) || summary || 'Kept the existing data: a region failed'
+                message: failed.length
+                    ? names(failed) + ' failed, so the stored week was kept as it was'
+                    : text(body.message) || 'Kept the existing data: a region failed'
             };
         }
+        var none = entries.length > 1 && entries.every(function (entry) { return entry.status !== 'ok'; });
         return {
             outcome: 'failed',
             summary: summary,
-            message: text(body.detail) || text(body.message) || text(body.error) || 'Unknown error'
+            message: none && notes
+                ? 'No region could be updated (' + notes + ')'
+                : text(body.detail) || text(body.message) || text(body.error) || 'Unknown error'
         };
     }
 
     return {
         regionLabel: regionLabel,
+        regionName: regionName,
         regionSummary: regionSummary,
         describe: describe
     };

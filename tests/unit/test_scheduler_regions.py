@@ -432,6 +432,8 @@ class TestTriggerAndStatus:
             body["message"] == "Box office update completed with errors: DE: HTTP 503"
         )
         assert [s["status"] for s in body["region_status"]] == ["ok", "error"]
+        # Named as the weekly page names them, for the toasts.
+        assert [s["name"] for s in body["region_status"]] == ["US & Canada", "Germany"]
 
     def test_trigger_reports_a_kept_legacy_week_as_failed(self, client, env):
         tmp_path, _ = env
@@ -447,6 +449,7 @@ class TestTriggerAndStatus:
         assert body["message"] == "Kept the existing data for 2026W44; DE failed"
         assert body["partial"] is True
         assert [s["status"] for s in body["region_status"]] == ["ok", "error"]
+        assert [s["name"] for s in body["region_status"]] == ["US & Canada", "Germany"]
         assert week_file.read_bytes() == before
 
     def test_trigger_failure_carries_region_status(self, client):
@@ -457,6 +460,7 @@ class TestTriggerAndStatus:
         assert body["success"] is False
         assert body["message"].startswith("Update failed: No box office region")
         assert [s["status"] for s in body["region_status"]] == ["error", "error"]
+        assert [s["name"] for s in body["region_status"]] == ["US & Canada", "Germany"]
 
     def test_status_reports_a_failed_last_run(self, client):
         c = client({"": BoxOfficeError("timeout"), "DE": BoxOfficeError("HTTP 503")})
@@ -530,6 +534,10 @@ class TestTriggerAndStatus:
 
         assert (last_run["success"], last_run["partial"]) == (True, True)
         assert [s["status"] for s in last_run["region_status"]] == ["ok", "error"]
+        assert [s["name"] for s in last_run["region_status"]] == [
+            "US & Canada",
+            "Germany",
+        ]
 
     def test_history_reports_partial_runs_and_region_status(self, client):
         c = client({"": [bom(1, "The Odyssey")], "DE": BoxOfficeError("HTTP 503")})
@@ -538,9 +546,11 @@ class TestTriggerAndStatus:
         [run] = c.get("/api/scheduler/history").json()["runs"]
 
         assert (run["success"], run["partial"]) == (True, True)
-        assert [(s["region"], s["status"]) for s in run["region_status"]] == [
-            ("", "ok"),
-            ("DE", "error"),
+        assert [
+            (s["region"], s["status"], s["name"]) for s in run["region_status"]
+        ] == [
+            ("", "ok", "US & Canada"),
+            ("DE", "error", "Germany"),
         ]
 
     def test_status_treats_older_history_as_successful(self, client, env):

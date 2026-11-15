@@ -37,10 +37,35 @@ _REGION_NAMES = dict(BOX_OFFICE_REGIONS)
 
 
 def region_name(code: str) -> str:
-    """Display name of a region: "US & Canada", a catalogue name, or the code."""
+    """Display name of a region: "US & Canada", a catalogue name, or the code.
+
+    The one name a region goes by on every page and in every message: the
+    weekly page's line, tabs and banners, and - through
+    :func:`named_region_status` - the toasts after an update.
+    """
     if code == "":
         return "US & Canada"
     return _REGION_NAMES.get(code, code)
+
+
+def named_region_status(statuses: Any) -> Any:
+    """A run's region status entries for an API answer, each with its name.
+
+    The stored entries carry only the area code; an answer adds ``name``
+    (:func:`region_name`) to each, so a page words its messages with the
+    names the weekly page uses. Anything that is not a readable entry is
+    passed through as it is, and the stored entries are never changed.
+    """
+    if not isinstance(statuses, list):
+        return statuses
+    return [
+        (
+            {**entry, "name": region_name(entry["region"])}
+            if isinstance(entry, dict) and isinstance(entry.get("region"), str)
+            else entry
+        )
+        for entry in statuses
+    ]
 
 
 def region_tag(code: str) -> str:
@@ -199,13 +224,21 @@ def weekend_text(entry: Optional[Dict[str, Any]]) -> str:
 
 
 def _banner_message(entry: Dict[str, Any], name: str) -> str:
-    """What the page says about a region whose status is not ok."""
+    """What the page says about a region whose status is not ok.
+
+    One short sentence per status. The stored error text is never shown: it
+    is in the log, and in the stored file for whoever needs it.
+    """
     status = _status_of(entry)
-    error = entry.get("error")
-    detail = f" ({error})" if isinstance(error, str) and error else ""
     if status == "no_data":
         return f"{name}: Box Office Mojo has no chart for this weekend."
     if status == "stale":
+        if entry.get("movies") == 0:
+            # Carried over from an earlier answer without data.
+            return (
+                f"{name}: the last update could not fetch this chart, and Box "
+                "Office Mojo had no chart for this weekend before."
+            )
         fetched = _parse_datetime(entry.get("carried_from"))
         when = (
             f"the chart fetched on {fetched.strftime('%b')} {fetched.day}, "
@@ -214,15 +247,14 @@ def _banner_message(entry: Dict[str, Any], name: str) -> str:
             else "the chart fetched earlier"
         )
         return (
-            f"{name}: the last update could not fetch this chart{detail}, "
-            f"so {when} is shown."
+            f"{name}: the last update could not fetch this chart, so {when} is shown."
         )
     if status == "error":
         return (
-            f"{name}: the chart could not be fetched{detail}; its movies are "
+            f"{name}: the chart could not be fetched; its movies are "
             "missing from this week."
         )
-    return f"{name}: {status}{detail}."
+    return f"{name}: {status}."
 
 
 def _movie_rows(movie: Dict[str, Any]) -> List[Dict[str, Any]]:
