@@ -2,6 +2,8 @@
 
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
+import httpx
+
 from ..utils.config import (
     configured_box_office_regions,
     format_min_gross,
@@ -9,6 +11,7 @@ from ..utils.config import (
 )
 from ..utils.logger import get_logger
 from .boxoffice import BoxOfficeMovie, region_label
+from .exceptions import RadarrError, RadarrNotFoundError
 from .ignore_list import IgnoreList
 from .languages import is_known_language, normalize_language
 from .matcher import MatchResult
@@ -17,6 +20,37 @@ from .region_charts import best_weekend_gross, region_order
 from .root_folder_manager import RootFolderManager
 
 logger = get_logger(__name__)
+
+# Radarr failures in a row after which an auto-add pass stops. The limit
+# counts only the films added (#139), so while Radarr cannot answer - its
+# TMDB lookup down, every request waiting out radarr_timeout - nothing else
+# would end the pass, and it runs under the weekly write lock.
+MAX_RADARR_FAILURES_IN_A_ROW = 3
+
+
+def _radarr_unavailable(error: BaseException) -> bool:
+    """
+    Tell whether an auto-add failure means Radarr is not answering at all.
+
+    A refused connection, a timeout, a rejected API key or a 5xx is Radarr
+    (or the TMDB lookup behind it) being unavailable: the next film would
+    fail the same way. A 4xx, such as 400 "This movie has already been
+    added", or a film Radarr cannot find, is an answer about that one film.
+    Anything that is not a Radarr or HTTP error is about the film as well.
+
+    Args:
+        error: The exception one film's lookup or add raised
+
+    Returns:
+        True when the failure says nothing about the film itself
+    """
+    if isinstance(error, RadarrNotFoundError):
+        return False
+    cause = error.__cause__ if isinstance(error, RadarrError) else error
+    if isinstance(cause, httpx.HTTPStatusError):
+        status = cause.response.status_code
+        return status >= 500 or status in (408, 429)
+    return isinstance(error, (RadarrError, httpx.HTTPError))
 
 
 def _normalize_imdb_id(imdb_id: Optional[str]) -> Optional[str]:
@@ -198,7 +232,9 @@ def auto_add_missing_movies(  # noqa: C901
     simply the rank. The auto-add limit is one cap for the whole run on the
     films actually added (#139): a film a filter drops, an ignored film, one
     not found on TMDB and one Radarr rejects do not use a slot, and the pass
-    stops once the limit is reached.
+    stops once the limit is reached. It also stops after
+    ``MAX_RADARR_FAILURES_IN_A_ROW`` failures in a row that mean Radarr is
+    not answering (a timeout, a refused connection, a 5xx).
 
     Args:
         match_results: Match results from movie matching
@@ -254,7 +290,13 @@ def auto_add_missing_movies(  # noqa: C901
     # film; only the first is considered.
     seen_tmdb_ids: Set[Any] = set()
 
+    # Films in a row that Radarr failed on; see _radarr_unavailable.
+    failures_in_a_row = 0
+
     for index, result in enumerate(unmatched):
+        # A lookup that answers clears the count, but if this film's add
+        # then fails too, the film still extends the run of failures.
+        streak = failures_in_a_row
         if len(added_movies) >= limit:
             logger.info(
                 f"Reached the auto-add limit of {limit} movies; "
@@ -291,6 +333,7 @@ def auto_add_missing_movies(  # noqa: C901
 
             # Search for movie in Radarr database (TMDB)
             search_results = radarr_service.search_movie(result.box_office_movie.title)
+            failures_in_a_row = 0
 
             if not search_results:
                 logger.warning(
@@ -423,5 +466,15 @@ def auto_add_missing_movies(  # noqa: C901
 
         except Exception as e:
             logger.warning(f"Failed to auto-add {result.box_office_movie.title}: {e}")
+            if not _radarr_unavailable(e):
+                continue
+            failures_in_a_row = streak + 1
+            if failures_in_a_row >= MAX_RADARR_FAILURES_IN_A_ROW:
+                logger.error(
+                    f"Stopped auto-adding: Radarr failed {failures_in_a_row} times "
+                    f"in a row; {len(unmatched) - index - 1} more unmatched movies "
+                    "not considered"
+                )
+                break
 
     return added_movies

@@ -2,15 +2,22 @@
 
 One pass over every region's unmatched films in chart order (#1 domestic,
 #1 Romania, #2 domestic, ...), one overall limit on the films actually added
-(#139), the minimum-gross gate on the film's best weekend in any region, and
-each TMDB film considered once per run.
+(#139), the minimum-gross gate on the film's best weekend in any region,
+each TMDB film considered once per run, and a pass that stops when Radarr
+stops answering.
 """
 
+import httpx
 import pytest
 
 from src.core import auto_add
 from src.core.auto_add import auto_add_missing_movies
 from src.core.boxoffice import BoxOfficeMovie
+from src.core.exceptions import (
+    RadarrConnectionError,
+    RadarrError,
+    RadarrNotFoundError,
+)
 from src.core.matcher import MatchResult
 from src.core.region_charts import RegionFetch, merge_region_charts
 from src.utils.config import Settings
@@ -54,10 +61,13 @@ class _FakeRootFolderManager:
 class _FakeRadarrService:
     """Looks every title up as its own film unless ``same_film`` says otherwise."""
 
-    def __init__(self, same_film=None, not_on_tmdb=(), rejected=()):
+    def __init__(self, same_film=None, not_on_tmdb=(), rejected=(), lookup_errors=None):
         self.same_film = same_film or {}
         self.not_on_tmdb = set(not_on_tmdb)
-        self.rejected = set(rejected)
+        # A set of titles Radarr rejects, or title -> the exception it raises
+        self.rejected = rejected if isinstance(rejected, dict) else set(rejected)
+        # title -> exception the lookup raises, or one exception for every title
+        self.lookup_errors = lookup_errors or {}
         self.searched = []
         self.added = []
         self._titles = {}
@@ -70,6 +80,10 @@ class _FakeRadarrService:
 
     def search_movie(self, title):
         self.searched.append(title)
+        if isinstance(self.lookup_errors, BaseException):
+            raise self.lookup_errors
+        if title in self.lookup_errors:
+            raise self.lookup_errors[title]
         if title in self.not_on_tmdb:
             return []
         canonical = self.same_film.get(title, title)
@@ -78,7 +92,10 @@ class _FakeRadarrService:
         return [{"tmdbId": tmdb_id, "title": canonical, "year": 2026, "genres": []}]
 
     def add_movie(self, tmdb_id, profile_id, root_folder, monitored, search):
-        if self._titles[tmdb_id] in self.rejected:
+        title = self._titles[tmdb_id]
+        if isinstance(self.rejected, dict) and title in self.rejected:
+            raise self.rejected[title]
+        if title in self.rejected:
             # Radarr's answer for a film it already has.
             raise RuntimeError("400 Bad Request: This movie has already been added")
         self.added.append(self._titles[tmdb_id])
@@ -214,6 +231,115 @@ class TestChartOrderAndLimit:
         films = [movie(1, "A"), movie(2, "B"), movie(3, "C")]
         added, _ = run(_settings(boxarr_features_auto_add_limit=2), films, [""])
         assert added == ["A", "B"]
+
+
+def _radarr_error(cause):
+    """A RadarrError the way RadarrService._make_request raises it."""
+    error = RadarrError(f"Radarr API error: {cause}")
+    error.__cause__ = cause
+    return error
+
+
+def _http_status(status):
+    request = httpx.Request("GET", "http://radarr:7878/api/v3/movie/lookup")
+    response = httpx.Response(status, request=request)
+    return httpx.HTTPStatusError(f"{status}", request=request, response=response)
+
+
+def _timeout():
+    request = httpx.Request("GET", "http://radarr:7878/api/v3/movie/lookup")
+    return httpx.ReadTimeout("timed out", request=request)
+
+
+class TestRadarrUnavailable:
+    """The limit counts only films added, so an outage must end the pass."""
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            _radarr_error(_timeout()),
+            _radarr_error(_http_status(503)),
+            RadarrConnectionError("Cannot connect to Radarr"),
+            _timeout(),
+        ],
+        ids=["timeout", "503", "connection", "raw-httpx-timeout"],
+    )
+    def test_a_radarr_outage_stops_the_pass(self, run, caplog, error):
+        films = [movie(rank, f"Film {rank}") for rank in range(1, 21)]
+        service = _FakeRadarrService(lookup_errors=error)
+        with caplog.at_level("INFO"):
+            added, _ = run(_settings(), films, [""], service)
+        assert added == []
+        # Every lookup waits out radarr_timeout; three tell Radarr is down.
+        assert service.searched == ["Film 1", "Film 2", "Film 3"]
+        assert any(
+            "3 times in a row" in r.message and "17 more" in r.message
+            for r in caplog.records
+        )
+
+    def test_an_add_outage_stops_the_pass(self, run, caplog):
+        # Lookups answer, but every add times out: each film still waits
+        # out radarr_timeout, so the failed adds must end the pass too.
+        down = _radarr_error(_timeout())
+        titles = [f"Film {rank}" for rank in range(1, 11)]
+        service = _FakeRadarrService(rejected={title: down for title in titles})
+        with caplog.at_level("INFO"):
+            added, _ = run(
+                _settings(),
+                [movie(rank, title) for rank, title in enumerate(titles, 1)],
+                [""],
+                service,
+            )
+        assert added == []
+        assert service.searched == titles[:3]
+        assert any(
+            "3 times in a row" in r.message and "7 more" in r.message
+            for r in caplog.records
+        )
+
+    def test_rejections_do_not_stop_the_pass(self, run):
+        # A 4xx is Radarr answering about one film, however many in a row.
+        service = _FakeRadarrService(
+            lookup_errors={
+                "A": _radarr_error(_http_status(400)),
+                "B": RadarrNotFoundError("Resource not found: /api/v3/movie/lookup"),
+                "C": _radarr_error(_http_status(422)),
+                "D": _radarr_error(_http_status(400)),
+            }
+        )
+        added, _ = run(
+            _settings(boxarr_features_auto_add_limit=1),
+            [movie(rank, title) for rank, title in enumerate("ABCDE", 1)],
+            [""],
+            service,
+        )
+        assert added == ["E"]
+        assert service.searched == list("ABCDE")
+
+    def test_films_radarr_refuses_to_add_do_not_stop_the_pass(self, run):
+        rejected = {title: _radarr_error(_http_status(400)) for title in "ABCD"}
+        service = _FakeRadarrService(rejected=rejected)
+        added, _ = run(
+            _settings(boxarr_features_auto_add_limit=1),
+            [movie(rank, title) for rank, title in enumerate("ABCDE", 1)],
+            [""],
+            service,
+        )
+        assert added == ["E"]
+
+    def test_failures_between_answers_do_not_stop_the_pass(self, run):
+        down = _radarr_error(_timeout())
+        service = _FakeRadarrService(
+            lookup_errors={"A": down, "B": down, "D": down, "E": down}
+        )
+        added, _ = run(
+            _settings(),
+            [movie(rank, title) for rank, title in enumerate("ABCDEF", 1)],
+            [""],
+            service,
+        )
+        assert added == ["C", "F"]
+        assert service.searched == list("ABCDEF")
 
 
 class TestBestGross:
