@@ -24,6 +24,7 @@ from fastapi.testclient import TestClient
 
 import src.utils.config as cfg_utils
 from src.api.app import create_app
+from src.core.boxoffice import unknown_market_message
 
 DATA = Path(__file__).parent / "data"
 
@@ -642,6 +643,33 @@ class TestRegionBanners:
         assert len(_soup(html).find_all(class_="region-banner")) == 2
         assert "Read timed out" not in html
         assert "HTTPSConnectionPool" not in html
+
+    def test_a_mistyped_code_gets_its_hint_back(self, page):
+        # UK is not Mojo's code for the United Kingdom (GB): the hint the
+        # stored error carries is given without the error text.
+        week = copy.deepcopy(MULTI_WEEK)
+        week["regions"][2] = "UK"
+        week["region_status"][2] = _status(
+            "UK", "error", error=unknown_market_message("UK"), movies=0
+        )
+        week["regions"].append("ZZ")
+        week["region_status"].append(_status("ZZ", "error", error="HTTP 503"))
+
+        html = page(week)
+
+        banners = [
+            b.get_text(" ", strip=True)
+            for b in _soup(html).find_all(class_="region-banner")
+        ]
+        assert banners == [
+            "⚠️ UK: the chart could not be fetched; its movies are missing from "
+            "this week. UK is not in Boxarr's list of Box Office Mojo regions "
+            "(did you mean GB?).",
+            "⚠️ ZZ: the chart could not be fetched; its movies are missing from "
+            "this week. ZZ is not in Boxarr's list of Box Office Mojo regions.",
+        ]
+        assert "returned the domestic chart" not in html
+        assert "HTTP 503" not in html
 
     def test_a_stale_region_without_a_kept_chart_says_so(self, page):
         # Carried over from an answer without data: no chart was kept.

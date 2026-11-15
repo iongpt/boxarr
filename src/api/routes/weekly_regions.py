@@ -20,7 +20,7 @@ import math
 from datetime import date, datetime
 from typing import Any, Callable, Dict, List, Optional
 
-from ...core.boxoffice import BOX_OFFICE_REGIONS
+from ...core.boxoffice import BOX_OFFICE_REGIONS, area_code_hint
 
 STATUS_OK = "ok"
 
@@ -252,9 +252,24 @@ def _banner_message(entry: Dict[str, Any], name: str) -> str:
     if status == "error":
         return (
             f"{name}: the chart could not be fetched; its movies are "
-            "missing from this week."
+            f"missing from this week.{_unlisted_code_note(entry['region'])}"
         )
     return f"{name}: {status}."
+
+
+def _unlisted_code_note(code: str) -> str:
+    """A hint for a configured code that is not in Boxarr's region list.
+
+    E.g. " UK is not in Boxarr's list of Box Office Mojo regions (did you
+    mean GB?)." - the hint the stored error carries, which the banner does
+    not show. Empty for a listed code. It does not say why the chart failed:
+    that can be anything, a timeout too.
+    """
+    if code == "" or code in _REGION_NAMES:
+        return ""
+    hint = area_code_hint(code)
+    suggestion = f" (did you mean {hint}?)" if hint else ""
+    return f" {code} is not in Boxarr's list of Box Office Mojo regions{suggestion}."
 
 
 def _movie_rows(movie: Dict[str, Any]) -> List[Dict[str, Any]]:
