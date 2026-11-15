@@ -3,6 +3,7 @@
 import asyncio
 import os
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
@@ -35,6 +36,14 @@ from ...utils.logger import get_logger
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/api/config", tags=["configuration"])
+
+# Threads of its own for save's Radarr connection test (#138): saving a working
+# URL is how the user recovers from a hung Radarr, so it must not queue behind
+# requests that are themselves stuck on that Radarr in asyncio's default
+# executor (/api/movies/add, Update Week).
+_save_test_executor = ThreadPoolExecutor(
+    max_workers=4, thread_name_prefix="config-save-test"
+)
 
 
 class ConfigResponse(BaseModel):
@@ -515,7 +524,11 @@ async def save_configuration(config: SaveConfigRequest):
 
         # On a worker thread: an unresponsive URL must not freeze the event
         # loop, and every other request, for radarr_timeout (#138).
-        if not await asyncio.to_thread(test_service.test_connection):
+        loop = asyncio.get_running_loop()
+        connected = await loop.run_in_executor(
+            _save_test_executor, test_service.test_connection
+        )
+        if not connected:
             return {
                 "success": False,
                 "message": "Cannot save: Radarr connection failed",

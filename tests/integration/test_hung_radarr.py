@@ -19,6 +19,7 @@ import socket
 import threading
 import time
 import types
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 import httpx
@@ -26,6 +27,7 @@ import pytest
 import yaml
 from fastapi import FastAPI
 
+import src.api.routes.movies as movies_route
 import src.api.routes.scheduler as scheduler_route
 import src.core.radarr as core_radarr
 import src.utils.config as cfg_utils
@@ -144,6 +146,14 @@ async def _until(event: threading.Event, timeout: float = 10.0) -> None:
         await asyncio.sleep(0.01)
 
 
+async def _until_connections(radarr: HungRadarr, count: int) -> None:
+    """Wait until ``count`` requests are stuck on Radarr."""
+    deadline = time.monotonic() + 10.0
+    while radarr.connections < count:
+        assert time.monotonic() < deadline, f"{radarr.connections} reached Radarr"
+        await asyncio.sleep(0.01)
+
+
 # --------------------------------------------------------------------------
 # /api/health
 # --------------------------------------------------------------------------
@@ -245,6 +255,79 @@ def test_a_route_stuck_on_radarr_does_not_block_other_requests(
     assert elapsed < 1.0
     # Once Radarr hung up, the route answered as it does on any Radarr error.
     assert stuck.status_code in (200, 500)
+
+
+def test_status_polls_give_up_on_a_stuck_library_download(
+    app, hung_radarr, monkeypatch
+):
+    monkeypatch.setattr(movies_route, "STATUS_LIBRARY_WAIT", 0.5)
+
+    def poll(client):
+        return client.post(
+            "/api/movies/status", json={"movie_ids": [1]}, headers=OWN_PAGE
+        )
+
+    async def polls(client):
+        first = asyncio.ensure_future(poll(client))
+        await _until(hung_radarr.connected)
+        started = time.monotonic()
+        later = await asyncio.gather(*(poll(client) for _ in range(5)))
+        took = time.monotonic() - started
+        was_stuck = not first.done()
+        hung_radarr.release()
+        return took, was_stuck, later, await first
+
+    took, was_stuck, later, first = _run(app, polls)
+
+    # The first poll still waits on Radarr; the later ones did not join that
+    # wait (each holding a worker thread) beyond STATUS_LIBRARY_WAIT.
+    assert was_stuck
+    assert took < 1.5
+    assert [r.json() for r in later] == [{"statuses": {}}] * 5
+    assert first.json() == {"statuses": {}}
+    # One library download in all.
+    assert hung_radarr.connections == 1
+
+
+def test_save_does_not_queue_behind_requests_stuck_on_radarr(app, hung_radarr):
+    closed = socket.socket()
+    closed.bind(("127.0.0.1", 0))
+    closed_url = "http://127.0.0.1:%d" % closed.getsockname()[1]
+    closed.close()
+
+    async def adds_then_save(client):
+        # Fill asyncio's default executor with adds stuck on Radarr.
+        asyncio.get_running_loop().set_default_executor(ThreadPoolExecutor(2))
+        adds = [
+            asyncio.ensure_future(
+                client.post(
+                    "/api/movies/add",
+                    json={"title": f"Hung Film {n}", "tmdb_id": 40 + n},
+                    headers=OWN_PAGE,
+                )
+            )
+            for n in range(2)
+        ]
+        await _until_connections(hung_radarr, 2)
+        started = time.monotonic()
+        save = await client.post(
+            "/api/config/save", json=_save_payload(closed_url), headers=OWN_PAGE
+        )
+        took = time.monotonic() - started
+        were_stuck = not any(add.done() for add in adds)
+        hung_radarr.release()
+        await asyncio.gather(*adds)
+        return took, were_stuck, save
+
+    took, were_stuck, save = _run(app, adds_then_save)
+
+    # Saving another URL - the way out of a hung Radarr - answered at once.
+    assert were_stuck
+    assert took < 1.0
+    assert save.json() == {
+        "success": False,
+        "message": "Cannot save: Radarr connection failed",
+    }
 
 
 def test_save_still_refuses_a_radarr_that_does_not_answer(app, hung_radarr, tmp_path):

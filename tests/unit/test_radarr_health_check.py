@@ -51,10 +51,14 @@ def _probe(check: RadarrHealthCheck, times: int = 1) -> List[bool]:
 
 def test_a_reachable_radarr_is_reported_connected_and_reused(configured):
     probe = FakeProbe(answer=True)
-    check = RadarrHealthCheck(probe=probe)
+    check = RadarrHealthCheck(probe=probe, wait=2.0)
 
-    # The first probe waits for the check, so it reports the real state.
-    assert _probe(check, times=3) == [True, True, True]
+    # The first probe waits for the check, so it reports the real state - as
+    # soon as the check has it, not after the whole wait.
+    started = time.monotonic()
+    assert _probe(check) == [True]
+    assert time.monotonic() - started < 1.0
+    assert _probe(check, times=2) == [True, True]
     assert probe.asks == [((URL, KEY), 5.0)]
 
 

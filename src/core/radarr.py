@@ -101,6 +101,10 @@ _profiles_cache: Dict[str, Any] = {"ts": 0.0, "data": []}
 RADARR_CONNECT_TIMEOUT = 10.0
 
 
+class LibraryDownloadPending(RadarrError):
+    """Another caller's library download did not finish within the wait given."""
+
+
 class _LibraryDownload:
     """One download of the Radarr library, shared by every caller waiting on it."""
 
@@ -109,19 +113,25 @@ class _LibraryDownload:
         self.source = source
         self.generation = generation
         self.started = time.time()
+        self.began = time.monotonic()
         self.done = threading.Event()
         self.movies: Optional[List[RadarrMovie]] = None
         self.error: Optional[BaseException] = None
 
 
-# The library is downloaded by one thread at a time (#138): routes run in the
-# threadpool, and without this every cache miss arriving together would fetch
-# the whole /api/v3/movie list - or wait out a hung Radarr - on its own.
-# The lock guards the three values below and the cache; it is never held while
+# Each Radarr's library is downloaded by one thread at a time (#138): routes
+# run in the threadpool, and without this every cache miss arriving together
+# would fetch the whole /api/v3/movie list - or wait out a hung Radarr - on its
+# own. Downloads are keyed by (url, api_key), so a hung Radarr never holds up
+# a request to another one (the URL the user just fixed in /setup).
+# The lock guards the values below and the cache; it is never held while
 # Radarr is being asked.
 _library_lock = threading.Lock()
-_library_download: Optional[_LibraryDownload] = None
+_library_downloads: Dict[Tuple[str, str], _LibraryDownload] = {}
 _library_downloads_started = 0
+# The number of the download the cache holds: a download of another Radarr
+# that finishes after a newer one is not stored over it.
+_library_cached_number = 0
 # Bumped when the cache is invalidated, so a download that began before (and
 # so may predate an added movie) is not stored over the invalidation.
 _library_generation = 0
@@ -136,17 +146,27 @@ def _cached_library(ttl: float) -> Optional[List[RadarrMovie]]:
 
 
 def _claim_library_download(
-    source: Tuple[str, str], ignore_cache: bool, ttl: float
+    source: Tuple[str, str],
+    ignore_cache: bool,
+    ttl: float,
+    wait: Optional[float] = None,
 ) -> Union[List[RadarrMovie], _LibraryDownload]:
     """Return the library, or the download the caller is to run to get it.
 
     The library is the cached one while fresh, unless ``ignore_cache``, or the
-    result of a download already under way from the same Radarr - its failure
+    result of a download of the same Radarr already under way - its failure
     included, so a hung Radarr is waited out once, not once per caller in turn.
-    A caller that bypasses the cache only takes a download that began after it
-    asked.
+    A caller that bypasses the cache takes that failure too (Radarr failed
+    after it asked), but only the movies of a download that began after it
+    asked; no caller takes the movies of a download that began before the
+    cache was last invalidated. A download of another Radarr is neither waited
+    for nor taken (the cache itself is not yet kept per Radarr, #137).
+
+    With ``wait``, a download under way is waited for until ``wait`` seconds
+    after it began, then LibraryDownloadPending is raised: a status poll then
+    answers at once instead of holding a worker thread while Radarr hangs.
     """
-    global _library_download, _library_downloads_started
+    global _library_downloads_started
     with _library_lock:
         asked_after = _library_downloads_started
     while True:
@@ -155,31 +175,47 @@ def _claim_library_download(
             cached = None if ignore_cache else _cached_library(ttl)
             if cached is not None:
                 return cached
-            download = _library_download
+            download = _library_downloads.get(source)
             if download is None:
                 _library_downloads_started += 1
-                _library_download = _LibraryDownload(
+                download = _LibraryDownload(
                     _library_downloads_started, source, _library_generation
                 )
-                return _library_download
-            usable = download.source == source and (
+                _library_downloads[source] = download
+                return download
+            # Not the movies of a download that predates an invalidation (an
+            # add): they are not cached, and nor are they handed out.
+            shares_movies = download.generation == _library_generation and (
                 not ignore_cache or download.number > asked_after
             )
-        download.done.wait()
-        if usable:
-            if download.error is not None:
-                raise download.error
+        timeout = None
+        if wait is not None:
+            timeout = max(0.0, download.began + wait - time.monotonic())
+        if not download.done.wait(timeout):
+            raise LibraryDownloadPending(
+                "Radarr has not sent its library yet; another request is "
+                "still waiting for it"
+            )
+        if download.error is not None:
+            raise download.error
+        if shares_movies:
             return download.movies or []
 
 
 def _finish_library_download(download: _LibraryDownload) -> None:
     """Cache what ``download`` fetched, and hand it to everyone waiting."""
-    global _library_download
+    global _library_cached_number
     with _library_lock:
-        if download.movies is not None and download.generation == _library_generation:
+        if (
+            download.movies is not None
+            and download.generation == _library_generation
+            and download.number > _library_cached_number
+        ):
             _movies_cache["data"] = download.movies
             _movies_cache["ts"] = download.started
-        _library_download = None
+            _library_cached_number = download.number
+        if _library_downloads.get(download.source) is download:
+            del _library_downloads[download.source]
     download.done.set()
 
 
@@ -347,9 +383,17 @@ class RadarrService:
         except Exception:
             return False
 
-    def get_all_movies(self, ignore_cache: bool = False) -> List[RadarrMovie]:
+    def get_all_movies(
+        self, ignore_cache: bool = False, wait: Optional[float] = None
+    ) -> List[RadarrMovie]:
         """
         Get all movies from Radarr.
+
+        Args:
+            ignore_cache: Fetch a library newer than this call
+            wait: Wait for another caller's download of the library only until
+                this many seconds after it began, then raise
+                LibraryDownloadPending (default: until it finishes)
 
         Returns:
             List of RadarrMovie objects
@@ -360,7 +404,9 @@ class RadarrService:
         except Exception:
             ttl = 120
 
-        claimed = _claim_library_download((self.url, self.api_key), ignore_cache, ttl)
+        claimed = _claim_library_download(
+            (self.url, self.api_key), ignore_cache, ttl, wait
+        )
         if not isinstance(claimed, _LibraryDownload):
             return claimed  # cached, or downloaded by another caller
         download = claimed

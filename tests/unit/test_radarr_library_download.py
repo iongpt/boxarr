@@ -5,6 +5,10 @@ loop. That loop used to serialise them by accident; without a lock, cache
 misses arriving together would each download the whole /api/v3/movie list (a
 big library takes seconds), or each wait out a hung Radarr in turn.
 
+Each Radarr's library is downloaded on its own, so a hung Radarr never holds
+up a request to the one the user just switched to, and a status poll can give
+up on a download another request is waiting for.
+
 Radarr is faked at the HTTP transport, under the real RadarrService.
 """
 
@@ -18,7 +22,7 @@ import pytest
 
 import src.core.radarr as core_radarr
 from src.core.exceptions import RadarrConnectionError
-from src.core.radarr import RadarrService
+from src.core.radarr import LibraryDownloadPending, RadarrService
 
 URL = "http://radarr.test:7878"
 KEY = "library-test-key"
@@ -53,9 +57,9 @@ class FakeRadarr:
         for _ in range(times):
             self._answer.release()
 
-    def service(self) -> RadarrService:
-        client = httpx.Client(base_url=URL, transport=httpx.MockTransport(self.handler))
-        return RadarrService(url=URL, api_key=KEY, http_client=client)
+    def service(self, url: str = URL, key: str = KEY) -> RadarrService:
+        client = httpx.Client(base_url=url, transport=httpx.MockTransport(self.handler))
+        return RadarrService(url=url, api_key=key, http_client=client)
 
     def wait_for_asks(self, count: int) -> None:
         deadline = time.monotonic() + 5
@@ -177,43 +181,102 @@ def test_a_fresh_cache_is_served_while_a_bypass_is_stuck(radarr, bypass_fails):
 
 def test_a_download_that_raced_an_invalidation_is_not_cached(radarr):
     radarr.libraries = [[_film(1)], [_film(1), _film(2)]]
-    pool = ThreadPoolExecutor(1)
+    pool = ThreadPoolExecutor(2)
     with pool:
         before_add = pool.submit(radarr.service().get_all_movies)
         radarr.wait_for_asks(1)
         # A movie is added (add_movie invalidates) while that download runs.
         core_radarr._invalidate_library_cache()
-        radarr.answer()
+        after_add = pool.submit(radarr.service().get_all_movies)
+        _settle()
+        radarr.answer(2)
         assert _tmdb_ids(before_add.result(timeout=10)) == [1]
+        # A caller that asked after the add does not get the pre-add library.
+        assert _tmdb_ids(after_add.result(timeout=10)) == [1, 2]
 
     # The pre-add library was not stored, so the added film shows at once.
-    radarr.answer()
     assert _tmdb_ids(radarr.service().get_all_movies()) == [1, 2]
     assert len(radarr.asks) == 2
 
 
-def test_another_radarr_does_not_share_a_download(radarr):
-    other = FakeRadarr()
-    other.libraries = [[_film(7)]]
-    other_client = httpx.Client(
-        base_url="http://other.test", transport=httpx.MockTransport(other.handler)
-    )
-    other_service = RadarrService(
-        url="http://other.test", api_key="other-key", http_client=other_client
-    )
+def test_a_cache_bypass_takes_the_failure_of_a_download_under_way(radarr):
+    radarr.fail = True
     pool = ThreadPoolExecutor(2)
     with pool:
-        configured = pool.submit(radarr.service().get_all_movies, ignore_cache=True)
+        earlier = pool.submit(radarr.service().get_all_movies)
         radarr.wait_for_asks(1)
-        elsewhere = pool.submit(other_service.get_all_movies, ignore_cache=True)
+        fresh = pool.submit(radarr.service().get_all_movies, ignore_cache=True)
+        _settle()
+        radarr.answer(2)  # enough for the bypass, should it ask again
+        for caller in (earlier, fresh):
+            with pytest.raises(RadarrConnectionError):
+                caller.result(timeout=10)
+
+    # Radarr failed after the bypass asked: that is its answer, so a hung
+    # Radarr is waited out once, not twice in a row.
+    assert radarr.asks == ["/api/v3/movie"]
+
+
+@pytest.mark.parametrize("ignore_cache", [False, True], ids=["cached", "bypass"])
+def test_a_stuck_download_does_not_hold_up_another_radarr(radarr, ignore_cache):
+    # The configured Radarr hangs, and the user saves another one in /setup.
+    other = FakeRadarr()
+    other.libraries = [[_film(7)]]
+    other.answer()
+    pool = ThreadPoolExecutor(1)
+    with pool:
+        stuck = pool.submit(radarr.service().get_all_movies)
+        radarr.wait_for_asks(1)
+        started = time.monotonic()
+        movies = other.service("http://other.test", "other-key").get_all_movies(
+            ignore_cache=ignore_cache
+        )
+        took = time.monotonic() - started
+        # The old Radarr answers after all, late.
+        radarr.answer()
+        assert _tmdb_ids(stuck.result(timeout=10)) == [1]
+
+    assert _tmdb_ids(movies) == [7]
+    assert took < 1.0
+    assert len(radarr.asks) == 1 and len(other.asks) == 1
+    # The old Radarr's late library was not stored over the newer download.
+    assert _tmdb_ids(core_radarr._movies_cache["data"]) == [7]
+
+
+def test_a_caller_with_a_wait_gives_up_on_a_stuck_download(radarr):
+    pool = ThreadPoolExecutor(2)
+    with pool:
+        stuck = pool.submit(radarr.service().get_all_movies)
+        radarr.wait_for_asks(1)
+        # A download that finishes within the wait is shared as usual.
+        patient = pool.submit(radarr.service().get_all_movies, wait=5.0)
         _settle()
         radarr.answer()
-        other.answer()
-        assert _tmdb_ids(configured.result(timeout=10)) == [1]
-        assert _tmdb_ids(elsewhere.result(timeout=10)) == [7]
+        assert _tmdb_ids(stuck.result(timeout=10)) == [1]
+        assert _tmdb_ids(patient.result(timeout=10)) == [1]
 
-    assert len(radarr.asks) == 1
-    assert len(other.asks) == 1
+        core_radarr._invalidate_library_cache()
+        stuck = pool.submit(radarr.service().get_all_movies)
+        radarr.wait_for_asks(2)
+        started = time.monotonic()
+        with pytest.raises(LibraryDownloadPending):
+            radarr.service().get_all_movies(wait=0.5)
+        first_took = time.monotonic() - started
+        # The wait counts from the download's start, so later polls give up
+        # at once instead of each waiting again.
+        started = time.monotonic()
+        with pytest.raises(LibraryDownloadPending):
+            radarr.service().get_all_movies(wait=0.5)
+        later_took = time.monotonic() - started
+        radarr.answer()
+        assert _tmdb_ids(stuck.result(timeout=10)) == [1]
+
+    assert 0.2 < first_took < 1.0
+    assert later_took < 0.1
+    # Giving up never started a download of its own.
+    assert len(radarr.asks) == 2
+    assert _tmdb_ids(radarr.service().get_all_movies(wait=0.5)) == [1]
+    assert len(radarr.asks) == 2
 
 
 # --------------------------------------------------------------------------

@@ -12,7 +12,11 @@ from ...core.ignore_list import IgnoreList
 from ...core.library_sync import WEEKLY_WRITE_LOCK, refresh_weekly_data_from_radarr
 from ...core.matcher import MovieMatcher
 from ...core.models import MovieStatus
-from ...core.radarr import RadarrService, get_all_movies_with_optional_cache_bypass
+from ...core.radarr import (
+    LibraryDownloadPending,
+    RadarrService,
+    get_all_movies_with_optional_cache_bypass,
+)
 from ...core.root_folder_manager import RootFolderManager
 from ...utils.atomic import atomic_write_json
 from ...utils.config import settings
@@ -84,6 +88,14 @@ class IgnoreMovieRequest(BaseModel):
 
     tmdb_id: int
     title: str
+
+
+# A status poll waits for a library download another request started only
+# until this many seconds after it began, then answers with no statuses (the
+# page keeps what it shows and polls again). While Radarr hangs, the polls then
+# do not each hold one of the threadpool's workers, which the static files
+# share, for radarr_timeout (#138).
+STATUS_LIBRARY_WAIT = 2.0
 
 
 # The handlers that ask Radarr are plain ``def``: RadarrService is synchronous,
@@ -301,7 +313,7 @@ def get_movies_status(request: MovieStatusRequest):
             return {"statuses": {}}
 
         radarr_service = RadarrService()
-        all_movies = radarr_service.get_all_movies()
+        all_movies = radarr_service.get_all_movies(wait=STATUS_LIBRARY_WAIT)
         profiles = radarr_service.get_quality_profiles()
         profiles_by_id = {p.id: p.name for p in profiles}
         # Determine upgrade profile id once
@@ -359,6 +371,9 @@ def get_movies_status(request: MovieStatusRequest):
                 }
 
         return {"statuses": statuses}
+    except LibraryDownloadPending as e:
+        logger.debug(f"Movie statuses skipped: {e}")
+        return {"statuses": {}}
     except Exception as e:
         logger.error(f"Error getting movie statuses: {e}")
         return {"statuses": {}}
