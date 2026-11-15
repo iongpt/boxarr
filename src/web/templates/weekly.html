@@ -371,7 +371,99 @@
     text-decoration: underline;
 }
 </style>
-{% endblock %}
+{% if region_view %}<style>
+/* Several box office regions: header line, banners, tabs and badge tags.
+   Only rendered for such weeks, so a one-region page is unchanged. */
+.region-line {
+    margin-top: 0.5rem;
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+}
+
+.region-line .region-name {
+    color: var(--text-primary);
+    border-bottom: 1px dotted var(--border-color);
+    cursor: help;
+}
+
+.region-banner {
+    margin-top: 0.75rem;
+    padding: 0.6rem 0.9rem;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    color: var(--text-primary);
+    border: 1px solid rgba(237, 137, 54, 0.4);
+    background: rgba(237, 137, 54, 0.08);
+}
+
+.region-banner.error {
+    border-color: rgba(245, 101, 101, 0.4);
+    background: rgba(245, 101, 101, 0.08);
+}
+
+.region-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 1.5rem;
+}
+
+.region-tab {
+    padding: 0.4rem 0.9rem;
+    border-radius: 999px;
+    border: 1px solid var(--border-color);
+    background: var(--card-bg);
+    color: var(--text-primary);
+    text-decoration: none;
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.region-tab:hover {
+    background: var(--bg-color);
+}
+
+.region-tab.active {
+    background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+    color: white;
+    border-color: transparent;
+}
+
+.region-chart-note {
+    margin-top: 0.75rem;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.rank-badge.with-region {
+    width: auto;
+    min-width: 32px;
+    padding: 0 0.6rem;
+    border-radius: 16px;
+    gap: 0.3rem;
+}
+
+.rank-badge .region-tag {
+    font-size: 0.65rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    opacity: 0.9;
+}
+
+.region-empty {
+    text-align: center;
+    color: var(--text-secondary);
+    margin-top: 2rem;
+}
+
+/* The "Also: #3 RO · #2 FR" line is one line: undo .movie-meta span's
+   display: block for the appearances inside it. */
+.movie-meta .region-also span {
+    display: inline;
+    margin: 0;
+}
+</style>
+{% endif %}{% endblock %}
 
 {% block scripts %}
 <script>
@@ -448,12 +540,25 @@
             });
 
             const data = await response.json();
+            const result = describeUpdateResult(data, response.ok);
 
-            if (response.ok && data.success) {
+            if (result.outcome === 'success') {
                 btn.innerHTML = '✓ Done!';
                 setTimeout(() => location.reload(), 500);
+            } else if (result.outcome === 'partial') {
+                // Written, but a region failed: e.g. "Updated 2 of 3 regions
+                // (FR failed)". The reloaded page has a banner for the failed region.
+                btn.textContent = `⚠️ ${result.message}`;
+                setTimeout(() => location.reload(), 3000);
+            } else if (result.outcome === 'kept' || result.outcome === 'no_chart') {
+                // An older stored week was left as it was because a region
+                // failed, or Box Office Mojo has no chart for the week in any
+                // region - not a failed regeneration of what is shown.
+                alert('Week not updated: ' + result.message);
+                btn.innerHTML = originalText;
+                btn.disabled = false;
             } else {
-                alert('Regeneration failed: ' + (data.detail || data.message || 'Unknown error'));
+                alert('Regeneration failed: ' + result.message);
                 btn.innerHTML = originalText;
                 btn.disabled = false;
             }
@@ -476,7 +581,17 @@
         </h1>
         <div class="week-info">
             {{ week_data.friday.strftime('%B %d') }} - {{ week_data.sunday.strftime('%B %d, %Y') }}
+        </div>{% if region_view %}
+        <!-- Box office regions this week: each one's Box Office Mojo weekend
+             dates in its tooltip, and a banner for any that did not come
+             through. Every code, name and error is stored data: escaped. -->
+        <div class="region-line" id="regionLine">
+            <strong>Regions:</strong>
+            {% for region in region_view.regions %}<span class="region-name" title="{{ region.weekend }}">{{ region.name }}{% if region.status != 'ok' %} ⚠️{% endif %}</span>{% if not loop.last %} · {% endif %}{% endfor %}
         </div>
+        {% for banner in region_view.banners %}
+        <div class="region-banner{% if banner.status == 'error' %} error{% endif %}" role="status">⚠️ {{ banner.message }}</div>
+        {% endfor %}{% endif %}
         
         <!-- Status Indicator -->
         <div style="margin: 1rem 0; padding: 0.75rem; background: rgba(var(--primary-rgb), 0.05); border-radius: 8px; border: 1px solid rgba(var(--primary-rgb), 0.2); font-size: 0.9rem;">
@@ -517,13 +632,13 @@
         <!-- Navigation Controls -->
         <div class="nav-controls">
             {% if previous_week %}
-            <a href="{{ request.scope.get('root_path', '') }}/{{ previous_week }}" class="nav-btn">← Previous</a>
+            <a href="{{ request.scope.get('root_path', '') }}/{{ previous_week }}{% if region_view and region_view.selected_param %}?region={{ region_view.selected_param|urlencode }}{% endif %}" class="nav-btn">← Previous</a>
             {% endif %}
 
             <a href="{{ request.scope.get('root_path', '') }}/weeks" class="nav-btn">📊 Weeks</a>
 
             {% if next_week %}
-            <a href="{{ request.scope.get('root_path', '') }}/{{ next_week }}" class="nav-btn">Next →</a>
+            <a href="{{ request.scope.get('root_path', '') }}/{{ next_week }}{% if region_view and region_view.selected_param %}?region={{ region_view.selected_param|urlencode }}{% endif %}" class="nav-btn">Next →</a>
             {% endif %}
 
             <button class="nav-btn" id="regenerate-btn" onclick="regenerateWeek({{ week_data.year }}, {{ week_data.week }})">
@@ -540,14 +655,27 @@
             </button>
             {% endif %}
         </div>
-    </div>
+    </div>{% if region_view %}
+
+    <!-- One tab per region: the combined list, or one region's chart with
+         that region's ranks and grosses (?region=XX). -->
+    {% set week_path = request.scope.get('root_path', '') ~ '/' ~ week_data.year ~ 'W' ~ ('%02d'|format(week_data.week)) %}
+    <nav class="region-tabs" id="regionTabs" aria-label="Box office regions">
+        <a href="{{ week_path }}" class="region-tab{% if region_view.selected is none %} active{% endif %}"{% if region_view.selected is none %} aria-current="page"{% endif %}>All</a>
+        {% for region in region_view.regions %}
+        <a href="{{ week_path }}?region={{ region.param|urlencode }}" class="region-tab{% if region.active %} active{% endif %}"{% if region.active %} aria-current="page"{% endif %} title="{{ region.weekend }}">{{ region.name }}</a>
+        {% endfor %}
+    </nav>
+    {% if region_view.selected is not none %}
+    <div class="region-chart-note">Showing the {{ region_view.selected_name }} chart: ranks and weekend grosses are that region's.</div>
+    {% endif %}{% endif %}
     
     <!-- Movies Grid -->
     <div class="movies-grid">
         {% for movie in week_data.movies %}
         {% set is_ignored = movie.tmdb_id and movie.tmdb_id in ignored_tmdb_ids %}
         <div class="movie-card{% if is_ignored %} ignored{% if hide_ignored %} ignored-hidden{% endif %}{% endif %}" data-movie-id="{{ movie.radarr_id or '' }}" data-tmdb-id="{{ movie.tmdb_id or '' }}">
-            <div class="rank-badge">#{{ movie.rank }}</div>
+            <div class="rank-badge{% if region_view %} with-region{% endif %}">#{{ movie.rank }}{% if region_view %} <span class="region-tag">{{ movie.region_tag }}</span>{% endif %}</div>
             {% if is_ignored %}
             <div class="ignored-badge">Ignored</div>
             {% endif %}
@@ -570,8 +698,9 @@
                     {% if movie.year %}<span>{{ movie.year }}</span>{% endif %}
                     {% if movie.genres %}<span>{{ movie.genres }}</span>{% endif %}
                     {% if movie.weekend_gross %}
-                    <span>Weekend: ${{ "{:,.0f}".format(movie.weekend_gross) }}</span>
-                    {% endif %}
+                    <span>Weekend{% if region_view and region_view.selected is none and region_view.regions|length > 1 %} ({{ movie.region_tag }}){% endif %}: ${{ "{:,.0f}".format(movie.weekend_gross) }}</span>
+                    {% endif %}{% if region_view and movie.also %}
+                    <span class="region-also">Also: {% for also in movie.also %}<span title="{{ also.name }}">{% if also.rank is not none %}#{{ also.rank }} {% endif %}{{ also.tag }}</span>{% if not loop.last %} · {% endif %}{% endfor %}</span>{% endif %}
                 </div>
                 
                 <!-- Status Badge -->
@@ -639,7 +768,8 @@
             </div>
         </div>
         {% endfor %}
-    </div>
+    </div>{% if region_view and not week_data.movies %}
+    <p class="region-empty">No movies from {{ region_view.selected_name or 'any region' }} this week.</p>{% endif %}
     
     <!-- Footer -->
     <div class="week-footer">

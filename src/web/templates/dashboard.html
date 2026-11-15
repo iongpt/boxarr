@@ -1066,6 +1066,21 @@
                 <h4>Failed Weeks (<span id="failedCount">0</span>)</h4>
                 <ul id="failedList"></ul>
             </div>
+
+            <div class="failed-weeks" id="partialWeeks" style="display: none;">
+                <h4>Updated With Region Errors (<span id="partialCount">0</span>)</h4>
+                <ul id="partialList"></ul>
+            </div>
+
+            <div class="failed-weeks" id="keptWeeks" style="display: none;">
+                <h4>Not Updated - Kept Existing Data (<span id="keptCount">0</span>)</h4>
+                <ul id="keptList"></ul>
+            </div>
+
+            <div class="failed-weeks" id="noChartWeeks" style="display: none;">
+                <h4>No Chart on Box Office Mojo (<span id="noChartCount">0</span>)</h4>
+                <ul id="noChartList"></ul>
+            </div>
             
             <div class="summary-details" id="summaryDetails"></div>
         </div>
@@ -1155,10 +1170,27 @@ class RangeProcessor {
                 });
                 
                 const data = await response.json();
-                this.results.push({year, week, ...data});
+                const result = describeUpdateResult(data, response.ok);
+                // An HTTP error that names no failed region carries an
+                // exception's text: not shown, as before multi-region.
+                const outcomeMessage = !response.ok && result.fromServer
+                    ? 'Unknown error'
+                    : result.message;
+                this.results.push({year, week, ...data, outcome: result.outcome, outcomeMessage});
                 
-                // Update progress bar
-                this.updateProgress(i + 1, `Completed ${weekStr}`);
+                // Update progress bar. A week can be written although one of
+                // its regions failed - say so instead of a plain "Completed".
+                let progressText = `Completed ${weekStr}`;
+                if (result.outcome === 'partial') {
+                    progressText = `Completed ${weekStr} - ${result.message}`;
+                } else if (result.outcome === 'kept') {
+                    progressText = `Kept ${weekStr} - ${result.message}`;
+                } else if (result.outcome === 'no_chart') {
+                    progressText = `No chart for ${weekStr} - ${result.message}`;
+                } else if (result.outcome === 'failed') {
+                    progressText = `Failed ${weekStr} - ${outcomeMessage}`;
+                }
+                this.updateProgress(i + 1, progressText);
                 
                 // Small delay between requests
                 if (i < this.weeks.length - 1) {
@@ -1212,9 +1244,25 @@ class RangeProcessor {
         // Hide progress modal
         document.getElementById('progressModal').style.display = 'none';
         
-        // Calculate summary stats
-        const successful = this.results.filter(r => r.success).length;
-        const failed = this.results.filter(r => !r.success);
+        // Calculate summary stats. "Weeks Updated" counts every week that
+        // was written - also those written without a failed region, which
+        // "Movies Found" counts the movies of and the partial list names.
+        const successful = this.results.filter(
+            r => r.outcome === 'success' || r.outcome === 'partial'
+        ).length;
+        // Each week is listed in one list only.
+        // Written, but a region failed (e.g. "Updated 2 of 3 regions (FR failed)")
+        const partial = this.results.filter(r => r.outcome === 'partial');
+        // An older stored week left as it was because a region failed: a
+        // warning, not a failure.
+        const kept = this.results.filter(r => r.outcome === 'kept');
+        // Box Office Mojo has no chart for the week in any region: nothing
+        // failed, there was nothing to write.
+        const noChart = this.results.filter(r => r.outcome === 'no_chart');
+        // Everything else; a request that threw has no outcome.
+        const failed = this.results.filter(
+            r => !['success', 'partial', 'kept', 'no_chart'].includes(r.outcome)
+        );
         const totalMovies = this.results.reduce((sum, r) => sum + (r.movies_found || 0), 0);
         const totalAdded = this.results.reduce((sum, r) => sum + (r.movies_added || 0), 0);
         
@@ -1231,11 +1279,55 @@ class RangeProcessor {
             failedList.innerHTML = '';
             failed.forEach(f => {
                 const li = document.createElement('li');
-                li.textContent = `${f.year}W${f.week.toString().padStart(2, '0')}: ${f.error || 'Unknown error'}`;
+                // A request that threw carries "error"; a failed update the
+                // outcomeMessage worded above.
+                li.textContent = `${f.year}W${f.week.toString().padStart(2, '0')}: ${f.error || f.outcomeMessage || 'Unknown error'}`;
                 failedList.appendChild(li);
             });
         } else {
             document.getElementById('failedWeeks').style.display = 'none';
+        }
+
+        if (partial.length > 0) {
+            document.getElementById('partialWeeks').style.display = 'block';
+            document.getElementById('partialCount').textContent = partial.length;
+            const partialList = document.getElementById('partialList');
+            partialList.replaceChildren();
+            partial.forEach(p => {
+                const li = document.createElement('li');
+                li.textContent = `${p.year}W${p.week.toString().padStart(2, '0')}: ${p.outcomeMessage}`;
+                partialList.appendChild(li);
+            });
+        } else {
+            document.getElementById('partialWeeks').style.display = 'none';
+        }
+
+        if (noChart.length > 0) {
+            document.getElementById('noChartWeeks').style.display = 'block';
+            document.getElementById('noChartCount').textContent = noChart.length;
+            const noChartList = document.getElementById('noChartList');
+            noChartList.replaceChildren();
+            noChart.forEach(n => {
+                const li = document.createElement('li');
+                li.textContent = `${n.year}W${n.week.toString().padStart(2, '0')}: ${n.outcomeMessage}`;
+                noChartList.appendChild(li);
+            });
+        } else {
+            document.getElementById('noChartWeeks').style.display = 'none';
+        }
+
+        if (kept.length > 0) {
+            document.getElementById('keptWeeks').style.display = 'block';
+            document.getElementById('keptCount').textContent = kept.length;
+            const keptList = document.getElementById('keptList');
+            keptList.replaceChildren();
+            kept.forEach(k => {
+                const li = document.createElement('li');
+                li.textContent = `${k.year}W${k.week.toString().padStart(2, '0')}: ${k.outcomeMessage}`;
+                keptList.appendChild(li);
+            });
+        } else {
+            document.getElementById('keptWeeks').style.display = 'none';
         }
         
         // Show summary modal
@@ -1503,24 +1595,42 @@ function updateCurrentWeek() {
         }
         return response.json();
     })
-    .then(data => {
-        if (data.success) {
-            addToProgressLog(`Update completed successfully! Found ${data.movies_found || 0} movies.`);
-            if (data.movies_added > 0) {
-                addToProgressLog(`Added ${data.movies_added} movies to Radarr.`);
-            }
-            showSuccess(`Updated successfully! Found ${data.movies_found || 0} movies.`);
-            setTimeout(() => location.reload(), 2000);
-        } else {
-            addToProgressLog(`Update failed: ${data.message || 'Unknown error'}`, 'error');
-            showError('Update failed: ' + (data.message || 'Unknown error'));
-        }
-    })
+    .then(data => showUpdateOutcome(data, true))
     .catch(error => {
         const errorMsg = error.message || 'Network error';
         addToProgressLog(`Error: ${errorMsg}`, 'error');
         showError('Update failed: ' + errorMsg);
     });
+}
+
+// Report a /scheduler/trigger or /scheduler/update-week response. A week
+// written although a region failed is a warning ("Updated 2 of 3 regions
+// (FR failed)"), and so is an older stored week kept because a region failed,
+// or a week Box Office Mojo has no chart for in any region; none of them is
+// reported as "Update failed".
+function showUpdateOutcome(data, httpOk) {
+    const result = describeUpdateResult(data, httpOk);
+    if (result.outcome === 'success' || result.outcome === 'partial') {
+        if (result.outcome === 'success') {
+            addToProgressLog(`Update completed successfully! Found ${data.movies_found || 0} movies.`);
+        }
+        if (data.movies_added > 0) {
+            addToProgressLog(`Added ${data.movies_added} movies to Radarr.`);
+        }
+        if (result.outcome === 'partial') {
+            showWarning(`${result.message}. Found ${data.movies_found || 0} movies.`);
+            setTimeout(() => location.reload(), 4000);
+        } else {
+            if (result.summary) addToProgressLog(result.summary);
+            showSuccess(`Updated successfully! Found ${data.movies_found || 0} movies.`);
+            setTimeout(() => location.reload(), 2000);
+        }
+    } else if (result.outcome === 'kept' || result.outcome === 'no_chart') {
+        showWarning(`Week not updated: ${result.message}`);
+    } else {
+        addToProgressLog(`Update failed: ${result.message}`, 'error');
+        showError('Update failed: ' + result.message);
+    }
 }
 
 function updateHistoricalWeek() {
@@ -1536,25 +1646,17 @@ function updateHistoricalWeek() {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({year: parseInt(year), week: parseInt(week)})
     })
-    .then(response => {
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        return response.json();
-    })
-    .then(data => {
-        if (data.success) {
-            addToProgressLog(`Update completed successfully! Found ${data.movies_found || 0} movies.`);
-            if (data.movies_added > 0) {
-                addToProgressLog(`Added ${data.movies_added} movies to Radarr.`);
+    .then(response => response.json()
+        .catch(() => { throw new Error(`HTTP error! status: ${response.status}`); })
+        .then(data => {
+            // An error body that names the failed regions is worded from
+            // them; one that does not carries an exception's text (FastAPI's
+            // "detail"), which is not shown - as before multi-region.
+            if (!response.ok && describeUpdateResult(data, false).fromServer) {
+                throw new Error(`HTTP error! status: ${response.status}`);
             }
-            showSuccess(`Updated successfully! Found ${data.movies_found || 0} movies.`);
-            setTimeout(() => location.reload(), 2000);
-        } else {
-            addToProgressLog(`Update failed: ${data.message || 'Unknown error'}`, 'error');
-            showError('Update failed: ' + (data.message || 'Unknown error'));
-        }
-    })
+            showUpdateOutcome(data, response.ok);
+        }))
     .catch(error => {
         const errorMsg = error.message || 'Network error';
         addToProgressLog(`Error: ${errorMsg}`, 'error');
@@ -1770,6 +1872,22 @@ function showSuccess(message) {
 
     // Also add to log
     addToProgressLog(message, 'success');
+}
+
+function showWarning(message) {
+    const progressMessage = document.getElementById('progressMessage');
+    const progressFooter = document.getElementById('progressFooter');
+    const progressSpinner = document.getElementById('progressSpinner');
+
+    const span = document.createElement('span');
+    span.style.color = 'var(--warning-color)';
+    span.textContent = `⚠️ ${message}`;
+    progressMessage.replaceChildren(span);
+    progressSpinner.style.display = 'none';
+    progressFooter.style.display = 'block';
+
+    // Also add to log
+    addToProgressLog(message, 'warning');
 }
 
 function showError(message) {

@@ -146,11 +146,11 @@ def test_footnote_credits_radarr_not_tmdb(tmp_path, monkeypatch):
     assert "TMDB" not in text
 
 
-def test_region_map_is_rendered_for_the_dropdown(tmp_path, monkeypatch):
-    """The chips must be able to follow the region dropdown in-session.
+def test_region_map_is_rendered_for_the_picker(tmp_path, monkeypatch):
+    """The chips must be able to follow the region picker in-session.
 
-    The server paints them from the *persisted* region, which on a fresh
-    install is nobody's choice: the user picks "Norway" and would still be
+    The server paints them from the *persisted* regions, which on a fresh
+    install are nobody's choice: the user checks "Norway" and would still be
     told "Suggested for Domestic (US & Canada)" until after a save.
     """
     soup = _setup_page(tmp_path, monkeypatch)

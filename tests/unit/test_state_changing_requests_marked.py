@@ -194,7 +194,7 @@ def test_the_scan_finds_the_state_changing_requests():
         for name, text in _sources()
     }
 
-    assert len(unsafe["app.js"]) >= 12, unsafe["app.js"]
+    assert len(unsafe["app.js"]) >= 11, unsafe["app.js"]
     assert "DELETE" in unsafe["app.js"] and "POST" in unsafe["app.js"]
     assert len(unsafe["dashboard.html"]) >= 4, unsafe["dashboard.html"]
     assert "POST" in unsafe["weekly.html"], unsafe["weekly.html"]

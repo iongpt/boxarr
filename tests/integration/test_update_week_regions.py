@@ -310,7 +310,8 @@ class TestOneRegionIdentity:
         FakeBoxOffice.charts = {"GB": BoxOfficeError("Failed to fetch: HTTP 503")}
         resp = h.update()
         assert resp.status_code == 500
-        assert resp.json()["detail"] == "Failed to fetch: HTTP 503"
+        # As v2.1.x answered: the error itself, nothing else.
+        assert resp.json() == {"detail": "Failed to fetch: HTTP 503"}
         assert not h.week_file.exists()
 
     def test_one_region_without_data_is_the_same_500(self, harness):
@@ -370,6 +371,10 @@ class TestTwoRegions:
             ("", "ok", 3),
             ("DE", "ok", 3),
         ]
+        # Named as the weekly page names them, for the toasts; the stored
+        # file keeps only the codes.
+        assert [s["name"] for s in body["region_status"]] == ["US & Canada", "Germany"]
+        assert all("name" not in s for s in h.stored()["region_status"])
         # In configured order, each with box_office_limit rows, 1 s apart.
         assert FakeBoxOffice.calls == [("", 3), ("DE", 3)]
         assert h.pauses == [1.0]
@@ -438,10 +443,18 @@ class TestPartialFailure:
         resp = h.update()
 
         assert resp.status_code == 500
-        assert resp.json()["detail"] == (
+        body = resp.json()
+        assert body["detail"] == (
             "No box office region could be fetched for 2026W44: "
             "domestic: timeout; DE: no data"
         )
+        # Each region's status, so a page can say which failed without
+        # showing the error text.
+        assert (body["success"], body["partial"]) == (False, False)
+        assert [(s["name"], s["status"]) for s in body["region_status"]] == [
+            ("US & Canada", "error"),
+            ("Germany", "no_data"),
+        ]
         assert h.week_file.read_bytes() == before
 
     @pytest.mark.parametrize(

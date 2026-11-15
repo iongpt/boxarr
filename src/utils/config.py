@@ -310,6 +310,25 @@ def configured_box_office_regions(obj: Any = None) -> List[str]:
     return parse_box_office_regions(value)
 
 
+def box_office_regions_set_by_env(obj: Any = None) -> bool:
+    """Whether the box office regions come from the environment.
+
+    The environment variable outranks ``local.yaml``, so a selection saved
+    from the setup page would never take effect while it is set.
+
+    Args:
+        obj: The settings object to ask; defaults to this module's settings
+
+    Returns:
+        True when BOXARR_FEATURES_BOX_OFFICE_REGION is set in the environment
+    """
+    source = settings if obj is None else obj
+    env_set_fields = getattr(source, "_get_env_set_fields", None)
+    if not callable(env_set_fields):
+        return False
+    return "boxarr_features_box_office_region" in env_set_fields()
+
+
 def _canonicalize_languages(value: Any) -> Any:
     """Map configured language names onto the names Radarr reports.
 

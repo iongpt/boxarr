@@ -23,13 +23,16 @@ from ...core.languages import (
 )
 from ...core.models import MovieStatus
 from ...utils.config import (
+    DOMESTIC_REGION,
+    MAX_BOX_OFFICE_REGIONS,
     MIN_GROSS_MAX,
+    box_office_regions_set_by_env,
     configured_box_office_regions,
-    format_box_office_regions,
     format_min_gross,
     settings,
 )
 from ...utils.logger import get_logger
+from .weekly_regions import build_region_view, region_movies, stored_gross, stored_rank
 
 logger = get_logger(__name__)
 router = APIRouter(tags=["web"])
@@ -117,8 +120,39 @@ async def settings_redirect(request: Request):
     return RedirectResponse(url=f"{base}/setup")
 
 
+# Shown for a film whose stored rank is missing, as before.
+_NO_BEST_RANK = 999
+
+
+def _appearance_best_gross(movie: dict) -> Optional[float]:
+    """A stored film's best weekend gross in one week, across its regions.
+
+    A film of a multi-region week has a row per region it charted in; its
+    top-level gross is only its lead region's. Legacy entries have no rows.
+    """
+    rows = movie.get("regions")
+    grosses = [stored_gross(movie.get("weekend_gross"))]
+    if isinstance(rows, list):
+        grosses += [
+            stored_gross(row.get("weekend_gross"))
+            for row in rows
+            if isinstance(row, dict)
+        ]
+    known = [gross for gross in grosses if gross is not None]
+    return max(known) if known else None
+
+
 async def aggregate_all_movies() -> List[dict]:
-    """Aggregate all movies from all weekly JSON files, handling duplicates."""
+    """Aggregate all movies from all weekly JSON files, handling duplicates.
+
+    Each film is listed once, with every week it appeared in (once per week,
+    however many regions it charted in or entries it has there), its best
+    rank, and as its best weekend gross the gross of the appearance that
+    reached that rank first - as before multi-region. Only within that one
+    appearance is the gross the highest across its regions. A missing or
+    broken rank counts as _NO_BEST_RANK and a missing or broken gross as 0,
+    so neither breaks the comparison or the sort.
+    """
     weekly_pages_dir = Path(settings.boxarr_data_directory) / "weekly_pages"
     if not weekly_pages_dir.exists():
         return []
@@ -140,36 +174,47 @@ async def aggregate_all_movies() -> List[dict]:
             week_str = f"{year}W{week:02d}"
 
             for movie in metadata.get("movies", []):
+                if not isinstance(movie, dict):
+                    continue
                 # Use TMDB ID as primary key, fallback to title+year
                 if movie.get("tmdb_id"):
                     key = f"tmdb_{movie['tmdb_id']}"
                 else:
                     key = f"{movie.get('title', 'unknown')}_{movie.get('year', 0)}"
 
-                if key in movies_by_key:
-                    # Movie already exists, add this week to its appearances
-                    movies_by_key[key]["weeks"].append(week_str)
-                    # Update with better data if this week has higher rank
-                    if movie.get("rank", 999) < movies_by_key[key]["best_rank"]:
-                        movies_by_key[key]["best_rank"] = movie.get("rank", 999)
-                        movies_by_key[key]["best_weekend_gross"] = movie.get(
-                            "weekend_gross", 0
-                        )
-                else:
+                rank = stored_rank(movie.get("rank"))
+                if rank is None:
+                    rank = _NO_BEST_RANK
+                entry = movies_by_key.get(key)
+                if entry is None:
                     # New movie entry
-                    movie_copy = dict(movie)
-                    movie_copy["weeks"] = [week_str]
-                    movie_copy["best_rank"] = movie.get("rank", 999)
-                    movie_copy["best_weekend_gross"] = movie.get("weekend_gross", 0)
-                    movies_by_key[key] = movie_copy
+                    entry = dict(movie)
+                    entry["weeks"] = []
+                    movies_by_key[key] = entry
+                    better = True
+                else:
+                    # Only a strictly better rank moves "best": on a tie the
+                    # earlier week keeps it, as before multi-region.
+                    better = rank < entry["best_rank"]
+
+                # One week counts once, even if the film has two entries in it.
+                if week_str not in entry["weeks"]:
+                    entry["weeks"].append(week_str)
+                if better:
+                    # Rank and gross come from the same appearance: never a
+                    # gross from another week, even a higher one.
+                    entry["best_rank"] = rank
+                    gross = _appearance_best_gross(movie)
+                    entry["best_weekend_gross"] = 0 if gross is None else gross
 
         except Exception as e:
             logger.warning(f"Error reading {json_file}: {e}")
             continue
 
-    # Convert to list and sort by best weekend gross (highest first)
     movies_list = list(movies_by_key.values())
-    movies_list.sort(key=lambda x: x.get("best_weekend_gross", 0), reverse=True)
+
+    # Sort by best weekend gross (highest first)
+    movies_list.sort(key=lambda x: x["best_weekend_gross"], reverse=True)
 
     return movies_list
 
@@ -249,7 +294,7 @@ async def movie_overview_page(request: Request):
     # Search filter
     if search_query:
         filtered_movies = [
-            m for m in filtered_movies if search_query in m.get("title", "").lower()
+            m for m in filtered_movies if search_query in (m.get("title") or "").lower()
         ]
 
     # Get unique years for filter buttons
@@ -534,6 +579,74 @@ def _min_gross_input_value(value: float) -> str:
     return f"{amount:.0f}" if amount.is_integer() else f"{amount}"
 
 
+# More selected regions than this are summed up as "your N regions" in the
+# language suggestion label; app.js applies the same rule in-session.
+REGION_LABEL_MAX_NAMES = 3
+
+
+def region_selection_label(names: List[str]) -> str:
+    """Name a region selection for the language suggestion label.
+
+    Args:
+        names: Display names of the selected regions, in configured order
+
+    Returns:
+        The names joined by commas, or "your N regions" when there are more
+        than REGION_LABEL_MAX_NAMES
+    """
+    if len(names) > REGION_LABEL_MAX_NAMES:
+        return f"your {len(names)} regions"
+    return ", ".join(names)
+
+
+# Other names the setup page's region search finds a region by, matched
+# exactly (a catalogue name matches as a substring, an area code exactly):
+# "uk" would otherwise find only Ukraine, and "usa" nothing at all.
+REGION_SEARCH_ALIASES: Dict[str, Tuple[str, ...]] = {
+    "": ("usa", "us", "united states", "america", "domestic"),
+    "GB": ("uk", "britain", "great britain", "england"),
+    "AE": ("uae", "emirates"),
+    "CZ": ("czechia",),
+    "KR": ("korea",),
+    "NL": ("holland",),
+    "TR": ("turkey",),
+}
+
+
+def _region_picker_rows(configured: List[str]) -> List[Dict[str, object]]:
+    """Return the setup page's region checkboxes, in display order.
+
+    The configured regions come first, checked and in configured order - the
+    order a save posts back, so a hand-written list is never re-sorted. A
+    configured code missing from the catalogue still gets a checked row
+    ("ZZ (not in list)"), so saving the page keeps it instead of silently
+    dropping it. Every other catalogue region follows in catalogue order.
+    app.js never moves a row: a region checked later stays where it is and
+    is appended to the selection order it posts.
+
+    Each row has ``value`` (what the checkbox posts: the code, or "domestic"
+    for the US & Canada chart, whose code is ""), ``code``, ``name``,
+    ``checked`` and ``aliases`` (REGION_SEARCH_ALIASES joined by "|").
+    """
+    names = dict(BOX_OFFICE_REGIONS)
+
+    def row(code: str, checked: bool) -> Dict[str, object]:
+        listed = code in names
+        return {
+            "value": code or DOMESTIC_REGION,
+            "code": code,
+            "name": names[code] if listed else f"{code} (not in list)",
+            "checked": checked,
+            "aliases": "|".join(REGION_SEARCH_ALIASES.get(code, ())),
+        }
+
+    rows = [row(code, True) for code in configured]
+    rows.extend(
+        row(code, False) for code, _ in BOX_OFFICE_REGIONS if code not in configured
+    )
+    return rows
+
+
 @router.get("/setup", response_class=HTMLResponse)
 async def setup_page(request: Request):
     """Serve the setup page."""
@@ -592,22 +705,11 @@ async def setup_page(request: Request):
         n for n in all_languages if n not in selected
     ]
     box_office_regions = configured_box_office_regions(settings)
-    region_names = dict(BOX_OFFICE_REGIONS)
-    # The page offers one region per option. A configuration it cannot show
-    # as one of them - several regions, or a code missing from the catalogue -
-    # gets an extra option holding the stored value itself, selected, so a
-    # save from this page posts it back unchanged instead of the first region.
-    box_office_region = format_box_office_regions(box_office_regions)
-    box_office_region_listed = box_office_region in region_names
-    # The whole map, so the chips can follow the region dropdown in-session
-    # instead of being pinned to the persisted region - which during
-    # first-run setup is nobody's actual choice. The extra option's value
-    # maps to the union of its regions' suggestions.
+    box_office_region_rows = _region_picker_rows(box_office_regions)
+    # The whole map, keyed by area code, so the chips can follow the region
+    # picker in-session instead of being pinned to the persisted regions -
+    # which during first-run setup are nobody's actual choice.
     language_region_suggestions = dict(REGION_DEFAULT_LANGUAGES)
-    if not box_office_region_listed:
-        language_region_suggestions[box_office_region] = suggested_languages(
-            box_office_regions
-        )
 
     return templates.TemplateResponse(
         request,
@@ -643,13 +745,18 @@ async def setup_page(request: Request):
             quality_upgrade=settings.boxarr_features_quality_upgrade,
             # Box office fetch limit
             box_office_limit=settings.boxarr_features_box_office_limit,
-            # Box office region: the stored value, and whether one of the
-            # catalogue options already stands for it.
-            box_office_region=box_office_region,
-            box_office_region_listed=box_office_region_listed,
-            box_office_regions=BOX_OFFICE_REGIONS,
-            box_office_region_name=", ".join(
-                region_names.get(code, code) for code in box_office_regions
+            # Box office regions: one checkbox per region, the configured ones
+            # first and in configured order (see _region_picker_rows).
+            box_office_region_rows=box_office_region_rows,
+            box_office_region_count=len(box_office_regions),
+            box_office_region_max=MAX_BOX_OFFICE_REGIONS,
+            # The environment variable outranks local.yaml: a selection made
+            # here would never apply, so the picker is shown disabled.
+            box_office_region_env_locked=box_office_regions_set_by_env(settings),
+            # Named like the checked rows ("ZZ (not in list)"), which is what
+            # app.js reads when the picker changes.
+            box_office_region_name=region_selection_label(
+                [str(row["name"]) for row in box_office_region_rows if row["checked"]]
             ),
             # Auto tagging
             auto_tag_enabled=settings.boxarr_features_auto_tag_enabled,
@@ -775,6 +882,13 @@ async def serve_weekly_page(request: Request, year: int, week: int):
 
     movies = metadata.get("movies", [])
 
+    # A week of several regions (or one whose region failed) gets a header
+    # line, banners, region tags and tabs; ?region=XX shows that region's
+    # chart. A legacy or plain one-region week is left exactly as it was.
+    region_view = build_region_view(metadata, request.query_params.get("region"))
+    if region_view is not None and isinstance(movies, list):
+        movies = region_movies(movies, region_view["selected"])
+
     # Avoid synchronous full Radarr fetch; client will refresh statuses via AJAX
 
     # Calculate counts (for future use/debugging)
@@ -867,6 +981,8 @@ async def serve_weekly_page(request: Request, year: int, week: int):
             ignored_tmdb_ids=ignored_tmdb_ids,
             summary=summary,
             hidden_count=hidden_count,
+            # None for a legacy or plain one-region week: no region elements.
+            region_view=region_view,
         ),
     )
 
@@ -1035,6 +1151,10 @@ async def get_widget_data() -> WidgetData:
                         "rank": m.get("rank"),
                         "title": m.get("title"),
                         "gross": m.get("weekend_gross"),
+                        # The region of the rank and gross: the film's lead
+                        # region ("" is US & Canada); None for a week stored
+                        # before regions were recorded.
+                        "region": m.get("region"),
                     }
                     for m in metadata.get("movies", [])[:10]
                 ],

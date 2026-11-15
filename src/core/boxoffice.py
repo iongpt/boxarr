@@ -238,9 +238,17 @@ def shows_domestic_chart(html: str) -> bool:
     return bool(_DOMESTIC_HEADING.match(heading.get_text(" ", strip=True)))
 
 
+def area_code_hint(region: str) -> Optional[str]:
+    """The area code Mojo files a market under, for a code people use instead.
+
+    E.g. "GB" for "UK"; None when there is no such hint.
+    """
+    return _AREA_CODE_HINTS.get(region)
+
+
 def unknown_market_message(region: str) -> str:
     """Explain that Mojo has no such market, e.g. for UK: "... (did you mean GB?)"."""
-    hint = _AREA_CODE_HINTS.get(region)
+    hint = area_code_hint(region)
     suggestion = f" (did you mean {hint}?)" if hint else ""
     return (
         f"Box Office Mojo has no market '{region}'{suggestion}: it returned "

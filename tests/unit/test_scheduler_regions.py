@@ -432,6 +432,8 @@ class TestTriggerAndStatus:
             body["message"] == "Box office update completed with errors: DE: HTTP 503"
         )
         assert [s["status"] for s in body["region_status"]] == ["ok", "error"]
+        # Named as the weekly page names them, for the toasts.
+        assert [s["name"] for s in body["region_status"]] == ["US & Canada", "Germany"]
 
     def test_trigger_reports_a_kept_legacy_week_as_failed(self, client, env):
         tmp_path, _ = env
@@ -447,6 +449,7 @@ class TestTriggerAndStatus:
         assert body["message"] == "Kept the existing data for 2026W44; DE failed"
         assert body["partial"] is True
         assert [s["status"] for s in body["region_status"]] == ["ok", "error"]
+        assert [s["name"] for s in body["region_status"]] == ["US & Canada", "Germany"]
         assert week_file.read_bytes() == before
 
     def test_trigger_failure_carries_region_status(self, client):
@@ -457,6 +460,7 @@ class TestTriggerAndStatus:
         assert body["success"] is False
         assert body["message"].startswith("Update failed: No box office region")
         assert [s["status"] for s in body["region_status"]] == ["error", "error"]
+        assert [s["name"] for s in body["region_status"]] == ["US & Canada", "Germany"]
 
     def test_status_reports_a_failed_last_run(self, client):
         c = client({"": BoxOfficeError("timeout"), "DE": BoxOfficeError("HTTP 503")})
@@ -465,6 +469,62 @@ class TestTriggerAndStatus:
         last_run = c.get("/api/scheduler/status").json()["last_run"]
 
         assert last_run["success"] is False
+        # What failed the run, for the setup page's Last Run tooltip.
+        assert last_run["error"] == (
+            "No box office region could be fetched for 2026W44: "
+            "domestic: timeout; DE: HTTP 503"
+        )
+
+    def test_status_reports_what_failed_a_run_after_a_region_failed(
+        self, client, env, monkeypatch
+    ):
+        # The week was written without DE, then the stored-week refresh
+        # failed: the tooltip names the refresh, not DE.
+        def failing_refresh(*args, **kwargs):
+            raise RuntimeError("Radarr went away")
+
+        monkeypatch.setattr(
+            scheduler_core, "refresh_weekly_data_from_radarr", failing_refresh
+        )
+        c = client({"": [bom(1, "The Odyssey")], "DE": BoxOfficeError("HTTP 503")})
+        c.post("/api/scheduler/trigger")
+
+        last_run = c.get("/api/scheduler/status").json()["last_run"]
+
+        assert last_run["success"] is False
+        assert last_run["error"] == "Radarr went away"
+
+    def test_status_reports_the_error_of_a_run_that_failed_after_writing(
+        self, client, env
+    ):
+        tmp_path, _ = env
+        (tmp_path / "history").mkdir()
+        (tmp_path / "history" / "2026W44_latest.json").write_text(
+            json.dumps(
+                {
+                    "timestamp": "2026-11-02T23:00:00",
+                    "success": False,
+                    "error": "Radarr refresh failed",
+                    "total_count": 3,
+                    "matched_count": 1,
+                }
+            )
+        )
+
+        last_run = client({}).get("/api/scheduler/status").json()["last_run"]
+
+        assert (last_run["success"], last_run["error"]) == (
+            False,
+            "Radarr refresh failed",
+        )
+
+    def test_status_reports_no_error_for_a_successful_run(self, client):
+        c = client({"": [bom(1, "The Odyssey")], "DE": [bom(1, "Heimat")]})
+        c.post("/api/scheduler/trigger")
+
+        last_run = c.get("/api/scheduler/status").json()["last_run"]
+
+        assert (last_run["success"], last_run["error"]) == (True, None)
 
     def test_status_reports_a_partial_last_run(self, client):
         c = client({"": [bom(1, "The Odyssey")], "DE": BoxOfficeError("HTTP 503")})
@@ -474,6 +534,10 @@ class TestTriggerAndStatus:
 
         assert (last_run["success"], last_run["partial"]) == (True, True)
         assert [s["status"] for s in last_run["region_status"]] == ["ok", "error"]
+        assert [s["name"] for s in last_run["region_status"]] == [
+            "US & Canada",
+            "Germany",
+        ]
 
     def test_history_reports_partial_runs_and_region_status(self, client):
         c = client({"": [bom(1, "The Odyssey")], "DE": BoxOfficeError("HTTP 503")})
@@ -482,9 +546,11 @@ class TestTriggerAndStatus:
         [run] = c.get("/api/scheduler/history").json()["runs"]
 
         assert (run["success"], run["partial"]) == (True, True)
-        assert [(s["region"], s["status"]) for s in run["region_status"]] == [
-            ("", "ok"),
-            ("DE", "error"),
+        assert [
+            (s["region"], s["status"], s["name"]) for s in run["region_status"]
+        ] == [
+            ("", "ok", "US & Canada"),
+            ("DE", "error", "Germany"),
         ]
 
     def test_status_treats_older_history_as_successful(self, client, env):

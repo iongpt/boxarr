@@ -66,6 +66,15 @@ function apiUrl(endpoint) {
     return makeUrl('/api' + endpoint);
 }
 
+// Read a /scheduler/trigger or /scheduler/update-week response: outcome
+// 'success', 'partial' (written, a region failed), 'kept' (an older stored
+// week left as it was) or 'failed', with the words for it. See
+// update-result.js, which every page loads before this file
+// (tests/unit/test_static_cache_busting.py).
+function describeUpdateResult(data, httpOk) {
+    return window.BoxarrUpdateResult.describe(data, httpOk);
+}
+
 // Helper to check if current path matches a given path (handling base path)
 function isCurrentPath(targetPath) {
     const currentPath = window.location.pathname;
@@ -383,9 +392,160 @@ function mergeLanguageOptions(names) {
     filterLanguageOptions();
 }
 
-// Rebuild the region suggestion chips from the currently selected region and
-// filter mode. The server paints them once from the *persisted* region, which
-// during first-run setup is not the region the user just picked.
+// ==========================================
+// Box office region picker (searchable checkboxes)
+// ==========================================
+
+// The selected regions' checkbox values ("domestic" or an area code) in the
+// order they will be saved: the configured regions first, in configured
+// order (the server renders them checked at the top), then each region the
+// user checks appended. A hand-written list is never re-sorted by a save.
+let regionSelection = [];
+
+// More selected regions than this read "your N regions" in the language
+// suggestion label (web.py's REGION_LABEL_MAX_NAMES).
+const REGION_LABEL_MAX_NAMES = 3;
+
+function regionPicker() {
+    return document.getElementById('boxOfficeRegionOptions');
+}
+
+function regionOptionRows() {
+    const picker = regionPicker();
+    return picker ? Array.from(picker.querySelectorAll('.region-option')) : [];
+}
+
+function regionRowCheckbox(row) {
+    return row.querySelector('input[type="checkbox"]');
+}
+
+function regionPickerLocked() {
+    const picker = regionPicker();
+    return !!(picker && picker.dataset.locked === 'true');
+}
+
+function regionMaxSelected() {
+    const picker = regionPicker();
+    const max = picker ? parseInt(picker.dataset.maxRegions || '', 10) : NaN;
+    return Number.isFinite(max) && max > 0 ? max : 5;
+}
+
+function regionRowByValue(value) {
+    return regionOptionRows().find(row => {
+        const checkbox = regionRowCheckbox(row);
+        return checkbox && checkbox.value === value;
+    });
+}
+
+// The selected regions as {code, name}, in selection order.
+function selectedRegions() {
+    return regionSelection.map(value => {
+        const row = regionRowByValue(value);
+        const checkbox = row ? regionRowCheckbox(row) : null;
+        return {
+            code: checkbox ? (checkbox.dataset.regionCode || '') : value,
+            name: row ? (row.dataset.regionName || value) : value,
+        };
+    });
+}
+
+function regionSelectionLabel(names) {
+    return names.length > REGION_LABEL_MAX_NAMES
+        ? `your ${names.length} regions`
+        : names.join(', ');
+}
+
+// Null when the selection can be saved, else what is wrong with it.
+function regionSelectionProblem() {
+    if (!regionPicker() || regionPickerLocked()) return null;
+    const count = regionSelection.length;
+    const max = regionMaxSelected();
+    if (count === 0) {
+        return 'Select at least one box office region (Domestic for US & Canada)';
+    }
+    if (count > max) {
+        return `Select at most ${max} box office regions - ${count} are selected`;
+    }
+    return null;
+}
+
+function renderRegionStatus() {
+    const status = document.getElementById('boxOfficeRegionStatus');
+    if (!status) return;
+    const names = selectedRegions().map(region => region.name);
+    let text = `${names.length} of ${regionMaxSelected()} selected`;
+    if (names.length) text += `: ${names.join(', ')}`;
+    const problem = regionSelectionProblem();
+    if (problem) text += ` - ${problem}`;
+    status.textContent = text;
+    status.style.color = problem ? 'var(--error-color)' : '';
+}
+
+// Whether a region row matches a search term: a substring of its name, or
+// exactly its area code or one of its other names (data-region-aliases, e.g.
+// "uk" for the United Kingdom, "usa" for the domestic chart).
+function regionRowMatches(row, term) {
+    const checkbox = regionRowCheckbox(row);
+    const name = (row.dataset.regionName || '').toLowerCase();
+    const code = checkbox ? (checkbox.dataset.regionCode || '').toLowerCase() : '';
+    const aliases = (row.dataset.regionAliases || '').toLowerCase().split('|').filter(Boolean);
+    return name.includes(term) || (!!code && code === term) || aliases.includes(term);
+}
+
+// Runs on search input only. A checkbox change never moves or hides a row:
+// the rows would shift under the pointer, so a second click would toggle a
+// region the user never chose, and keyboard focus would be lost.
+function filterRegionOptions() {
+    const search = document.getElementById('boxOfficeRegionSearch');
+    const term = search ? search.value.trim().toLowerCase() : '';
+    regionOptionRows().forEach(row => {
+        const checkbox = regionRowCheckbox(row);
+        // A selected region is never filtered out of view, so a search can
+        // never hide - or appear to drop - part of the selection.
+        const visible = !term || regionRowMatches(row, term) || !!(checkbox && checkbox.checked);
+        row.style.display = visible ? 'flex' : 'none';
+    });
+}
+
+// Delegated: one listener on the picker for every checkbox in it. Records
+// the selection order and redraws the status and language suggestions; the
+// rows stay where they are (the server rendered the configured ones first).
+function onRegionPickerChange(e) {
+    const checkbox = e.target;
+    if (!checkbox || checkbox.type !== 'checkbox') return;
+    const value = checkbox.value;
+    regionSelection = regionSelection.filter(v => v !== value);
+    if (checkbox.checked) regionSelection.push(value);
+    renderRegionStatus();
+    renderLanguageSuggestions();
+}
+
+function initRegionPicker() {
+    const picker = regionPicker();
+    if (!picker) return;
+    // The server renders the configured regions checked, at the top, in
+    // configured order - which is the selection order to start from.
+    regionSelection = regionOptionRows()
+        .map(regionRowCheckbox)
+        .filter(checkbox => checkbox && checkbox.checked)
+        .map(checkbox => checkbox.value);
+    picker.addEventListener('change', onRegionPickerChange);
+
+    const search = document.getElementById('boxOfficeRegionSearch');
+    if (search) {
+        search.addEventListener('input', filterRegionOptions);
+        search.addEventListener('keydown', function(e) {
+            // Enter in the search box would implicitly submit the form,
+            // saving the whole configuration mid-search.
+            if (e.key === 'Enter') e.preventDefault();
+        });
+    }
+    renderRegionStatus();
+}
+
+// Rebuild the region suggestion chips from the currently selected regions
+// and filter mode. The server paints them once from the *persisted* regions,
+// which during first-run setup are not the regions the user just picked.
 function renderLanguageSuggestions() {
     const container = document.getElementById('languageSuggestions');
     if (!container) return;
@@ -395,12 +555,22 @@ function renderLanguageSuggestions() {
         map = JSON.parse(container.dataset.regionLanguages || '{}') || {};
     } catch (_) { /* keep the server-rendered chips */ return; }
 
-    const select = document.getElementById('boxOfficeRegion');
-    const region = select ? select.value : '';
-    const regionName = select && select.selectedOptions.length
-        ? select.selectedOptions[0].textContent.trim()
-        : (container.dataset.regionName || '');
-    const suggested = Array.isArray(map[region]) ? map[region] : [];
+    const picker = regionPicker();
+    let regionName = container.dataset.regionName || '';
+    let suggested = Array.from(container.querySelectorAll('[data-suggested-language]'))
+        .map(button => button.dataset.suggestedLanguage);
+    if (picker) {
+        // The union of the selected regions' languages, in selection order.
+        const regions = selectedRegions();
+        regionName = regionSelectionLabel(regions.map(region => region.name));
+        suggested = [];
+        regions.forEach(region => {
+            const names = Array.isArray(map[region.code]) ? map[region.code] : [];
+            names.forEach(name => {
+                if (!suggested.includes(name)) suggested.push(name);
+            });
+        });
+    }
 
     const label = document.getElementById('languageSuggestionsLabel');
     if (label) {
@@ -481,6 +651,32 @@ function updateGenreMode() {
     }
 }
 
+// The Last Run row's note and tooltip for /scheduler/status's last_run,
+// agreeing with the message the run's own update showed:
+// - "(7/10 matched)"; "(7/10 matched, France failed)" when the week was
+//   written without a region that failed;
+// - "(no chart)" when Box Office Mojo had no chart in any of several
+//   regions - nothing failed, there was nothing to write;
+// - "(failed)", with what failed it on hover. Failed runs are saved too,
+//   with no films. So is a stored legacy week kept because a region
+//   failed: its tooltip says so ("Kept the existing data ..."), and its
+//   history entry does not tell it from a run that failed after keeping it.
+function describeLastRun(run) {
+    const result = describeUpdateResult(run);
+    if (result.outcome === 'no_chart') {
+        return { note: '(no chart)', title: result.message };
+    }
+    if (run.success === false) {
+        return { note: '(failed)', title: run.error || '' };
+    }
+    let note = `${run.matched_count}/${run.total_count} matched`;
+    const failed = run.partial
+        ? window.BoxarrUpdateResult.failedRegionNames(run.region_status)
+        : '';
+    if (failed) note += `, ${failed} failed`;
+    return { note: `(${note})`, title: '' };
+}
+
 function refreshSchedulerStatus() {
     fetch(apiUrl('/scheduler/status'))
         .then(response => response.json())
@@ -532,9 +728,15 @@ function refreshSchedulerStatus() {
             if (lastRun) {
                 if (data.last_run) {
                     const lastTime = new Date(data.last_run.timestamp);
-                    lastRun.innerHTML = `${lastTime.toLocaleString()} <small>(${data.last_run.matched_count}/${data.last_run.total_count} matched)</small>`;
+                    const note = document.createElement('small');
+                    const described = describeLastRun(data.last_run);
+                    note.textContent = described.note;
+                    lastRun.title = described.title;
+                    lastRun.textContent = `${lastTime.toLocaleString()} `;
+                    lastRun.appendChild(note);
                 } else {
                     lastRun.innerHTML = 'No previous runs';
+                    lastRun.title = '';
                 }
             }
             
@@ -569,11 +771,18 @@ function triggerScheduler() {
     fetch(apiUrl('/scheduler/trigger'), { method: 'POST' })
         .then(response => response.json())
         .then(data => {
-            if (data.success) {
-                alert(`Update completed! Found ${data.movies_found} movies, added ${data.movies_added || 0} new movies.`);
+            const result = describeUpdateResult(data);
+            if (result.outcome === 'success' || result.outcome === 'partial') {
+                let text = `Update completed! Found ${data.movies_found} movies, added ${data.movies_added || 0} new movies.`;
+                // e.g. "Updated 2 of 3 regions (FR failed)"
+                if (result.summary) text += `\n${result.summary}`;
+                alert(text);
+                refreshSchedulerStatus();
+            } else if (result.outcome === 'kept' || result.outcome === 'no_chart') {
+                alert(`Week not updated: ${result.message}`);
                 refreshSchedulerStatus();
             } else {
-                alert(`Update failed: ${data.message}`);
+                alert(`Update failed: ${result.message}`);
             }
         })
         .catch(error => {
@@ -725,73 +934,8 @@ function reloadScheduler() {
     // ==========================================
     // Dashboard Functions
     // ==========================================
-
-    window.updateCurrentWeek = function() {
-        const modal = document.getElementById('progressModal');
-        const progressMessage = document.getElementById('progressMessage');
-        const progressLog = document.getElementById('progressLog');
-        const progressFooter = document.getElementById('progressFooter');
-        
-        if (modal) {
-            modal.classList.add('show');
-            isModalOpen = true;
-        }
-        
-        // Clear previous log and set initial message
-        if (progressLog) progressLog.innerHTML = '';
-        if (progressMessage) progressMessage.textContent = 'Fetching box office data from Box Office Mojo...';
-        if (progressFooter) progressFooter.style.display = 'none';
-        
-        // Add log entry
-        function addLogEntry(message, type = 'info') {
-            if (progressLog) {
-                const entry = document.createElement('div');
-                entry.style.color = type === 'error' ? '#f56565' : type === 'success' ? '#48bb78' : '#718096';
-                entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
-                progressLog.appendChild(entry);
-                progressLog.scrollTop = progressLog.scrollHeight;
-            }
-        }
-        
-        addLogEntry('Starting box office update...');
-        
-        fetch(apiUrl('/scheduler/trigger'), { method: 'POST' })
-            .then(response => {
-                addLogEntry('Received response from server');
-                return response.json();
-            })
-            .then(data => {
-                if (data.success) {
-                    addLogEntry(`Found ${data.movies_found || 0} movies`, 'success');
-                    if (data.movies_added && data.movies_added > 0) {
-                        addLogEntry(`Added ${data.movies_added} new movies to Radarr`, 'success');
-                    }
-                    if (progressMessage) progressMessage.textContent = '✅ Update completed successfully!';
-                    addLogEntry('Update completed!', 'success');
-                    if (progressFooter) progressFooter.style.display = 'block';
-                    setTimeout(() => window.location.reload(), 2000);
-                } else {
-                    const errorMsg = data.message || data.error || 'Unknown error occurred';
-                    if (progressMessage) progressMessage.textContent = '❌ Update failed';
-                    addLogEntry(`Error: ${errorMsg}`, 'error');
-                    
-                    // Provide helpful error messages
-                    if (errorMsg.includes('connection') || errorMsg.includes('Connection')) {
-                        addLogEntry('Please check your Radarr connection settings', 'error');
-                    } else if (errorMsg.includes('API')) {
-                        addLogEntry('Please verify your Radarr API key', 'error');
-                    }
-                    
-                    if (progressFooter) progressFooter.style.display = 'block';
-                }
-            })
-            .catch(error => {
-                if (progressMessage) progressMessage.textContent = '❌ Network error';
-                addLogEntry(`Network error: ${error.message}`, 'error');
-                addLogEntry('Please check if the Boxarr server is running', 'error');
-                if (progressFooter) progressFooter.style.display = 'block';
-            });
-    };
+    // updateCurrentWeek, updateHistoricalWeek and fetchHistoricalWeek live in
+    // dashboard.html's own script, the only page with their buttons.
 
     // Global variables for historical week selection
     let selectedHistoricalWeekUrl = null;
@@ -824,98 +968,6 @@ function reloadScheduler() {
         selectedHistoricalWeekText = null;
     };
 
-    window.fetchHistoricalWeek = function() {
-        if (!selectedHistoricalWeekUrl) return;
-        
-        const weekMatch = selectedHistoricalWeekUrl.match(/\/(\d{4})W(\d{2})/);
-        
-        if (!weekMatch) {
-            showMessage('Invalid week format', 'error');
-            return;
-        }
-        
-        const year = weekMatch[1];
-        const week = weekMatch[2];
-        
-        closeHistoricalWeekModal();
-        
-        const modal = document.getElementById('progressModal');
-        const progressTitle = document.getElementById('progressTitle');
-        const progressMessage = document.getElementById('progressMessage');
-        const progressLog = document.getElementById('progressLog');
-        const progressFooter = document.getElementById('progressFooter');
-        
-        if (modal) {
-            modal.classList.add('show');
-            isModalOpen = true;
-        }
-        if (progressTitle) {
-            progressTitle.textContent = `Fetching ${selectedHistoricalWeekText}`;
-        }
-        
-        // Clear previous log and set initial message
-        if (progressLog) progressLog.innerHTML = '';
-        if (progressMessage) progressMessage.textContent = `Fetching box office data for ${selectedHistoricalWeekText}...`;
-        if (progressFooter) progressFooter.style.display = 'none';
-        
-        // Add log entry helper
-        function addLogEntry(message, type = 'info') {
-            if (progressLog) {
-                const entry = document.createElement('div');
-                entry.style.color = type === 'error' ? '#f56565' : type === 'success' ? '#48bb78' : '#718096';
-                entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
-                progressLog.appendChild(entry);
-                progressLog.scrollTop = progressLog.scrollHeight;
-            }
-        }
-        
-        addLogEntry(`Starting historical data fetch for ${selectedHistoricalWeekText}`);
-        
-        fetch(apiUrl('/scheduler/update-week'), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                year: parseInt(year), 
-                week: parseInt(week)
-            })
-        })
-        .then(response => {
-            addLogEntry('Received response from server');
-            return response.json();
-        })
-        .then(data => {
-            if (data.success) {
-                addLogEntry(`Found ${data.movies_found || 0} movies`, 'success');
-                if (data.movies_added && data.movies_added > 0) {
-                    addLogEntry(`Added ${data.movies_added} new movies to Radarr`, 'success');
-                }
-                if (progressMessage) progressMessage.textContent = '✅ Historical week fetched successfully!';
-                addLogEntry('Update completed!', 'success');
-                if (progressFooter) progressFooter.style.display = 'block';
-                setTimeout(() => window.location.href = safeUrl(selectedHistoricalWeekUrl), 2000);
-            } else {
-                const errorMsg = data.message || data.error || 'Unknown error occurred';
-                if (progressMessage) progressMessage.textContent = '❌ Fetch failed';
-                addLogEntry(`Error: ${errorMsg}`, 'error');
-                
-                // Provide helpful error messages
-                if (errorMsg.includes('already exists')) {
-                    addLogEntry('This week has already been fetched', 'error');
-                } else if (errorMsg.includes('not found')) {
-                    addLogEntry('No box office data available for this week', 'error');
-                }
-                
-                if (progressFooter) progressFooter.style.display = 'block';
-            }
-        })
-        .catch(error => {
-            if (progressMessage) progressMessage.textContent = '❌ Network error';
-            addLogEntry(`Network error: ${error.message}`, 'error');
-            addLogEntry('Please check if the Boxarr server is running', 'error');
-            if (progressFooter) progressFooter.style.display = 'block';
-        });
-    };
-
     window.showHistoricalUpdate = function() {
         const modal = document.getElementById('historicalModal');
         if (modal) {
@@ -930,89 +982,6 @@ function reloadScheduler() {
             modal.classList.remove('show');
             isModalOpen = false;
         }
-    };
-
-    window.updateHistoricalWeek = function() {
-        const year = document.getElementById('historicalYear').value;
-        const week = document.getElementById('historicalWeek').value;
-        
-        closeHistoricalUpdate();
-        
-        const modal = document.getElementById('progressModal');
-        const progressTitle = document.getElementById('progressTitle');
-        const progressMessage = document.getElementById('progressMessage');
-        const progressLog = document.getElementById('progressLog');
-        const progressFooter = document.getElementById('progressFooter');
-        
-        if (modal) {
-            modal.classList.add('show');
-            isModalOpen = true;
-        }
-        if (progressTitle) {
-            progressTitle.textContent = `Updating Week ${week}, ${year}`;
-        }
-        
-        // Clear previous log and set initial message
-        if (progressLog) progressLog.innerHTML = '';
-        if (progressMessage) progressMessage.textContent = `Fetching box office data for Week ${week}, ${year}...`;
-        if (progressFooter) progressFooter.style.display = 'none';
-        
-        // Add log entry helper
-        function addLogEntry(message, type = 'info') {
-            if (progressLog) {
-                const entry = document.createElement('div');
-                entry.style.color = type === 'error' ? '#f56565' : type === 'success' ? '#48bb78' : '#718096';
-                entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
-                progressLog.appendChild(entry);
-                progressLog.scrollTop = progressLog.scrollHeight;
-            }
-        }
-        
-        addLogEntry(`Starting historical data fetch for Week ${week}, ${year}`);
-        
-        fetch(apiUrl('/scheduler/update-week'), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-                year: parseInt(year), 
-                week: parseInt(week)
-            })
-        })
-        .then(response => {
-            addLogEntry('Received response from server');
-            return response.json();
-        })
-        .then(data => {
-            if (data.success) {
-                addLogEntry(`Found ${data.movies_found || 0} movies`, 'success');
-                if (data.movies_added && data.movies_added > 0) {
-                    addLogEntry(`Added ${data.movies_added} new movies to Radarr`, 'success');
-                }
-                if (progressMessage) progressMessage.textContent = '✅ Historical week updated successfully!';
-                addLogEntry('Update completed!', 'success');
-                if (progressFooter) progressFooter.style.display = 'block';
-                setTimeout(() => window.location.href = makeUrl(`/${year}W${String(week).padStart(2, '0')}`), 2000);
-            } else {
-                const errorMsg = data.message || data.error || 'Unknown error occurred';
-                if (progressMessage) progressMessage.textContent = '❌ Update failed';
-                addLogEntry(`Error: ${errorMsg}`, 'error');
-                
-                // Provide helpful error messages
-                if (errorMsg.includes('already exists')) {
-                    addLogEntry('This week has already been fetched', 'error');
-                } else if (errorMsg.includes('not found')) {
-                    addLogEntry('No box office data available for this week', 'error');
-                }
-                
-                if (progressFooter) progressFooter.style.display = 'block';
-            }
-        })
-        .catch(error => {
-            if (progressMessage) progressMessage.textContent = '❌ Network error';
-            addLogEntry(`Network error: ${error.message}`, 'error');
-            addLogEntry('Please check if the Boxarr server is running', 'error');
-            if (progressFooter) progressFooter.style.display = 'block';
-        });
     };
 
     window.closeProgressModal = function() {
@@ -1620,7 +1589,17 @@ function reloadScheduler() {
             announceInvalidField();
             return;
         }
-        
+
+        // 1 to 5 box office regions. The server rejects anything else with a
+        // 422 that would discard every other edit, so stop here and say why.
+        const regionProblem = regionSelectionProblem();
+        if (regionProblem) {
+            renderRegionStatus();
+            showMessage(regionProblem, 'error');
+            document.getElementById('boxOfficeRegionGroup')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            return;
+        }
+
         const formData = new FormData(form);
         const config = {};
         
@@ -1645,8 +1624,12 @@ function reloadScheduler() {
 
         // Box office fetch limit
         config.boxarr_features_box_office_limit = parseInt(document.getElementById('boxOfficeLimit')?.value || '10');
-        // Box office region
-        config.boxarr_features_box_office_region = document.getElementById('boxOfficeRegion')?.value || '';
+        // Box office regions, as a list in selection order. Omitted while the
+        // environment variable sets them: the server then carries the current
+        // value over.
+        if (regionPicker() && !regionPickerLocked()) {
+            config.boxarr_features_box_office_region = regionSelection.slice();
+        }
         // Handle new auto-add advanced options
         config.boxarr_features_auto_add_limit = parseInt(document.getElementById('autoAddLimit')?.value || '10');
         config.boxarr_features_auto_add_genre_filter_enabled = document.getElementById('genreFilterEnabled')?.checked || false;
@@ -1946,11 +1929,11 @@ function reloadScheduler() {
                     const button = e.target.closest('[data-suggested-language]');
                     if (button) addSuggestedLanguage(button.dataset.suggestedLanguage);
                 });
-                const regionSelect = document.getElementById('boxOfficeRegion');
-                if (regionSelect) {
-                    regionSelect.addEventListener('change', renderLanguageSuggestions);
-                }
             }
+
+            // Region picker: its delegated change listener also redraws the
+            // language suggestion chips for the new selection.
+            initRegionPicker();
 
             // Top up the bundled vocabulary with this Radarr's own languages.
             if (document.getElementById('languageOptions')) {

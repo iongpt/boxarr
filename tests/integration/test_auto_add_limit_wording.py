@@ -53,6 +53,15 @@ def test_setup_hint_describes_films_added_per_run(tmp_path, monkeypatch):
     assert "per run" in hint
     assert "do not count" in hint
     assert "top X" not in hint
+    # One cap for the whole run, however many regions are configured.
+    assert "At most X movies are added per run, across all your regions" in hint
+
+
+def test_readme_describes_films_added_per_run_across_regions():
+    readme = (Path(__file__).resolve().parents[2] / "README.md").read_text()
+
+    assert "at most X movies are added per run, across all your regions" in readme
+    assert "stays one cap per run" not in readme
 
 
 def test_dashboard_describes_films_added_per_run(tmp_path, monkeypatch):
