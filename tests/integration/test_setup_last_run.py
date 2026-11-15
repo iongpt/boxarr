@@ -7,6 +7,7 @@ say the run failed - with the first error in its tooltip - instead of
 fake DOM of tests/js/browser_sandbox.js; skipped when node is not installed.
 """
 
+import re
 from typing import Any, Dict, List
 
 from tests.js_sandbox import needs_node, run_driver, static_script
@@ -58,6 +59,15 @@ def _rows(*last_runs: Dict[str, Any]) -> List[Dict[str, Any]]:
     )
 
 
+def _visible(text: str) -> str:
+    """The row's text as a browser shows it: any markup in it dropped.
+
+    The fake DOM keeps markup set through innerHTML as text, so the row
+    reads the same whether it is built from markup or from elements.
+    """
+    return re.sub(r"<[^>]*>", "", text)
+
+
 def test_a_failed_run_reads_failed_with_its_error_as_tooltip():
     (row,) = _rows(FAILED)
 
@@ -70,7 +80,7 @@ def test_a_failed_run_reads_failed_with_its_error_as_tooltip():
 def test_a_successful_run_still_reads_matched_counts():
     (row,) = _rows(SUCCESS)
 
-    assert row["text"].endswith("(7/10 matched)"), row
+    assert _visible(row["text"]).endswith(" (7/10 matched)"), row
     assert row["title"] == ""
 
 
