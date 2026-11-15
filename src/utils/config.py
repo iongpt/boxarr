@@ -1074,6 +1074,17 @@ def load_settings() -> Settings:
             settings.load_from_yaml(config_path, env_protected_fields=env_protected)
             break
 
+    # Only the first file found is read. The setup page's first save copies
+    # config.yaml into local.yaml; after that, config.yaml is not read.
+    if config_paths[0].exists() and config_paths[1].exists():
+        logger.warning(
+            "%s is not read: %s, which the setup page saves to, takes its "
+            "place. Make changes in %s.",
+            config_paths[1],
+            config_paths[0],
+            config_paths[0],
+        )
+
     return settings
 
 

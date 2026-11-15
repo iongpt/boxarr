@@ -413,6 +413,22 @@ def _read_existing_config(config_path: Path) -> Optional[Dict[Any, Any]]:
     return data
 
 
+def _merge_base_path(config_path: Path) -> Path:
+    """Return the file a save merges the posted settings into.
+
+    That is ``local.yaml`` itself once it exists. Before the first save,
+    Boxarr reads its settings from ``config.yaml`` in the same directory when
+    there is one (see ``load_settings``), and only the first of the two files
+    is ever read. The save then starts from ``config.yaml``, so the new
+    ``local.yaml`` keeps every setting written there instead of replacing
+    them all with defaults. ``config.yaml`` itself is never written.
+    """
+    if config_path.exists():
+        return config_path
+    hand_written = config_path.with_name("config.yaml")
+    return hand_written if hand_written.is_file() else config_path
+
+
 def _merge_config(existing: Dict[Any, Any], managed: Dict[Any, Any]) -> Dict[Any, Any]:
     """Return ``existing`` with every key of ``managed`` written over it.
 
@@ -518,6 +534,8 @@ async def save_configuration(config: SaveConfigRequest):
     The posted values are merged into the existing ``local.yaml`` rather than
     replacing it, so settings the setup page does not show (``url_base``, the
     scheduler timezone, ``log_level``, anything hand-written) survive a save.
+    Before ``local.yaml`` exists, they are merged into a copy of
+    ``config.yaml`` (see ``_merge_base_path``).
     """
     try:
         data_directory = Path(
@@ -565,9 +583,14 @@ async def save_configuration(config: SaveConfigRequest):
 
         # Load what is on disk now, after validation so a rejected save never
         # touches it: the posted values are merged into this.
-        existing_config = _read_existing_config(config_path)
+        merge_base = _merge_base_path(config_path)
+        existing_config = _read_existing_config(merge_base)
         current_file_settings = Settings(boxarr_data_directory=data_directory)
-        if existing_config is None:
+        if existing_config is None and merge_base != config_path:
+            # An unreadable config.yaml was backed up when it was loaded, and
+            # its settings never applied. It is left as it is.
+            existing_config = {}
+        elif existing_config is None:
             # Unparseable: keep a copy before overwriting it, as before the
             # merge. If even the copy fails, leave the file alone.
             if Settings._backup_broken_config(config_path) is None:
@@ -580,7 +603,7 @@ async def save_configuration(config: SaveConfigRequest):
                 }
             existing_config = {}
         elif existing_config:
-            current_file_settings.load_from_yaml(config_path)
+            current_file_settings.load_from_yaml(merge_base)
 
         # An omitted region selection carries the current one over instead
         # of resetting it to domestic. A posted one is already the canonical
