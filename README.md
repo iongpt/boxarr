@@ -154,7 +154,7 @@ With several regions:
 - **At most 5 regions** are used; a longer list is cut off with a warning, and the setup page will not save more.
 - **`box_office_limit` applies per region**: with a limit of 10 and 3 regions, up to 30 chart rows are read each week.
 - Each week is **one combined list without duplicates**: a film that charted in several regions appears once. The weekly page also shows each region's own chart on its own tab.
-- **`auto_add_limit` stays one cap per run**, across all regions, in chart order.
+- **`auto_add_limit` is one cap for the whole run**: at most X movies are added per run, across all your regions, in chart order. Films a filter or the ignore list skips, and films already in Radarr, do not count.
 - **The minimum-gross filter** compares a film's best weekend gross across its regions.
 - If a region cannot be fetched, the other regions are still saved: the failed region keeps the chart from the week's previous update when there is one, and the weekly page shows a notice for it. A week saved before multi-region support is left unchanged instead.
 

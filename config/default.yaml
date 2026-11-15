@@ -41,7 +41,8 @@ boxarr:
     # Each region's chart is fetched on its own and merged into one list per
     # week, a film charting in several regions appearing once. The fetch
     # limit (box_office_limit, 1-30, default 10) is the number of movies read
-    # from EACH region's chart; auto_add_limit stays one cap per run.
+    # from EACH region's chart; auto_add_limit is at most X movies added per
+    # run, across all your regions.
     box_office_region: ""
   
   # UI configuration
