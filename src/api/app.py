@@ -6,7 +6,6 @@ from typing import Optional, Union
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
@@ -24,6 +23,7 @@ from .routes import (
     scheduler_router,
     web_router,
 )
+from .security import CrossSiteRequestGuard
 
 logger = get_logger(__name__)
 
@@ -61,13 +61,13 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
     # Only add specific hosts if needed: trusted_hosts=["proxy.example.com"]
     app.add_middleware(ProxyHeadersMiddleware)
 
-    # Add CORS middleware for local network access
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],  # Allow all origins for local use
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    # No CORS middleware (#136): the UI is served from this origin and never
+    # needs it, and a wildcard let any website read /setup and pass the
+    # preflight for every state-changing call. Only the embeddable widgets
+    # (routes/web.py) stay readable from other origins. The guard refuses the
+    # state-changing requests a browser sends from another site, which removing
+    # CORS alone does not stop: a form POST needs no preflight.
+    app.add_middleware(CrossSiteRequestGuard)
 
     # Mount static files
     app.mount("/static", StaticFiles(directory="src/web/static"), name="static")
