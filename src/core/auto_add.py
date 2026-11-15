@@ -1,17 +1,56 @@
 """Shared auto-add logic for adding unmatched movies to Radarr."""
 
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
-from ..utils.config import format_min_gross, settings
+import httpx
+
+from ..utils.config import (
+    configured_box_office_regions,
+    format_min_gross,
+    settings,
+)
 from ..utils.logger import get_logger
-from .boxoffice import BoxOfficeMovie
+from .boxoffice import BoxOfficeMovie, region_label
+from .exceptions import RadarrError, RadarrNotFoundError
 from .ignore_list import IgnoreList
 from .languages import is_known_language, normalize_language
 from .matcher import MatchResult
 from .radarr import RadarrService
+from .region_charts import best_weekend_gross, region_order
 from .root_folder_manager import RootFolderManager
 
 logger = get_logger(__name__)
+
+# Radarr failures in a row after which an auto-add pass stops. The limit
+# counts only the films added (#139), so while Radarr cannot answer - its
+# TMDB lookup down, every request waiting out radarr_timeout - nothing else
+# would end the pass, and it runs under the weekly write lock.
+MAX_RADARR_FAILURES_IN_A_ROW = 3
+
+
+def _radarr_unavailable(error: BaseException) -> bool:
+    """
+    Tell whether an auto-add failure means Radarr is not answering at all.
+
+    A refused connection, a timeout, a rejected API key or a 5xx is Radarr
+    (or the TMDB lookup behind it) being unavailable: the next film would
+    fail the same way. A 4xx, such as 400 "This movie has already been
+    added", or a film Radarr cannot find, is an answer about that one film.
+    Anything that is not a Radarr or HTTP error is about the film as well.
+
+    Args:
+        error: The exception one film's lookup or add raised
+
+    Returns:
+        True when the failure says nothing about the film itself
+    """
+    if isinstance(error, RadarrNotFoundError):
+        return False
+    cause = error.__cause__ if isinstance(error, RadarrError) else error
+    if isinstance(cause, httpx.HTTPStatusError):
+        status = cause.response.status_code
+        return status >= 500 or status in (408, 429)
+    return isinstance(error, (RadarrError, httpx.HTTPError))
 
 
 def _normalize_imdb_id(imdb_id: Optional[str]) -> Optional[str]:
@@ -111,6 +150,24 @@ def _gross_allowed(weekend_gross: Optional[float], config: Any) -> bool:
     return bool(weekend_gross >= threshold)
 
 
+def _best_weekend_gross(movie: BoxOfficeMovie) -> Optional[float]:
+    """
+    Return the weekend gross the minimum-gross gate compares.
+
+    A film merged across regions is judged by its best weekend: the
+    highest weekend gross in any region it charted in, so a film that took
+    $11.0M domestic is not dropped for its $60.8K in Romania. Without
+    region rows (or with no gross in any of them) the film's own figure is
+    used, None included.
+    """
+    return best_weekend_gross(movie.regions or [], movie.weekend_gross)
+
+
+def _chart_position(movie: BoxOfficeMovie) -> str:
+    """Describe a film's lead chart position for logs, e.g. 'rank #2 DE'."""
+    return f"rank #{movie.rank} {region_label(movie.region)}"
+
+
 def _warn_on_unmatchable_language_whitelist(
     config: Any, radarr_service: Any = None
 ) -> None:
@@ -159,45 +216,61 @@ def _warn_on_unmatchable_language_whitelist(
         )
 
 
-def auto_add_missing_movies(
+def auto_add_missing_movies(  # noqa: C901
     match_results: List[MatchResult],
     radarr_service: RadarrService,
     top_year: int,
+    *,
+    regions: Optional[Sequence[str]] = None,
 ) -> List[str]:
     """
     Add unmatched movies to Radarr with filters and validation.
+
+    The unmatched films of every region are considered in one pass, in
+    chart order: lead rank, then the lead region's configured position
+    (#1 domestic, #1 Romania, #2 domestic, ...). For one region that is
+    simply the rank. The auto-add limit is one cap for the whole run on the
+    films actually added (#139): a film a filter drops, an ignored film, one
+    not found on TMDB and one Radarr rejects do not use a slot, and the pass
+    stops once the limit is reached. It also stops after
+    ``MAX_RADARR_FAILURES_IN_A_ROW`` failures in a row that mean Radarr is
+    not answering (a timeout, a refused connection, a 5xx).
 
     Args:
         match_results: Match results from movie matching
         radarr_service: Radarr service instance
         top_year: Year used for re-release filtering
+        regions: Configured area codes, in order; defaults to the setting
 
     Returns:
         List of added movie titles
     """
-    added_movies = []
+    added_movies: List[str] = []
     unmatched = [r for r in match_results if not r.is_matched]
 
     if not unmatched:
         return []
 
-    # Apply limit if configured
-    limit = settings.boxarr_features_auto_add_limit
-    if limit < len(unmatched):
-        logger.info(
-            f"Limiting auto-add to top {limit} movies (out of {len(unmatched)} unmatched)"
-        )
-        unmatched = sorted(unmatched, key=lambda r: r.box_office_movie.rank)[:limit]
+    order = region_order(
+        regions if regions is not None else configured_box_office_regions(settings)
+    )
 
-    if not unmatched:
-        logger.info("No movies to auto-add - all top movies are already in Radarr")
-        return []
+    def _chart_order(result: MatchResult) -> Tuple[int, int]:
+        movie = result.box_office_movie
+        return (movie.rank, order.get(movie.region or "", len(order)))
+
+    unmatched = sorted(unmatched, key=_chart_order)
+
+    # The limit counts the films actually added; see the loop below.
+    limit = settings.boxarr_features_auto_add_limit
 
     # Load ignore list for filtering
     ignore_list = IgnoreList()
     ignored_ids = ignore_list.get_ignored_tmdb_ids()
 
-    logger.info(f"Auto-adding up to {len(unmatched)} unmatched movies to Radarr")
+    logger.info(
+        f"Auto-adding up to {limit} of {len(unmatched)} unmatched movies to Radarr"
+    )
 
     # Get default quality profile
     profiles = radarr_service.get_quality_profiles()
@@ -212,16 +285,35 @@ def auto_add_missing_movies(
 
     _warn_on_unmatchable_language_whitelist(settings, radarr_service)
 
-    for result in unmatched:
+    # TMDB films already tried in this run. Two regions' rows that could not
+    # be merged (a localized title without an IMDb id) can look up the same
+    # film; only the first is considered.
+    seen_tmdb_ids: Set[Any] = set()
+
+    # Films in a row that Radarr failed on; see _radarr_unavailable.
+    failures_in_a_row = 0
+
+    for index, result in enumerate(unmatched):
+        # A lookup that answers clears the count, but if this film's add
+        # then fails too, the film still extends the run of failures.
+        streak = failures_in_a_row
+        if len(added_movies) >= limit:
+            logger.info(
+                f"Reached the auto-add limit of {limit} movies; "
+                f"{len(unmatched) - index} more unmatched movies not considered"
+            )
+            break
         try:
             # Minimum weekend gross filter. _gross_allowed owns the whole
             # policy - disabled, a 0 threshold and an unknown gross all pass -
             # so the loop only logs. It runs before the TMDB lookup below, so a
-            # movie under the threshold costs no Radarr request at all.
-            weekend_gross = result.box_office_movie.weekend_gross
+            # movie under the threshold costs no Radarr request at all. A film
+            # charting in several regions is judged by its best weekend.
+            position = _chart_position(result.box_office_movie)
+            weekend_gross = _best_weekend_gross(result.box_office_movie)
             if not _gross_allowed(weekend_gross, settings):
                 logger.info(
-                    f"Skipping '{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
+                    f"Skipping '{result.box_office_movie.title}' ({position}) - "
                     f"weekend gross ${weekend_gross:,.0f} below minimum "
                     f"${format_min_gross(settings.boxarr_features_auto_add_min_gross)}"
                 )
@@ -235,26 +327,37 @@ def auto_add_missing_movies(
                 # still drop the movie, so "adding anyway" would be denied by
                 # the very next line of the log often enough to mislead.
                 logger.info(
-                    f"'{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
+                    f"'{result.box_office_movie.title}' ({position}) - "
                     f"unknown weekend gross - minimum-gross filter not applied"
                 )
 
             # Search for movie in Radarr database (TMDB)
             search_results = radarr_service.search_movie(result.box_office_movie.title)
+            failures_in_a_row = 0
 
             if not search_results:
                 logger.warning(
-                    f"Movie '{result.box_office_movie.title}' not found in TMDB"
+                    f"Movie '{result.box_office_movie.title}' ({position}) not found "
+                    "in TMDB"
                 )
                 continue
 
             movie_info = _select_search_result(search_results, result.box_office_movie)
 
-            # Skip movies on the ignore list
             movie_tmdb_id = movie_info.get("tmdbId")
+            if movie_tmdb_id:
+                if movie_tmdb_id in seen_tmdb_ids:
+                    logger.info(
+                        f"Skipping '{result.box_office_movie.title}' ({position}) - "
+                        f"TMDB film {movie_tmdb_id} was already considered in this run"
+                    )
+                    continue
+                seen_tmdb_ids.add(movie_tmdb_id)
+
+            # Skip movies on the ignore list
             if movie_tmdb_id and movie_tmdb_id in ignored_ids:
                 logger.info(
-                    f"Skipping '{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
+                    f"Skipping '{result.box_office_movie.title}' ({position}) - "
                     f"movie is on the ignore list"
                 )
                 continue
@@ -271,7 +374,7 @@ def auto_add_missing_movies(
                             movie_year = int(rd[:4])
                     if movie_year and int(movie_year) < (top_year - 1):
                         logger.info(
-                            f"Skipping '{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
+                            f"Skipping '{result.box_office_movie.title}' ({position}) - "
                             f"release year {movie_year} older than cutoff {(top_year - 1)}"
                         )
                         continue
@@ -288,7 +391,7 @@ def auto_add_missing_movies(
                         genre in whitelist for genre in movie_genres
                     ):
                         logger.info(
-                            f"Skipping '{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
+                            f"Skipping '{result.box_office_movie.title}' ({position}) - "
                             f"genres {movie_genres} not in whitelist {whitelist}"
                         )
                         continue
@@ -296,7 +399,7 @@ def auto_add_missing_movies(
                     blacklist = settings.boxarr_features_auto_add_genre_blacklist
                     if blacklist and any(genre in blacklist for genre in movie_genres):
                         logger.info(
-                            f"Skipping '{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
+                            f"Skipping '{result.box_office_movie.title}' ({position}) - "
                             f"contains blacklisted genre(s) from {blacklist}"
                         )
                         continue
@@ -312,7 +415,7 @@ def auto_add_missing_movies(
                     and movie_rating not in rating_whitelist
                 ):
                     logger.info(
-                        f"Skipping '{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
+                        f"Skipping '{result.box_office_movie.title}' ({position}) - "
                         f"rating '{movie_rating}' not in allowed ratings {rating_whitelist}"
                     )
                     continue
@@ -329,12 +432,12 @@ def auto_add_missing_movies(
                     if lang_mode == "whitelist":
                         whitelist = settings.boxarr_features_auto_add_language_whitelist
                         logger.info(
-                            f"Skipping '{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
+                            f"Skipping '{result.box_office_movie.title}' ({position}) - "
                             f"language '{original_language}' not in whitelist {whitelist}"
                         )
                     else:
                         logger.info(
-                            f"Skipping '{result.box_office_movie.title}' (rank #{result.box_office_movie.rank}) - "
+                            f"Skipping '{result.box_office_movie.title}' ({position}) - "
                             f"language '{original_language}' blacklisted"
                         )
                     continue
@@ -356,12 +459,22 @@ def auto_add_missing_movies(
                 settings.radarr_search_for_movie,  # search for movie
             )
             logger.info(
-                f"Auto-added movie to Radarr: {added_movie.title} "
+                f"Auto-added movie to Radarr: {added_movie.title} ({position}) "
                 f"with profile '{default_profile.name}' in folder '{root_folder}'"
             )
             added_movies.append(added_movie.title)
 
         except Exception as e:
             logger.warning(f"Failed to auto-add {result.box_office_movie.title}: {e}")
+            if not _radarr_unavailable(e):
+                continue
+            failures_in_a_row = streak + 1
+            if failures_in_a_row >= MAX_RADARR_FAILURES_IN_A_ROW:
+                logger.error(
+                    f"Stopped auto-adding: Radarr failed {failures_in_a_row} times "
+                    f"in a row; {len(unmatched) - index - 1} more unmatched movies "
+                    "not considered"
+                )
+                break
 
     return added_movies

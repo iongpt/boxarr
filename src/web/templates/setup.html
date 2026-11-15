@@ -234,7 +234,7 @@
                             <option value="{{ i }}" {% if auto_add_limit == i %}selected{% endif %}>{{ i }} movie{% if i > 1 %}s{% endif %}</option>
                             {% endfor %}
                         </select>
-                        <small class="text-muted">Only add the top X movies from the box office rankings</small>
+                        <small class="text-muted">At most X movies are added per run, in chart order. Films a filter or the ignore list skips, and films already in Radarr, do not count.</small>
                     </div>
                     
                     <!-- Genre Filter -->

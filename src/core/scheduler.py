@@ -14,16 +14,15 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from ..utils.atomic import atomic_write_json
-from ..utils.config import settings
+from ..utils.config import configured_box_office_regions, settings
 from ..utils.logger import get_logger
-from .auto_add import auto_add_missing_movies
 from .boxoffice import BoxOfficeService
 from .exceptions import SchedulerError
-from .json_generator import WeeklyDataGenerator
 from .library_sync import WEEKLY_WRITE_LOCK, refresh_weekly_data_from_radarr
 from .matcher import MatchResult, MovieMatcher
 from .models import MovieStatus
-from .radarr import RadarrService, get_all_movies_with_optional_cache_bypass
+from .radarr import RadarrService
+from .week_builder import WeekBuildError, WeekBuildResult, build_week
 
 logger = get_logger(__name__)
 
@@ -136,12 +135,24 @@ class BoxarrScheduler:
         """
         Main job to update box office data.
 
+        Every configured region is fetched and merged into the week's one
+        list (see :func:`~src.core.week_builder.build_week`). Every run that
+        reaches the fetch is saved to history, failed ones included.
+
         Args:
             year: Optional year to fetch (defaults to current)
             week: Optional week number to fetch (defaults to current)
 
         Returns:
-            Update results dictionary
+            Update results dictionary. ``success`` is False when a stored legacy
+            (pre-multi-region) week was kept because a region failed;
+            ``partial`` is True when a region failed but the week was
+            written.
+
+        Raises:
+            SchedulerError: If another update is running, no region could be
+                fetched (the week's file is then left as it was), or anything
+                else failed.
         """
         if year and week:
             logger.info(f"Starting box office update for {year} Week {week:02d}")
@@ -158,6 +169,10 @@ class BoxarrScheduler:
             )
             raise SchedulerError("Another weekly update is already in progress")
 
+        regions = configured_box_office_regions(settings)
+        actual_year: Optional[int] = None
+        actual_week: Optional[int] = None
+        build: Optional[WeekBuildResult] = None
         try:
             # Initialize services if needed
             if not self.boxoffice_service:
@@ -175,84 +190,55 @@ class BoxarrScheduler:
                     self.boxoffice_service.get_weekend_dates()
                 )
 
-            # Fetch box office movies
-            limit = settings.boxarr_features_box_office_limit
-            box_office_movies = await self._run_in_executor(
-                self.boxoffice_service.fetch_weekend_box_office,
-                actual_year,
-                actual_week,
-                limit,
-            )
-
-            # Fetch Radarr movies
-            radarr_movies = await self._run_in_executor(
-                get_all_movies_with_optional_cache_bypass,
-                self.radarr_service,
-                True,
-            )
-
-            # Match movies
-            match_results = await self._run_in_executor(
-                self.matcher.match_batch, box_office_movies, radarr_movies
-            )
-
-            # Auto-add missing movies to Radarr with default profile (if enabled)
-            added_movies = []
-            if settings.boxarr_features_auto_add:
-                logger.info("Auto-add is enabled, adding missing movies to Radarr")
-                added_movies = await self._auto_add_missing_movies(
-                    match_results, actual_year
-                )
-            else:
-                unmatched_count = len([r for r in match_results if not r.is_matched])
-                if unmatched_count > 0:
-                    logger.info(
-                        f"Auto-add is disabled. {unmatched_count} movies not in Radarr, manual addition required"
-                    )
-
-            # If movies were added, re-fetch and re-match
-            if added_movies:
-                logger.info(
-                    f"Added {len(added_movies)} movies to Radarr, re-matching..."
-                )
-                radarr_movies = await self._run_in_executor(
-                    get_all_movies_with_optional_cache_bypass,
-                    self.radarr_service,
-                    True,
-                )
-                match_results = await self._run_in_executor(
-                    self.matcher.match_batch, box_office_movies, radarr_movies
-                )
-
-            # Generate JSON data file
-            page_generator = WeeklyDataGenerator(self.radarr_service)
-            data_path = await self._run_in_executor(
-                page_generator.generate_weekly_data,
-                match_results,
-                actual_year,
-                actual_week,
-            )
-
-            # Refresh all stored weekly pages against current Radarr status/details.
-            refresh_results = await self._run_in_executor(
+            # Fetch every region, merge, match, auto-add and write the week.
+            # _run_in_executor forwards positional arguments only.
+            build = await self._run_in_executor(
                 partial(
-                    refresh_weekly_data_from_radarr,
+                    build_week,
+                    actual_year,
+                    actual_week,
+                    regions=regions,
+                    limit=settings.boxarr_features_box_office_limit,
+                    boxoffice_service=self.boxoffice_service,
                     radarr_service=self.radarr_service,
-                    ignore_cache=True,
+                    matcher=self.matcher,
+                    auto_add=settings.boxarr_features_auto_add,
                 )
             )
-            logger.info(
-                "Refreshed weekly data from Radarr: %s weeks updated, %s movies refreshed, %s movies linked",
-                refresh_results.get("weeks_updated", 0),
-                refresh_results.get("movies_refreshed", 0),
-                refresh_results.get("movies_linked", 0),
-            )
+
+            # Refresh all stored weekly pages against current Radarr
+            # status/details - also when this week's legacy file was kept.
+            refresh_results = await self._refresh_stored_weeks()
+
+            if not build.written:
+                # A stored legacy (pre-multi-region) week was kept: a region failed.
+                results = self._failed_results(
+                    build.message,
+                    regions,
+                    build.region_status,
+                    build.errors,
+                    partial=True,
+                )
+                results["status_refresh"] = refresh_results
+                await self._save_to_history(results, actual_year, actual_week)
+                return results
 
             # Process results for history
-            results = self._process_match_results(match_results)
-            results["data_path"] = str(data_path)
-            results["added_movies"] = added_movies
+            results = self._process_match_results(build.match_results)
+            results.update(self._stored_counts(build))
+            results["data_path"] = str(build.data_path)
+            results["added_movies"] = build.added_movies
             results["status_refresh"] = refresh_results
+            results.update(
+                {
+                    "success": True,
+                    "partial": build.partial,
+                    "message": build.message,
+                    "regions": regions,
+                    "region_status": build.region_status,
+                    "errors": build.errors,
+                }
+            )
 
             # Save to history
             await self._save_to_history(results, actual_year, actual_week)
@@ -267,9 +253,124 @@ class BoxarrScheduler:
 
         except Exception as e:
             logger.error(f"Box office update failed: {e}")
+            if actual_year and actual_week:
+                if build is not None and build.written:
+                    # The week was written - and films may have been added to
+                    # Radarr - before the run failed: record what it holds.
+                    failed = self._written_then_failed_results(str(e), regions, build)
+                elif build is not None:
+                    # A stored legacy week was kept, then the refresh failed.
+                    failed = self._failed_results(
+                        str(e),
+                        regions,
+                        build.region_status,
+                        build.errors + [str(e)],
+                        partial=True,
+                    )
+                elif isinstance(e, WeekBuildError):
+                    # Nothing was written; the error carries each region's
+                    # status.
+                    failed = self._failed_results(
+                        str(e), regions, e.region_status, e.errors
+                    )
+                else:
+                    # Only a WeekBuildError has region statuses. Others may
+                    # have an unrelated ``errors`` (pydantic's is a method).
+                    failed = self._failed_results(str(e), regions, [], [str(e)])
+                await self._save_to_history(failed, actual_year, actual_week)
             raise SchedulerError(f"Update failed: {e}") from e
         finally:
             WEEKLY_WRITE_LOCK.release()
+
+    async def _refresh_stored_weeks(self) -> Dict[str, Any]:
+        """Refresh every stored week against Radarr's current status."""
+        refresh_results: Dict[str, Any] = await self._run_in_executor(
+            partial(
+                refresh_weekly_data_from_radarr,
+                radarr_service=self.radarr_service,
+                ignore_cache=True,
+            )
+        )
+        logger.info(
+            "Refreshed weekly data from Radarr: %s weeks updated, %s movies refreshed, %s movies linked",
+            refresh_results.get("weeks_updated", 0),
+            refresh_results.get("movies_refreshed", 0),
+            refresh_results.get("movies_linked", 0),
+        )
+        return refresh_results
+
+    def _written_then_failed_results(
+        self, error: str, regions: List[str], build: WeekBuildResult
+    ) -> Dict[str, Any]:
+        """
+        Build the history entry of a run that wrote its week, then failed.
+
+        The counts, movies and added films are those of the written week;
+        ``success`` is False and ``error`` says what failed afterwards.
+        """
+        results = self._process_match_results(build.match_results)
+        results.update(self._stored_counts(build))
+        results.update(
+            {
+                "data_path": str(build.data_path),
+                "added_movies": list(build.added_movies),
+                "success": False,
+                "partial": build.partial,
+                "error": error,
+                "message": error,
+                "errors": build.errors + [error],
+                "regions": list(regions),
+                "region_status": build.region_status,
+            }
+        )
+        return results
+
+    @staticmethod
+    def _stored_counts(build: WeekBuildResult) -> Dict[str, int]:
+        """
+        Count the films of the week as written.
+
+        The stored week merges films whose TMDB lookups found the same film,
+        so it can hold fewer than the match results; the run reports the
+        week's counts. The per-film lists stay those of the match results.
+        """
+        return {
+            "total_count": build.total_movies,
+            "matched_count": build.matched_movies,
+            "unmatched_count": build.total_movies - build.matched_movies,
+        }
+
+    @staticmethod
+    def _failed_results(
+        error: str,
+        regions: List[str],
+        region_status: List[Dict[str, Any]],
+        errors: List[str],
+        partial: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Build the history entry of a run that did not write its week.
+
+        Carries the same count keys as a successful run, so every reader of
+        the history (status, history list, CLI) can show it.
+        """
+        return {
+            "timestamp": datetime.now().isoformat(),
+            "success": False,
+            "partial": partial,
+            "error": error,
+            "message": error,
+            "errors": list(errors),
+            "regions": list(regions),
+            "region_status": list(region_status),
+            "total_count": 0,
+            "matched_count": 0,
+            "unmatched_count": 0,
+            "status_breakdown": {},
+            "matched_movies": [],
+            "unmatched_movies": [],
+            "added_movies": [],
+        }
 
     async def _run_in_executor(self, func: Callable, *args) -> Any:
         """Run blocking function in executor."""
@@ -313,6 +414,7 @@ class BoxarrScheduler:
                 {
                     "rank": r.box_office_movie.rank,
                     "title": r.box_office_movie.title,
+                    "region": r.box_office_movie.region,
                     "radarr_title": r.radarr_movie.title,
                     "radarr_id": r.radarr_movie.id,
                     "status": self._get_movie_status(r.radarr_movie),
@@ -323,7 +425,11 @@ class BoxarrScheduler:
                 for r in matched
             ],
             "unmatched_movies": [
-                {"rank": r.box_office_movie.rank, "title": r.box_office_movie.title}
+                {
+                    "rank": r.box_office_movie.rank,
+                    "title": r.box_office_movie.title,
+                    "region": r.box_office_movie.region,
+                }
                 for r in unmatched
             ],
         }
@@ -401,26 +507,6 @@ class BoxarrScheduler:
 
         except Exception as e:
             logger.error(f"Failed to cleanup history: {e}")
-
-    async def _auto_add_missing_movies(
-        self, match_results: List[MatchResult], top_year: int
-    ) -> List[str]:
-        """
-        Automatically add unmatched movies to Radarr with default profile.
-
-        Args:
-            match_results: Match results
-            top_year: Year used for re-release filtering
-
-        Returns:
-            List of added movie titles
-        """
-        if not self.radarr_service:
-            return []
-        result: List[str] = await self._run_in_executor(
-            auto_add_missing_movies, match_results, self.radarr_service, top_year
-        )
-        return result
 
     def _on_job_executed(self, event) -> None:
         """Handle job execution event."""

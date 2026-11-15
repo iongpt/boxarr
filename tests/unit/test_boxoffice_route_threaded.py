@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from src.api.app import create_app
 from src.core.boxoffice import BoxOfficeError, BoxOfficeMovie
+from src.core.exceptions import BoxOfficeUnknownMarket
 
 
 @pytest.fixture
@@ -86,3 +87,96 @@ def test_history_propagates_scraper_error(client):
 
     assert resp.status_code == 500
     assert "Box Office Mojo unavailable" in resp.json()["detail"]
+
+
+class _RegionRecordingService(_FakeService):
+    """Records the region each call asked for."""
+
+    regions = []
+
+    def get_current_week_movies(self, limit: int = 10, region=None):
+        _RegionRecordingService.regions.append(region)
+        return super().get_current_week_movies(limit)
+
+    def fetch_weekend_box_office(self, year, week, limit: int = 10, region=None):
+        _RegionRecordingService.regions.append(region)
+        return super().fetch_weekend_box_office(year, week, limit)
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["/api/boxoffice/current", "/api/boxoffice/history/2024/W48"],
+)
+@pytest.mark.parametrize(
+    "query,expected",
+    [("?region=de", "DE"), ("?region=domestic", ""), ("?region=", "")],
+)
+def test_region_query_selects_the_chart(client, path, query, expected):
+    _RegionRecordingService.regions = []
+    with (
+        patch("src.api.routes.boxoffice.BoxOfficeService", _RegionRecordingService),
+        patch("src.api.routes.boxoffice.settings") as mock_settings,
+    ):
+        mock_settings.radarr_api_key = ""
+        resp = client.get(path + query)
+
+    assert resp.status_code == 200
+    assert _RegionRecordingService.regions == [expected]
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["/api/boxoffice/current", "/api/boxoffice/history/2024/W48"],
+)
+# "ß" and "ﬁ" upper-case to the ASCII "SS" and "FI".
+@pytest.mark.parametrize("bad", ["NLD", "domestic,DE", "1A", "ß", "ﬁ", "ıt"])
+def test_invalid_region_query_is_a_400(client, path, bad):
+    _RegionRecordingService.regions = []
+    with patch("src.api.routes.boxoffice.BoxOfficeService", _RegionRecordingService):
+        resp = client.get(f"{path}?region={bad}")
+
+    assert resp.status_code == 400
+    assert "area code" in resp.json()["detail"]
+    assert _RegionRecordingService.regions == []
+
+
+class _UnknownMarketService(_FakeService):
+    """Mojo answering a code it has no market for with the domestic chart."""
+
+    def get_current_week_movies(self, limit: int = 10, region=None):
+        raise BoxOfficeUnknownMarket(f"Box Office Mojo has no market '{region}'")
+
+    def fetch_weekend_box_office(self, year, week, limit: int = 10, region=None):
+        raise BoxOfficeUnknownMarket(f"Box Office Mojo has no market '{region}'")
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["/api/boxoffice/current", "/api/boxoffice/history/2024/W48"],
+)
+def test_a_region_query_mojo_does_not_know_is_a_400(client, path):
+    with (
+        patch("src.api.routes.boxoffice.BoxOfficeService", _UnknownMarketService),
+        patch("src.api.routes.boxoffice.settings") as mock_settings,
+    ):
+        mock_settings.radarr_api_key = ""
+        resp = client.get(f"{path}?region=ZZ")
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Box Office Mojo has no market 'ZZ'"
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["/api/boxoffice/current", "/api/boxoffice/history/2024/W48"],
+)
+def test_a_configured_region_mojo_does_not_know_stays_a_500(client, path):
+    with (
+        patch("src.api.routes.boxoffice.BoxOfficeService", _UnknownMarketService),
+        patch("src.api.routes.boxoffice.settings") as mock_settings,
+    ):
+        mock_settings.radarr_api_key = ""
+        resp = client.get(path)
+
+    assert resp.status_code == 500
+    assert "no market" in resp.json()["detail"]

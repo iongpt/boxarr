@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from ...core.json_generator import collapse_stored_week
 from ...core.radarr import RadarrService
 from ...utils.atomic import atomic_write_json
 from ...utils.config import settings
@@ -291,6 +292,9 @@ async def repair_missing_metadata(request: RepairRequest):
                             updated = True
 
                     if updated:
+                        # Two regions' entries for one film can now share a
+                        # tmdb_id; merge them before Radarr links both.
+                        collapse_stored_week(data)
                         # Save the updated file
                         atomic_write_json(json_file, data, indent=2, default=str)
                         updated_weeks += 1

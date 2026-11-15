@@ -71,7 +71,7 @@ boxarr:
     
     # When auto-adding, the root folder will be determined by genre mappings
     auto_add_options:
-      limit: 5  # Add top 5 movies
+      limit: 5  # Add at most 5 movies per run
       
       # Optional genre filtering (works alongside root folder mappings)
       genre_filter_enabled: false

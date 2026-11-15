@@ -2,16 +2,184 @@
 
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
 
 from ..utils.atomic import atomic_write_json
-from ..utils.config import settings
+from ..utils.config import configured_box_office_regions, settings
 from ..utils.logger import get_logger
+from .auto_add import _select_search_result
 from .matcher import MatchResult
 from .models import MovieStatus
 from .radarr import RadarrService
+from .region_charts import (
+    chart_sort_key,
+    imdb_ids_conflict,
+    lead_row,
+    region_order,
+    region_rows,
+    row_codes,
+)
 
 logger = get_logger(__name__)
+
+# Stored weekly files written since several regions can be tracked carry
+# data_version 2, the regions, each region's status, and per movie its
+# region rows. Files without "regions" are legacy (one region, unrecorded).
+DATA_VERSION = 2
+
+
+def _entry_rows(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Return a stored movie entry's region rows.
+
+    Rows that are not objects (a hand-edited file) are skipped; without any
+    row left, the entry's own chart fields stand for its one row.
+    """
+    stored = entry.get("regions")
+    rows = [
+        dict(row)
+        for row in (stored if isinstance(stored, list) else [])
+        if isinstance(row, dict)
+    ]
+    if rows:
+        return rows
+    return [
+        {
+            "code": entry.get("region") or "",
+            "title": entry.get("title"),
+            "rank": entry.get("rank"),
+            "weekend_gross": entry.get("weekend_gross"),
+            "total_gross": entry.get("total_gross"),
+            "weeks": None,
+            "theaters": None,
+        }
+    ]
+
+
+def _combine_entries(
+    first: Dict[str, Any], second: Dict[str, Any], order: Dict[str, int]
+) -> Dict[str, Any]:
+    """Merge two stored entries for the same film from different regions.
+
+    The Radarr-linked entry (else the first) keeps its Radarr/TMDB fields;
+    the region rows are joined and the chart fields follow the new lead.
+    """
+    base, other = (
+        (second, first)
+        if second.get("radarr_id") and not first.get("radarr_id")
+        else (first, second)
+    )
+    rows = sorted(
+        _entry_rows(first) + _entry_rows(second),
+        key=lambda row: order.get(row.get("code") or "", len(order)),
+    )
+    lead = lead_row(rows, order)
+    combined = dict(base)
+    combined.update(
+        {
+            "rank": lead.get("rank"),
+            "title": lead.get("title") or base.get("title"),
+            "weekend_gross": lead.get("weekend_gross"),
+            "total_gross": lead.get("total_gross"),
+            "region": lead.get("code") or "",
+            "regions": rows,
+            "bom_imdb_id": base.get("bom_imdb_id") or other.get("bom_imdb_id"),
+        }
+    )
+    return combined
+
+
+def collapse_by_tmdb_id(
+    entries: List[Dict[str, Any]], regions: Sequence[str]
+) -> List[Dict[str, Any]]:
+    """Merge entries from different regions that resolved to one TMDB film.
+
+    An unmatched film is looked up on TMDB by title, so two regions' rows
+    that could not be merged earlier (a localized title, no IMDb id) can
+    resolve to the same film - or to a film another entry already links in
+    Radarr. Left apart, both would later be linked to the same Radarr movie.
+    Only entries covering different regions, at least one of them not in
+    Radarr, are merged; a single region's chart is never changed. Entries
+    whose Mojo IMDb ids differ are different films and stay apart, even when
+    a title lookup fell back to the same TMDB result for both.
+
+    Args:
+        entries: Stored movie entries in chart order
+        regions: Area codes in configured order
+
+    Returns:
+        The entries, merged and re-sorted when anything was merged
+    """
+    order = region_order(regions)
+    kept: List[Dict[str, Any]] = []
+    by_tmdb_id: Dict[Any, List[int]] = {}
+    collapsed = False
+
+    for entry in entries:
+        tmdb_id = entry.get("tmdb_id")
+        if tmdb_id:
+            codes = row_codes(_entry_rows(entry))
+            target = next(
+                (
+                    index
+                    for index in by_tmdb_id.get(tmdb_id, [])
+                    if not (kept[index].get("radarr_id") and entry.get("radarr_id"))
+                    and not (codes & row_codes(_entry_rows(kept[index])))
+                    and not imdb_ids_conflict(
+                        entry.get("bom_imdb_id"), kept[index].get("bom_imdb_id")
+                    )
+                ),
+                None,
+            )
+            if target is not None:
+                logger.info(
+                    f"'{entry.get('title')}' and '{kept[target].get('title')}' "
+                    f"are the same TMDB film ({tmdb_id}); merged them"
+                )
+                kept[target] = _combine_entries(kept[target], entry, order)
+                collapsed = True
+                continue
+            by_tmdb_id.setdefault(tmdb_id, []).append(len(kept))
+        kept.append(entry)
+
+    if collapsed:
+        kept.sort(
+            key=lambda entry: chart_sort_key(
+                entry.get("rank"), entry.get("region"), _entry_rows(entry), order
+            )
+        )
+    return kept
+
+
+def collapse_stored_week(data: Dict[str, Any]) -> bool:
+    """Merge a stored multi-region week's entries that now share a TMDB film.
+
+    A week is collapsed by TMDB film when it is built, but an entry can get
+    its ``tmdb_id`` later - admin repair, or a week built without Radarr or
+    whose lookup failed. Run before such a week is written again, so two
+    regions' entries for one film do not both get linked to the same Radarr
+    movie. ``total_movies`` and ``matched_movies`` are recounted when
+    anything merged. Weeks of one region, and legacy weeks (no ``regions``),
+    are never changed.
+
+    Args:
+        data: A stored week, changed in place
+
+    Returns:
+        Whether any entries were merged
+    """
+    regions = data.get("regions")
+    movies = data.get("movies")
+    if not isinstance(regions, list) or len(regions) < 2:
+        return False
+    if not isinstance(movies, list) or not all(isinstance(m, dict) for m in movies):
+        return False
+    collapsed = collapse_by_tmdb_id(movies, regions)
+    if len(collapsed) == len(movies):
+        return False
+    data["movies"] = collapsed
+    data["total_movies"] = len(collapsed)
+    data["matched_movies"] = sum(1 for m in collapsed if m.get("radarr_id"))
+    return True
 
 
 class WeeklyDataGenerator:
@@ -28,12 +196,19 @@ class WeeklyDataGenerator:
         self.output_dir = settings.boxarr_data_directory / "weekly_pages"
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
+    def weekly_data_path(self, year: int, week: int) -> Path:
+        """Return the stored weekly file of an ISO week."""
+        return self.output_dir / f"{year}W{week:02d}.json"
+
     def generate_weekly_data(
         self,
         match_results: List[MatchResult],
         year: int,
         week: int,
         radarr_movies: Optional[List] = None,
+        *,
+        regions: Optional[Sequence[str]] = None,
+        region_status: Optional[List[Dict[str, Any]]] = None,
     ) -> Path:
         """
         Generate JSON data file for a week's box office data.
@@ -43,10 +218,71 @@ class WeeklyDataGenerator:
             year: Year
             week: Week number
             radarr_movies: Optional list of Radarr movies (for compatibility)
+            regions: Area codes the week was built from, in configured
+                order; defaults to the configured regions
+            region_status: Each region's stored status entry
 
         Returns:
             Path to generated JSON file
         """
+        metadata = self.build_weekly_data(
+            match_results,
+            year,
+            week,
+            regions=regions,
+            region_status=region_status,
+        )
+        return self.write_weekly_data(metadata)
+
+    def write_weekly_data(self, metadata: Dict[str, Any]) -> Path:
+        """
+        Write a week's data, built by build_weekly_data, to its file.
+
+        Args:
+            metadata: The week's data
+
+        Returns:
+            Path to the written JSON file
+        """
+        metadata_path = self.weekly_data_path(metadata["year"], metadata["week"])
+        atomic_write_json(metadata_path, metadata, indent=2)
+
+        logger.info(f"Generated weekly data: {metadata_path}")
+        return metadata_path
+
+    def build_weekly_data(  # noqa: C901
+        self,
+        match_results: List[MatchResult],
+        year: int,
+        week: int,
+        *,
+        regions: Optional[Sequence[str]] = None,
+        region_status: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Build a week's stored data from its match results.
+
+        Every key of a single-region week is kept as it was. Added: per
+        movie ``region`` (its lead region), ``regions`` (one row per region
+        it charted in) and ``bom_imdb_id`` (Box Office Mojo's IMDb id); per
+        file ``data_version``, ``regions`` and ``region_status``.
+
+        Args:
+            match_results: Movie matching results, in chart order
+            year: ISO year
+            week: ISO week number
+            regions: Area codes the week was built from, in configured
+                order; defaults to the configured regions
+            region_status: Each region's stored status entry
+
+        Returns:
+            The week's data
+        """
+        regions = (
+            list(regions)
+            if regions is not None
+            else configured_box_office_regions(settings)
+        )
         # Calculate friday and sunday from year and week
         from datetime import date, timedelta
 
@@ -174,8 +410,11 @@ class WeeklyDataGenerator:
                             result.box_office_movie.title
                         )
                         if search_results and len(search_results) > 0:
-                            # Use the first result
-                            tmdb_movie = search_results[0]
+                            # Prefer the result carrying Box Office Mojo's
+                            # IMDb id; without one, the first result.
+                            tmdb_movie = _select_search_result(
+                                search_results, result.box_office_movie
+                            )
                             movie_data.update(
                                 {
                                     "tmdb_id": tmdb_movie.get("tmdbId"),
@@ -213,7 +452,15 @@ class WeeklyDataGenerator:
                             f"Could not fetch TMDB data for '{result.box_office_movie.title}': {e}"
                         )
 
+            # Region keys go last so every older key keeps its place.
+            box_office_movie = result.box_office_movie
+            movie_data["region"] = box_office_movie.region or ""
+            movie_data["regions"] = region_rows(box_office_movie)
+            movie_data["bom_imdb_id"] = box_office_movie.imdb_id
+
             movies_data.append(movie_data)
+
+        movies_data = collapse_by_tmdb_id(movies_data, regions)
 
         # Save metadata with full movie data
         metadata = {
@@ -222,16 +469,14 @@ class WeeklyDataGenerator:
             "week": week,
             "friday": friday.isoformat(),
             "sunday": sunday.isoformat(),
+            # One entry per film, however many regions it charted in.
             "total_movies": len(movies_data),
             "matched_movies": sum(1 for m in movies_data if m["radarr_id"]),
             "quality_profiles": quality_profiles,
             "ultra_hd_id": ultra_hd_id,
             "movies": movies_data,  # Store full movie data for display
+            "data_version": DATA_VERSION,
+            "regions": regions,
+            "region_status": list(region_status or []),
         }
-
-        # Save JSON file
-        metadata_path = self.output_dir / f"{year}W{week:02d}.json"
-        atomic_write_json(metadata_path, metadata, indent=2)
-
-        logger.info(f"Generated weekly data: {metadata_path}")
-        return metadata_path
+        return metadata

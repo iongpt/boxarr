@@ -9,6 +9,7 @@ from typing import Any, Dict, Iterable, List, Optional, Union
 from ..utils.atomic import atomic_write_json
 from ..utils.config import settings
 from ..utils.logger import get_logger
+from .json_generator import collapse_stored_week
 from .models import MovieStatus
 from .radarr import (
     RadarrMovie,
@@ -108,7 +109,10 @@ def refresh_weekly_data_from_radarr(
     """Refresh stored weekly JSON files with current Radarr status/details.
 
     Only the Radarr link/status fields of existing entries change: a week keeps
-    its length, order and Box Office Mojo data.
+    its length, order and Box Office Mojo data. The one exception is a week of
+    several regions whose entries for one film got the same ``tmdb_id`` after
+    it was built (admin repair, a lookup that failed at build time): those
+    entries are merged first, so the film is linked once, not once per region.
 
     Args:
         radarr_service: Service to read quality profiles (and the library) from.
@@ -174,7 +178,9 @@ def refresh_weekly_data_from_radarr(
             logger.warning(f"Could not read weekly data file {json_file}: {exc}")
             continue
 
-        file_updated = False
+        # Merged before linking: once both entries are linked to one Radarr
+        # movie, the TMDB-film merge leaves them apart.
+        file_updated = collapse_stored_week(data)
         for stored_movie in data.get("movies", []):
             radarr_movie = None
             existing_radarr_id = stored_movie.get("radarr_id")

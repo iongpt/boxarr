@@ -157,6 +157,9 @@ class TestNormalize:
             (True, "", "True"),
             (5, "", "5"),
             ({"a": 1}, "", "'a'"),
+            # Upper-cased, these would pass as SS and IT.
+            ("ß,DE", "DE", "ß"),
+            (["ıt"], "", "ıt"),
         ],
     )
     def test_invalid_tokens_are_dropped_with_a_warning(
@@ -210,7 +213,19 @@ class TestValidate:
 
     @pytest.mark.parametrize(
         "value",
-        [["NLD"], "NL,X", [5], ["NL", "N-L"], False, True, [False, "DE"]],
+        [
+            ["NLD"],
+            "NL,X",
+            [5],
+            ["NL", "N-L"],
+            False,
+            True,
+            [False, "DE"],
+            # Non-ASCII that upper-cases to two letters: SS, IT, FI.
+            "ß",
+            ["ıt"],
+            "ﬁ,DE",
+        ],
     )
     def test_rejects_invalid_codes(self, value):
         with pytest.raises(ValueError, match="two-letter"):
@@ -225,10 +240,17 @@ class TestValidate:
         with pytest.raises(ValueError, match="at least one"):
             validate_box_office_regions(value)
 
-    @pytest.mark.parametrize("value", ["", [""], ["domestic"], [None]])
+    @pytest.mark.parametrize("value", ["", [""], ["domestic"]])
     def test_empty_strings_still_mean_domestic(self, value):
         # A setup page from before multi-region posts "" for domestic.
         assert validate_box_office_regions(value) == ""
+
+    @pytest.mark.parametrize("value", [[None], [None, "DE"], "[null]"])
+    def test_rejects_a_null_region(self, value):
+        # JSON has no unquoted null region: a posted null is a client's
+        # mistake, not domestic. The lenient loaders still read it as one.
+        with pytest.raises(ValueError, match="two-letter"):
+            validate_box_office_regions(value)
 
     def test_deeply_nested_brackets_are_rejected_not_raised(self):
         with pytest.raises(ValueError, match="two-letter"):
@@ -374,18 +396,17 @@ class TestBoxOfficeService:
         with pytest.raises(BoxOfficeError, match="area code"):
             self._build(bad)
 
-    def test_unfetched_regions_are_reported_once(self, caplog, monkeypatch):
-        monkeypatch.setattr(boxoffice_module, "_UNFETCHED_REGIONS_LOGGED", set())
+    def test_several_regions_no_longer_log_that_only_the_first_is_fetched(self, caplog):
+        """The weekly pipeline fetches every configured region now.
+
+        The old log was written once per region list, so this test builds a
+        list no other test does and also checks the once-only registry is
+        gone: the result cannot depend on which tests ran before.
+        """
+        assert not hasattr(boxoffice_module, "_UNFETCHED_REGIONS_LOGGED")
         with caplog.at_level("INFO", logger="src.core.boxoffice"):
-            self._build("DE,NL")
-            self._build("DE,NL")
-            self._build("NL")
-        notes = [
-            r.getMessage() for r in caplog.records if "is fetched" in r.getMessage()
-        ]
-        assert notes == [
-            "Box office regions DE, NL are configured; only the first, DE, is fetched"
-        ]
+            self._build("SE,NO,FI")
+        assert not [r for r in caplog.records if "is fetched" in r.getMessage()]
 
 
 class TestSuggestedLanguages:

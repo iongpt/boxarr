@@ -4,6 +4,7 @@ from .boxoffice import BoxOfficeMovie, BoxOfficeService
 from .exceptions import (
     BoxarrException,
     BoxOfficeError,
+    BoxOfficeNoData,
     ConfigurationError,
     MovieMatchingError,
     RadarrAuthenticationError,
@@ -32,6 +33,7 @@ __all__ = [
     "BoxarrException",
     "ConfigurationError",
     "BoxOfficeError",
+    "BoxOfficeNoData",
     "RadarrError",
     "RadarrConnectionError",
     "RadarrAuthenticationError",

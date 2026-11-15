@@ -4,14 +4,14 @@ import asyncio
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from ...core.library_sync import WEEKLY_WRITE_LOCK
 from ...core.scheduler import BoxarrScheduler
-from ...utils.config import settings
+from ...utils.config import configured_box_office_regions, settings
 from ...utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -42,6 +42,10 @@ class TriggerResponse(BaseModel):
     message: str
     movies_found: Optional[int] = None
     movies_added: Optional[int] = None
+    # Whether a region failed while the week was still written, and each
+    # region's status (ok, no_data, error, stale).
+    partial: Optional[bool] = None
+    region_status: Optional[List[Dict[str, Any]]] = None
 
 
 @router.post("/trigger", response_model=TriggerResponse)
@@ -51,23 +55,39 @@ async def trigger_update():
         scheduler = get_scheduler()
         result = await scheduler.update_box_office()
 
+        if result.get("success") is False:
+            # A stored legacy (pre-multi-region) week was kept: a region failed.
+            return TriggerResponse(
+                success=False,
+                message=result.get("message") or "Box office update failed",
+                partial=result.get("partial"),
+                region_status=result.get("region_status"),
+            )
+
         # Handle added_movies which is a list
         added_movies = result.get("added_movies", [])
         movies_added_count = len(added_movies) if isinstance(added_movies, list) else 0
 
+        message = "Box office update completed"
+        if result.get("partial"):
+            message += " with errors: " + "; ".join(result.get("errors") or [])
+
         return TriggerResponse(
             success=True,
-            message="Box office update completed",
+            message=message,
             movies_found=result.get(
                 "total_count"
             ),  # Fixed: was "total_movies" but scheduler returns "total_count"
             movies_added=movies_added_count,
+            partial=result.get("partial", False),
+            region_status=result.get("region_status"),
         )
     except Exception as e:
         logger.error(f"Error triggering update: {e}")
         return TriggerResponse(
             success=False,
             message=str(e),
+            region_status=getattr(e.__cause__, "region_status", None),
         )
 
 
@@ -164,7 +184,14 @@ async def get_scheduler_status():
                             )
                             last_run_info = {
                                 "timestamp": last_run_time.isoformat(),
-                                "success": True,
+                                # Failed runs are saved too; older history
+                                # files only ever recorded successful runs.
+                                "success": data.get("success", True),
+                                # Whether a region failed while the week was
+                                # still written, and each region's status;
+                                # older files: one region, never partial.
+                                "partial": data.get("partial", False),
+                                "region_status": data.get("region_status", []),
                                 "matched_count": data.get("matched_count", 0),
                                 "total_count": data.get("total_count", 0),
                             }
@@ -199,8 +226,15 @@ async def get_scheduler_history():
         if not history_dir.exists():
             return {"runs": []}
 
-        # Get all history files
-        history_files = sorted(history_dir.glob("*.json"), reverse=True)[:20]
+        # The 20 latest runs. {week}_latest.json repeats a week's last run.
+        history_files = sorted(
+            (
+                path
+                for path in history_dir.glob("*.json")
+                if not path.stem.endswith("_latest")
+            ),
+            reverse=True,
+        )[:20]
 
         runs = []
         for file_path in history_files:
@@ -234,12 +268,17 @@ async def get_scheduler_history():
                         {
                             "timestamp": run_time.isoformat(),
                             "week": parts[0],
-                            "success": result.get("success", False),
+                            # Same default as /status: history files from
+                            # before failed runs were saved hold only
+                            # successful runs and carry no "success" key.
+                            "success": result.get("success", True),
                             "movies_found": result.get(
                                 "total_count", result.get("total_movies")
                             ),
                             "movies_added": added_count,
                             "error": result.get("error"),
+                            "partial": result.get("partial", False),
+                            "region_status": result.get("region_status", []),
                         }
                     )
                 except Exception as e:
@@ -286,6 +325,10 @@ async def update_specific_week(request: UpdateWeekRequest):  # noqa: C901
 def _update_specific_week(year: int, week: int) -> dict:  # noqa: C901
     """Fetch, match and persist box office data for one week.
 
+    Every configured region is fetched and merged into the week's one list
+    (see :func:`~src.core.week_builder.build_week`). Without a Radarr API key
+    the week is still built, with every film unmatched.
+
     Runs in a worker thread (via ``asyncio.to_thread`` from the async endpoint),
     so the process-wide weekly-JSON write lock is acquired here in the worker
     thread rather than across an await. Fails fast if another weekly-JSON
@@ -299,84 +342,56 @@ def _update_specific_week(year: int, week: int) -> dict:  # noqa: C901
             "message": "Another update is in progress, please retry shortly",
         }
     try:
+        # Imported here so tests can patch the services in their modules.
         from ...core.boxoffice import BoxOfficeService
-        from ...core.json_generator import WeeklyDataGenerator
         from ...core.matcher import MovieMatcher
-        from ...core.radarr import (
-            RadarrService,
-            get_all_movies_with_optional_cache_bypass,
-        )
+        from ...core.radarr import RadarrService
+        from ...core.week_builder import WeekBuildError, build_week
 
-        # Get box office data
+        # Regenerate uses the regions configured now.
+        regions = configured_box_office_regions(settings)
         boxoffice_service = BoxOfficeService()
-        limit = settings.boxarr_features_box_office_limit
-        box_office_movies = boxoffice_service.fetch_weekend_box_office(
-            year, week, limit=limit
-        )
+        radarr_service = RadarrService() if settings.radarr_api_key else None
 
-        if not box_office_movies:
+        try:
+            build = build_week(
+                year,
+                week,
+                regions=regions,
+                limit=settings.boxarr_features_box_office_limit,
+                boxoffice_service=boxoffice_service,
+                radarr_service=radarr_service,
+                matcher=MovieMatcher() if radarr_service is not None else None,
+                auto_add=bool(
+                    radarr_service is not None and settings.boxarr_features_auto_add
+                ),
+            )
+        except WeekBuildError as e:
+            if e.empty:
+                return {
+                    "success": False,
+                    "message": f"No data found for week {year}W{week:02d}",
+                    "partial": False,
+                    "region_status": e.region_status,
+                }
+            raise
+
+        if not build.written:
+            # A stored legacy (pre-multi-region) week was kept: a region failed.
             return {
                 "success": False,
-                "message": f"No data found for week {year}W{week:02d}",
+                "message": build.message,
+                "partial": True,
+                "region_status": build.region_status,
             }
-
-        # Match with Radarr
-        match_results = []
-        added_count = 0
-
-        if settings.radarr_api_key:
-            radarr_service = RadarrService()
-            matcher = MovieMatcher()
-
-            radarr_movies = get_all_movies_with_optional_cache_bypass(
-                radarr_service, ignore_cache=True
-            )
-            matcher.build_movie_index(radarr_movies)
-            match_results = matcher.match_movies(box_office_movies, radarr_movies)
-
-            # Auto-add if enabled
-            if settings.boxarr_features_auto_add:
-                from ...core.auto_add import auto_add_missing_movies
-
-                added_titles = auto_add_missing_movies(
-                    match_results, radarr_service, year
-                )
-                added_count = len(added_titles)
-
-                # Re-fetch and re-match after adding (fixes stale status bug)
-                if added_count > 0:
-                    logger.info(f"Added {added_count} movies to Radarr, re-matching...")
-                    radarr_movies = get_all_movies_with_optional_cache_bypass(
-                        radarr_service, ignore_cache=True
-                    )
-                    matcher.build_movie_index(radarr_movies)
-                    match_results = matcher.match_movies(
-                        box_office_movies, radarr_movies
-                    )
-        else:
-            # No Radarr, create unmatched results
-            from ...core.matcher import MatchResult
-
-            match_results = [
-                MatchResult(box_office_movie=movie) for movie in box_office_movies
-            ]
-
-        # Generate data file
-        generator = WeeklyDataGenerator(
-            radarr_service=radarr_service if settings.radarr_api_key else None
-        )
-        generator.generate_weekly_data(
-            match_results,
-            year,
-            week,
-            radarr_movies if settings.radarr_api_key else [],
-        )
 
         return {
             "success": True,
-            "message": f"Updated week {year}W{week:02d}",
-            "movies_found": len(box_office_movies),
-            "movies_added": added_count,
+            "message": build.message,
+            "movies_found": build.total_movies,
+            "movies_added": len(build.added_movies),
+            "partial": build.partial,
+            "region_status": build.region_status,
         }
     finally:
         WEEKLY_WRITE_LOCK.release()

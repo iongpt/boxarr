@@ -145,7 +145,7 @@ def _decode_region_list(value: Any) -> Any:
 
 
 def _coerce_box_office_regions(
-    value: Any, false_is_norway: bool = True
+    value: Any, false_is_norway: bool = True, null_is_domestic: bool = True
 ) -> Tuple[List[str], List[str]]:
     """Read area codes out of any form a box office region setting arrives in.
 
@@ -159,6 +159,9 @@ def _coerce_box_office_regions(
         value: The raw setting
         false_is_norway: Read False as "NO". Off for the save API: JSON has
             no unquoted NO, so a posted false is a client's mistake.
+        null_is_domestic: Read None in a list as domestic. Off for the save
+            API, where a posted null is a client's mistake too; "" stays
+            domestic there.
 
     Returns:
         Tuple of (valid area codes in order, de-duplicated and possibly more
@@ -180,7 +183,9 @@ def _coerce_box_office_regions(
         for item in value:
             if item is False and false_is_norway:
                 tokens.append("NO")
-            elif item is None or (isinstance(item, str) and not item.strip()):
+            elif (item is None and null_is_domestic) or (
+                isinstance(item, str) and not item.strip()
+            ):
                 tokens.append(DOMESTIC_REGION)
             elif isinstance(item, str):
                 tokens.append(item)
@@ -192,6 +197,10 @@ def _coerce_box_office_regions(
     codes: List[str] = []
     for token in ",".join(tokens).split(","):
         if not token.strip():
+            continue
+        if not token.isascii():
+            # Upper-casing would turn "ß" into "SS" and "ıt" into "IT".
+            rejected.append(repr(token.strip()))
             continue
         # One token parses to exactly one code.
         code = parse_box_office_regions(token)[0]
@@ -254,7 +263,7 @@ def validate_box_office_regions(value: Any) -> str:
 
     Raises:
         ValueError: If the selection is an empty list, a token is not an area
-            code (a boolean included), or there are too many
+            code (a boolean or null included), or there are too many
     """
     decoded = _decode_region_list(value)
     if isinstance(decoded, (list, tuple)) and not decoded:
@@ -263,7 +272,9 @@ def validate_box_office_regions(value: Any) -> str:
         raise ValueError(
             "Select at least one box office region ('domestic' for US & Canada)"
         )
-    codes, rejected = _coerce_box_office_regions(value, false_is_norway=False)
+    codes, rejected = _coerce_box_office_regions(
+        value, false_is_norway=False, null_is_domestic=False
+    )
     if rejected:
         raise ValueError(
             f"Invalid box office region {', '.join(rejected)}: a region is a "
@@ -530,7 +541,7 @@ class Settings(BaseSettings):
         default=10,
         ge=1,
         le=30,
-        description="Number of movies to fetch from Box Office Mojo (1-30)",
+        description="Number of movies to fetch per Box Office Mojo region (1-30)",
     )
     # A str, not a List[str]: pydantic-settings JSON-decodes a list field's
     # environment value before any validator runs, so the documented
