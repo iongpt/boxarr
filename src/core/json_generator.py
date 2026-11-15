@@ -29,10 +29,19 @@ DATA_VERSION = 2
 
 
 def _entry_rows(entry: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Return a stored movie entry's region rows."""
-    rows = entry.get("regions")
+    """Return a stored movie entry's region rows.
+
+    Rows that are not objects (a hand-edited file) are skipped; without any
+    row left, the entry's own chart fields stand for its one row.
+    """
+    stored = entry.get("regions")
+    rows = [
+        dict(row)
+        for row in (stored if isinstance(stored, list) else [])
+        if isinstance(row, dict)
+    ]
     if rows:
-        return [dict(row) for row in rows]
+        return rows
     return [
         {
             "code": entry.get("region") or "",

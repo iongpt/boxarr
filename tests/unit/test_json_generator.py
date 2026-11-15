@@ -353,6 +353,25 @@ class TestCollapseStoredWeek:
         assert collapse_stored_week(data) is False
         assert data == before
 
+    @pytest.mark.parametrize(
+        "bad_rows", [["DE"], [None, 5], "DE", 7], ids=["str", "null-int", "text", "int"]
+    )
+    def test_hand_edited_region_rows_that_are_not_rows_are_skipped(self, bad_rows):
+        broken = stored_entry("Die Odyssee", "DE", 2, tmdb_id=101)
+        broken["regions"] = (
+            bad_rows + broken["regions"] if isinstance(bad_rows, list) else bad_rows
+        )
+        data = stored_week(
+            ["", "DE"],
+            stored_entry("The Odyssey", "", 1, tmdb_id=101, bom_imdb="tt1"),
+            broken,
+        )
+
+        assert collapse_stored_week(data) is True
+
+        [film] = data["movies"]
+        assert [(r["code"], r["rank"]) for r in film["regions"]] == [("", 1), ("DE", 2)]
+
     @pytest.mark.parametrize("regions", [None, [""], ["DE"]])
     def test_legacy_and_one_region_weeks_are_never_changed(self, regions):
         data = stored_week(
