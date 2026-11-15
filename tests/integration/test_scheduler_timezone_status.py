@@ -19,7 +19,7 @@ import src.api.routes.scheduler as scheduler_route
 import src.utils.config as cfg_utils
 from src.api.app import create_app
 from src.core.scheduler import WEEKLY_JOB_ID, BoxarrScheduler
-from tests.js_sandbox import needs_node, run_driver, static_script
+from tests.js_sandbox import collapse, needs_node, run_driver, static_script
 
 NEW_YORK = pytz.timezone("America/New_York")
 
@@ -118,7 +118,8 @@ def _next_run_cell(monkeypatch, timezone: str) -> str:
         },
     )
     assert result["errors"] == []
-    return result["nextRun"]
+    # Newer ICU puts a narrow no-break space before AM/PM.
+    return collapse(result["nextRun"])
 
 
 @needs_node
