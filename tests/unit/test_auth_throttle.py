@@ -61,12 +61,42 @@ def test_five_failures_are_free(throttle):
 
 
 def test_the_wait_counts_from_the_last_failure(throttle, clock):
-    _fail(throttle, "203.0.113.9", "admin", FREE_FAILURES + 3)  # 8 s
-    clock.advance(5)
+    for _ in range(FREE_FAILURES + 3):  # 8 failures, 1 s apart: an 8 s wait
+        _fail(throttle, "203.0.113.9", "admin")
+        clock.advance(1)
+    clock.advance(-1)  # back to the instant of the last failure
 
+    assert throttle.retry_after("203.0.113.9", "admin") == 8
+    clock.advance(5)
     assert throttle.retry_after("203.0.113.9", "admin") == 3
     clock.advance(3)
     assert throttle.retry_after("203.0.113.9", "admin") is None
+
+
+def test_the_window_and_the_ceiling_are_pinned():
+    """15 minutes and 20 failures, as A3 and the design say."""
+    assert (WINDOW_SECONDS, CLIENT_CEILING, FREE_FAILURES) == (900, 20, 5)
+
+
+def test_failures_count_for_15_minutes_by_the_clock(throttle, clock):
+    _fail(throttle, "203.0.113.9", "admin", FREE_FAILURES)  # at t
+    _fail(throttle, "203.0.113.10", "admin", FREE_FAILURES)  # at t
+    clock.advance(899)
+    _fail(throttle, "203.0.113.9", "admin")  # t + 899 s: the 6th in the window
+    assert throttle.retry_after("203.0.113.9", "admin") == 2
+
+    clock.advance(1)
+    _fail(throttle, "203.0.113.10", "admin")  # t + 900 s: the first 5 are gone
+    assert throttle.retry_after("203.0.113.10", "admin") is None
+
+
+def test_the_ceiling_is_20_failures_across_usernames(throttle):
+    for n in range(19):
+        _fail(throttle, "203.0.113.9", f"user{n}")
+    assert throttle.retry_after("203.0.113.9", "someone-new") is None
+
+    _fail(throttle, "203.0.113.9", "user19")
+    assert throttle.retry_after("203.0.113.9", "someone-new") == 1
 
 
 def test_the_wait_is_capped_at_30_seconds(throttle):
