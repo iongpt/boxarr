@@ -226,6 +226,40 @@
         }
     </style>
     {%- endif %}
+    {%- if auth_banner %}
+    <style id="authBannerStyle">
+        /* The sign-in banner (#151): until a choice is saved, or while
+           auth.json's none overrides credential variables. */
+        .auth-banner {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            padding: 0.75rem 1rem;
+            background: var(--card-bg);
+            color: var(--text-primary);
+            border-bottom: 1px solid var(--border-color);
+            border-left: 4px solid var(--warning-color);
+            overflow-wrap: anywhere;
+        }
+        .auth-banner p {
+            margin: 0;
+            flex: 1 1 16rem;
+            line-height: 1.5;
+        }
+        .auth-banner code {
+            background: var(--code-bg);
+            padding: 0 0.25em;
+            border-radius: 4px;
+        }
+        .auth-banner-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+    </style>
+    {%- endif %}
     {% block styles %}{% endblock %}
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
 </head>
@@ -270,6 +304,22 @@
             </div>
         </div>
     </nav>
+    {%- if auth_banner %}
+    <div class="auth-banner" id="authBanner" role="region" aria-label="Sign-in">
+        {%- if auth_banner == 'unset' %}
+        <p><strong>Boxarr is not protected.</strong> Anyone who can reach it can change Radarr. Set up a login in Settings → Security.</p>
+        <div class="auth-banner-actions">
+            <a href="{{ request.scope.get('root_path', '') }}/setup#security" class="btn btn-primary btn-sm" id="authBannerSetUp">Set up login</a>
+            <button type="button" class="btn btn-secondary btn-sm" id="authBannerKeepOpen" onclick="boxarrKeepOpen(this)">Keep it open</button>
+        </div>
+        {%- else %}
+        <p><strong>Sign-in is off.</strong> {{ auth_ignored_variables|join(', ') }} {{ 'is' if auth_ignored_variables|length == 1 else 'are' }} set but ignored, because {{ auth_file }} says method <code>none</code>. To turn sign-in on, use Settings → Security, or set <code>BOXARR_AUTH_METHOD=forms</code> and restart Boxarr.</p>
+        <div class="auth-banner-actions">
+            <a href="{{ request.scope.get('root_path', '') }}/setup#security" class="btn btn-primary btn-sm" id="authBannerSetUp">Open Settings → Security</a>
+        </div>
+        {%- endif %}
+    </div>
+    {%- endif %}
 
     <main class="main-content">
         {% block content %}{% endblock %}

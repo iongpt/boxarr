@@ -19,6 +19,150 @@
             document.documentElement.setAttribute('data-theme', theme);
         })();
     </script>
+    {%- if auth_banner %}
+    <style id="authBannerStyle">
+        /* The sign-in banner (#151): until a choice is saved, or while
+           auth.json's none overrides credential variables. */
+        .auth-banner {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            margin-bottom: 1.5rem;
+            padding: 0.75rem 1rem;
+            background: var(--bg-color);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            border-left: 4px solid var(--warning-color);
+            border-radius: 6px;
+            overflow-wrap: anywhere;
+        }
+        .auth-banner p {
+            margin: 0;
+            flex: 1 1 16rem;
+            line-height: 1.5;
+        }
+        .auth-banner code {
+            background: var(--code-bg);
+            padding: 0 0.25em;
+            border-radius: 4px;
+        }
+        .auth-banner-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+    </style>
+    {%- endif %}
+    {%- if auth_security %}
+    <style id="securityStyle">
+        /* Settings → Security (#151). */
+        .security-section {
+            margin-top: 2rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid var(--border-color);
+            overflow-wrap: anywhere;
+        }
+        .security-status {
+            margin: 0 0 1rem;
+            line-height: 1.5;
+        }
+        .security-section code {
+            background: var(--code-bg);
+            padding: 0 0.25em;
+            border-radius: 4px;
+        }
+        .security-alert {
+            margin: 0 0 1rem;
+            padding: 0.75rem;
+            background: var(--bg-color);
+            color: var(--text-primary);
+            border-left: 3px solid var(--primary-color);
+            border-radius: 4px;
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+        .security-alert-warning {
+            border-left-color: var(--warning-color);
+        }
+        .security-request {
+            margin: 0 0 1.25rem;
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+        }
+        .security-request .security-alert {
+            margin-top: 0.5rem;
+        }
+        .security-locked {
+            display: block;
+            margin-top: 0.375rem;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+        /* 16px or more: phones zoom into smaller inputs on focus (A6). */
+        .security-section .form-input,
+        .security-section .form-select {
+            font-size: 16px;
+        }
+        .security-advanced {
+            margin: 0 0 1.25rem;
+        }
+        .security-advanced summary {
+            cursor: pointer;
+            font-weight: 500;
+            margin-bottom: 1rem;
+        }
+        .security-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin: 0.75rem 0;
+        }
+        .security-message {
+            margin-top: 0.75rem;
+            padding: 0.75rem;
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+            font-size: 0.9rem;
+        }
+        .security-message-error {
+            border-color: var(--error-color);
+            color: var(--error-color);
+        }
+        .security-message-success {
+            border-color: var(--success-color);
+        }
+        .security-subsection {
+            margin-top: 1.5rem;
+        }
+        .security-subtitle {
+            font-size: 1rem;
+            font-weight: 600;
+            margin: 0 0 0.5rem;
+        }
+        .security-key-once {
+            margin-top: 1.5rem;
+            padding: 1rem;
+            border: 1px solid var(--warning-color);
+            border-radius: 8px;
+            background: var(--bg-color);
+        }
+        .security-key-row {
+            display: flex;
+            gap: 0.5rem;
+            margin: 0.5rem 0;
+        }
+        .security-key-row .form-input {
+            font-family: monospace;
+            min-width: 0;
+        }
+        .security-note {
+            margin-top: 1.5rem;
+            font-size: 0.85rem;
+        }
+    </style>
+    {%- endif %}
 </head>
 <body class="setup-page">
     <script>
@@ -26,6 +170,22 @@
         window.BOXARR_BASE_PATH = "{{ request.scope.get('root_path', '') }}";
     </script>
     <div class="setup-container">
+        {%- if auth_banner %}
+        <div class="auth-banner" id="authBanner" role="region" aria-label="Sign-in">
+            {%- if auth_banner == 'unset' %}
+            <p><strong>Boxarr is not protected.</strong> Anyone who can reach it can change Radarr. Set up a login in Settings → Security.</p>
+            <div class="auth-banner-actions">
+                <a href="{{ request.scope.get('root_path', '') }}/setup#security" class="btn btn-primary btn-sm" id="authBannerSetUp">Set up login</a>
+                <button type="button" class="btn btn-secondary btn-sm" id="authBannerKeepOpen" onclick="boxarrKeepOpen(this)">Keep it open</button>
+            </div>
+            {%- else %}
+            <p><strong>Sign-in is off.</strong> {{ auth_ignored_variables|join(', ') }} {{ 'is' if auth_ignored_variables|length == 1 else 'are' }} set but ignored, because {{ auth_file }} says method <code>none</code>. To turn sign-in on, use Settings → Security, or set <code>BOXARR_AUTH_METHOD=forms</code> and restart Boxarr.</p>
+            <div class="auth-banner-actions">
+                <a href="{{ request.scope.get('root_path', '') }}/setup#security" class="btn btn-primary btn-sm" id="authBannerSetUp">Open Settings → Security</a>
+            </div>
+            {%- endif %}
+        </div>
+        {%- endif %}
         <div class="setup-header">
             {%- if auth_principal == 'session' %}
             <div style="display: flex; justify-content: flex-end; margin-bottom: 0.5rem;">
@@ -717,6 +877,200 @@
 
 
         </form>
+        {%- if auth_security %}
+        {%- set sec = auth_security %}
+        {%- set st = sec.settings %}
+        {# Settings → Security (#151). Outside the form above, with its own Save:
+           neither Radarr's connection test nor its reachability gates it, and
+           saveConfiguration() never sweeps or validates it. Its form has no
+           method and no input has a name, so without JavaScript nothing is
+           ever sent; app.js posts JSON. #}
+        <section class="form-section security-section" id="security" aria-labelledby="securityTitle">
+            <h2 class="section-title" id="securityTitle">Security</h2>
+            <p class="security-status" id="securityStatus">
+                {%- if sec.in_effect %}
+                Sign-in is on{% if sec.signed_in_as %}: you are signed in as <strong>{{ sec.signed_in_as }}</strong>{% endif %}.
+                {%- elif sec.method == 'unset' %}
+                Sign-in is not set up yet: anyone who can reach Boxarr can use it and change Radarr. Turn it on below, or choose Off to keep Boxarr open.
+                {%- elif sec.env_method_none %}
+                Sign-in is off: <code>BOXARR_AUTH_METHOD=none</code> turns it off, whatever is saved here.
+                {%- else %}
+                Sign-in is off: anyone who can reach Boxarr can use it and change Radarr.
+                {%- endif %}
+            </p>
+            {%- if sec.ignored_variables %}
+            <div class="security-alert security-alert-warning" id="securityIgnored" role="alert">
+                {{ sec.ignored_variables|join(', ') }} {{ 'is' if sec.ignored_variables|length == 1 else 'are' }} set but ignored, because {{ sec.auth_file }} says method <code>none</code>. To turn sign-in on, choose On below{% if sec.enable_needs_env_password %} and enter the password {% if sec.enable_needs_env_password.endswith('_HASH') %}whose hash <code>{{ sec.enable_needs_env_password }}</code> holds{% else %}from <code>{{ sec.enable_needs_env_password }}</code>{% endif %}{% endif %}, or set <code>BOXARR_AUTH_METHOD=forms</code> and restart Boxarr.
+            </div>
+            {%- endif %}
+            {%- if sec.env_method_none %}
+            <div class="security-alert" id="securityEnvNone">
+                🔒 <code>BOXARR_AUTH_METHOD=none</code> keeps sign-in off, so no password is asked for here. What you save goes to {{ sec.auth_file }} and applies once you remove the variable and restart Boxarr.
+            </div>
+            {%- if sec.stored_problem %}
+            <div class="security-alert security-alert-warning" id="securityStoredProblem">{{ sec.stored_problem }}. Saving here replaces it.</div>
+            {%- endif %}
+            {%- endif %}
+            <div class="security-request" id="securityRequest">
+                <div id="securityRequestSummary">{{ sec.request.summary }}</div>
+                {%- if sec.request.warning %}
+                <div class="security-alert security-alert-warning" id="securityProxyWarning" role="alert">{{ sec.request.warning }}</div>
+                {%- endif %}
+            </div>
+
+            <form id="securityForm" novalidate data-state="{{ sec.method }}" data-in-effect="{{ 'true' if sec.in_effect else 'false' }}">
+                <div class="form-group">
+                    <label for="securityMethod" class="form-label">Sign-in</label>
+                    <select id="securityMethod" class="form-select" onchange="boxarrSecurityMethodChanged()"{% if st.method.locked %} disabled{% endif %}>
+                        <option value="forms"{% if sec.chosen == 'forms' %} selected{% endif %}>On: sign in with a username and password</option>
+                        <option value="none"{% if sec.chosen == 'none' %} selected{% endif %}>Off: anyone who can reach Boxarr can use it</option>
+                    </select>
+                    {%- if st.method.locked %}
+                    <small class="security-locked" id="securityMethodLocked">🔒 Set by <code>{{ st.method.variable }}</code></small>
+                    {%- endif %}
+                </div>
+
+                <div id="securityCredentials"{% if sec.chosen != 'forms' %} hidden{% endif %}>
+                    <div class="form-group">
+                        <label for="securityUsername" class="form-label">Username</label>
+                        <input type="text" id="securityUsername" class="form-input" value="{{ st.username.value or '' }}"
+                               autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="64"{% if st.username.variable %} readonly{% endif %}>
+                        {%- if st.username.variable %}
+                        <small class="security-locked" id="securityUsernameLocked">🔒 Set by <code>{{ st.username.variable }}</code></small>
+                        {%- endif %}
+                    </div>
+                    {%- if st.password.variable %}
+                    <p class="security-locked" id="securityPasswordLocked">🔒 The password is set by <code>{{ st.password.variable }}</code>. Change it there and restart Boxarr.</p>
+                    {%- if sec.enable_needs_env_password %}
+                    <div class="form-group">
+                        <label for="securityCurrentPassword" class="form-label">The password {% if sec.enable_needs_env_password.endswith('_HASH') %}whose hash {{ sec.enable_needs_env_password }} holds{% else %}from {{ sec.enable_needs_env_password }}{% endif %}</label>
+                        <input type="password" id="securityCurrentPassword" class="form-input"
+                               autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false">
+                        <small class="text-muted">Enter it to turn sign-in on. This browser then stays signed in.</small>
+                    </div>
+                    {%- endif %}
+                    {%- else %}
+                    <div class="form-row two-col">
+                        <div class="form-group">
+                            <label for="securityNewPassword" class="form-label">{% if sec.in_effect %}New password{% else %}Password{% endif %}</label>
+                            <input type="password" id="securityNewPassword" class="form-input"
+                                   autocomplete="new-password" autocapitalize="none" autocorrect="off" spellcheck="false">
+                            <small class="text-muted">At least {{ sec.limits.password_min_chars }} characters{% if sec.in_effect %}. Leave blank to keep the current one{% endif %}.</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="securityConfirmPassword" class="form-label">Repeat the {% if sec.in_effect %}new {% endif %}password</label>
+                            <input type="password" id="securityConfirmPassword" class="form-input"
+                                   autocomplete="new-password" autocapitalize="none" autocorrect="off" spellcheck="false">
+                        </div>
+                    </div>
+                    {%- endif %}
+                    {%- if sec.in_effect %}
+                    <small class="text-muted">A new username or password signs out every other browser and device.</small>
+                    {%- endif %}
+                </div>
+
+                <details class="security-advanced" id="securityAdvanced">
+                    <summary>Reverse proxy, cookie and session length</summary>
+                    <div class="form-group">
+                        <label for="securityTrustedProxies" class="form-label">Trusted proxies</label>
+                        <textarea id="securityTrustedProxies" class="form-input" rows="2" spellcheck="false" autocomplete="off"
+                                  placeholder="172.18.0.5"{% if st.trusted_proxies.variable %} readonly{% endif %}>{{ st.trusted_proxies.value|join('\n') }}</textarea>
+                        {%- if st.trusted_proxies.variable %}
+                        <small class="security-locked">🔒 Set by <code>{{ st.trusted_proxies.variable }}</code></small>
+                        {%- endif %}
+                        <small class="text-muted">Your reverse proxy's address, one per line. Sign-in believes its X-Forwarded-For and X-Forwarded-Proto, and no one else's. Leave it empty when nothing sits in front of Boxarr.</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="securityCookieSecure" class="form-label">Secure cookie</label>
+                        <select id="securityCookieSecure" class="form-select"{% if st.cookie_secure.variable %} disabled{% endif %}>
+                            <option value="auto"{% if st.cookie_secure.value == 'auto' %} selected{% endif %}>Auto: when the browser is on https</option>
+                            <option value="always"{% if st.cookie_secure.value == 'always' %} selected{% endif %}>Always (Boxarr is only ever reached over https)</option>
+                            <option value="never"{% if st.cookie_secure.value == 'never' %} selected{% endif %}>Never</option>
+                        </select>
+                        {%- if st.cookie_secure.variable %}
+                        <small class="security-locked">🔒 Set by <code>{{ st.cookie_secure.variable }}</code></small>
+                        {%- endif %}
+                    </div>
+                    <div class="form-row two-col">
+                        <div class="form-group">
+                            <label for="securitySessionHours" class="form-label">Sign-in lasts (hours)</label>
+                            <input type="number" id="securitySessionHours" class="form-input" inputmode="numeric"
+                                   min="{{ sec.limits.session_hours[0] }}" max="{{ sec.limits.session_hours[1] }}" step="1"
+                                   value="{{ st.session_hours.value }}"{% if st.session_hours.variable %} readonly{% endif %}>
+                            {%- if st.session_hours.variable %}
+                            <small class="security-locked">🔒 Set by <code>{{ st.session_hours.variable }}</code></small>
+                            {%- endif %}
+                            <small class="text-muted">Without "Keep me signed in": {{ sec.limits.session_hours[0] }} to {{ sec.limits.session_hours[1] }}.</small>
+                        </div>
+                        <div class="form-group">
+                            <label for="securityRememberDays" class="form-label">Keep me signed in (days)</label>
+                            <input type="number" id="securityRememberDays" class="form-input" inputmode="numeric"
+                                   min="{{ sec.limits.remember_days[0] }}" max="{{ sec.limits.remember_days[1] }}" step="1"
+                                   value="{{ st.remember_days.value }}"{% if st.remember_days.variable %} readonly{% endif %}>
+                            {%- if st.remember_days.variable %}
+                            <small class="security-locked">🔒 Set by <code>{{ st.remember_days.variable }}</code></small>
+                            {%- endif %}
+                            <small class="text-muted">{{ sec.limits.remember_days[0] }} to {{ sec.limits.remember_days[1] }}; 0 removes the option from the sign-in page.</small>
+                        </div>
+                    </div>
+                    <p class="text-muted" id="securityWidgets">The chart widgets (<code>/api/widget</code> and <code>/api/widget/json</code>) {% if st.widgets.value == 'public' %}stay readable without signing in, so dashboards can embed them{% else %}need a sign-in or the API key{% endif %}{% if st.widgets.variable %} (🔒 set by <code>{{ st.widgets.variable }}</code>){% endif %}.</p>
+                </details>
+
+                {%- if sec.in_effect %}
+                <div class="form-group" id="securityCurrentPasswordGroup">
+                    <label for="securityCurrentPassword" class="form-label">Current password</label>
+                    <input type="password" id="securityCurrentPassword" class="form-input"
+                           autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false">
+                    <small class="text-muted">Needed for every change here, the API key and signing out everywhere included.</small>
+                </div>
+                {%- endif %}
+                <div class="security-actions">
+                    <button type="submit" class="btn btn-primary" id="securitySaveBtn">Save security settings</button>
+                </div>
+                <div id="securityMessage" class="security-message" role="status" aria-live="polite" hidden></div>
+            </form>
+            {%- if sec.in_effect %}
+
+            <div class="security-subsection" id="securityApiKey">
+                <h3 class="security-subtitle">API key</h3>
+                {%- if sec.api_key.variable %}
+                <p class="security-locked" id="securityApiKeyLocked">🔒 Set by <code>{{ sec.api_key.variable }}</code>. Change it there and restart Boxarr.</p>
+                {%- else %}
+                <p id="securityApiKeyState">{% if sec.api_key.set %}<code>bxk_…{{ sec.api_key.hint }}</code>{% if sec.api_key.created %} · created {{ sec.api_key.created }}{% endif %}{% else %}No API key yet.{% endif %}</p>
+                <p class="text-muted">Scripts, Homepage and Home Assistant use it to call Boxarr's API, in the <code>X-Api-Key</code> header. It is shown once, when it is made. A new key replaces the old one at once: update it wherever it is used.</p>
+                <div class="security-actions">
+                    <button type="button" class="btn btn-secondary btn-sm" id="securityApiKeyCreate" onclick="boxarrApiKeyCreate()" data-has-key="{{ 'true' if sec.api_key.set else 'false' }}">{% if sec.api_key.set %}Regenerate{% else %}Create an API key{% endif %}</button>
+                    {%- if sec.api_key.set %}
+                    <button type="button" class="btn btn-secondary btn-sm" id="securityApiKeyRevoke" onclick="boxarrApiKeyRevoke()">Revoke</button>
+                    {%- endif %}
+                </div>
+                {%- endif %}
+            </div>
+
+            <div class="security-subsection" id="securitySessions">
+                <h3 class="security-subtitle">Sessions</h3>
+                <p id="securitySessionCount">{{ sec.sessions }} active sign-in{{ '' if sec.sessions == 1 else 's' }}.</p>
+                <div class="security-actions">
+                    <button type="button" class="btn btn-secondary btn-sm" id="securitySignOutEverywhere" onclick="boxarrSignOutEverywhere()">Sign out everywhere</button>
+                </div>
+                <small class="text-muted">Ends every sign-in, on every browser and device. This one stays signed in.</small>
+            </div>
+            {%- endif %}
+
+            <div class="security-key-once" id="securityKeyOnce" role="alert" hidden>
+                <p><strong>Your new API key</strong></p>
+                <div class="security-key-row">
+                    <input type="text" id="securityKeyValue" class="form-input" readonly spellcheck="false" autocomplete="off" aria-label="Your new API key">
+                    <button type="button" class="btn btn-secondary btn-sm" id="securityKeyCopy" onclick="boxarrCopyKey()">Copy</button>
+                </div>
+                <p class="text-muted" id="securityKeyNote"></p>
+                <p class="security-alert security-alert-warning" id="securityKeyProblem" hidden></p>
+                <button type="button" class="btn btn-primary btn-sm" id="securityKeyDone" onclick="boxarrSecurityContinue()">I have saved it: continue</button>
+            </div>
+
+            <p class="text-muted security-note">Boxarr has no option to skip sign-in for local addresses: behind Docker every client can look local, and a website you visit could reach Boxarr through DNS rebinding as if it were on your network.</p>
+        </section>
+        {%- endif %}
     </div>
 
 <script src="{{ request.scope.get('root_path', '') }}/static/js/theme-manager.js?v=1"></script>
