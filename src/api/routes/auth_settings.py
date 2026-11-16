@@ -95,6 +95,11 @@ SECURE_OVER_HTTP_MESSAGE = (
     "come back and you could not stay signed in. Open Boxarr over https "
     "first, or keep the Secure cookie setting on auto."
 )
+SECURE_OVER_HTTP_ENV_MESSAGE = (
+    "This page is plain http, so a sign-in cookie marked Secure would never "
+    "come back and you could not stay signed in. Open Boxarr over https "
+    "first, or set {variable}=auto and restart Boxarr."
+)
 KEY_NOTE = (
     "Copy it now: it will not be shown again. Send it in the X-Api-Key "
     "header, and update it wherever Boxarr's API key is used: Homepage, "
@@ -175,9 +180,11 @@ async def _check_password(
     password: Any,
     stored_hash: Optional[SecretStr],
     plain: Optional[SecretStr] = None,
+    wrong_message: str = WRONG_PASSWORD_MESSAGE,
 ) -> None:
     """Check a password the way login does: throttled per (client,
-    username), on a scrypt slot. Raises ChangeRefused unless it matches."""
+    username), on a scrypt slot. Raises ChangeRefused unless it matches
+    (403 with ``wrong_message`` when it does not)."""
     client = strict_client(request.scope, runtime.state.trusted_proxies).client
     throttle = runtime.throttle
     wait = throttle.retry_after(client, username)
@@ -214,7 +221,7 @@ async def _check_password(
             "Failed sign-in from %s (wrong current password in Settings → Security)",
             client or "-",
         )
-        raise ChangeRefused(403, WRONG_PASSWORD_MESSAGE, "current_password")
+        raise ChangeRefused(403, wrong_message, "current_password")
     throttle.succeeded(attempt)
 
 
@@ -376,7 +383,16 @@ async def _save_settings(runtime: AuthRuntime, request: Request) -> JSONResponse
     stored = _stored(runtime)
     plan = plan_settings(env, state, stored, fields)
     if _loses_secure_cookie(plan, runtime, stored, request):
-        raise ChangeRefused(400, SECURE_OVER_HTTP_MESSAGE, "cookie_secure")
+        variable = set_by(env, "cookie_secure")
+        raise ChangeRefused(
+            400,
+            (
+                SECURE_OVER_HTTP_ENV_MESSAGE.format(variable=variable)
+                if variable
+                else SECURE_OVER_HTTP_MESSAGE
+            ),
+            "cookie_secure",
+        )
 
     remember = True  # A2: "keep me signed in" is the default
     current_password = fields.get("current_password")
@@ -391,6 +407,9 @@ async def _save_settings(runtime: AuthRuntime, request: Request) -> JSONResponse
         )
         remember = _caller_remember(runtime, request, state)
     elif plan.env_password_proof:
+        # S3: sign-in is off, so there is no "current" password: the one
+        # asked for is the environment's.
+        variable = set_by(env, "password")
         await _check_password(
             runtime,
             request,
@@ -398,6 +417,11 @@ async def _save_settings(runtime: AuthRuntime, request: Request) -> JSONResponse
             current_password,
             env.password_hash,
             env.password,
+            wrong_message=(
+                f"That is not the password whose hash {variable} holds."
+                if env.password_hash is not None
+                else f"That is not the password from {variable}."
+            ),
         )
 
     # scrypt before the write lock: it is a 16 MiB hash on a worker thread.

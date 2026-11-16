@@ -428,6 +428,30 @@ def test_a_secure_only_cookie_cannot_be_chosen_from_a_plain_http_page(boxarr):
     assert not (data / "auth.json").exists()
 
 
+def test_a_secure_only_cookie_from_the_environment_names_the_variable(boxarr):
+    """The setting is locked in the page, so the way out is the variable."""
+    _, client, data = boxarr(cookie_secure="always")
+
+    response = _post(
+        client,
+        "settings",
+        {
+            "method": "forms",
+            "username": USERNAME,
+            "new_password": PASSWORD,
+            "confirm_password": PASSWORD,
+        },
+        Origin="http://testserver",
+    )
+
+    assert response.status_code == 400
+    assert response.json()["field"] == "cookie_secure"
+    assert "set BOXARR_AUTH_COOKIE_SECURE=auto and restart" in (
+        response.json()["message"]
+    )
+    assert not (data / "auth.json").exists()
+
+
 # --------------------------------------------------------------------------
 # While sign-in is on
 # --------------------------------------------------------------------------
@@ -1360,6 +1384,13 @@ def test_s3_turning_sign_in_on_asks_for_the_environments_password(
 
     assert missing.status_code == 400
     assert wrong.status_code == 403
+    # Sign-in is off: the password asked for is the environment's, not a
+    # "current" one.
+    assert wrong.json()["message"] == (
+        "That is not the password whose hash BOXARR_AUTH_PASSWORD_HASH holds."
+        if variable == "PASSWORD_HASH"
+        else "That is not the password from BOXARR_AUTH_PASSWORD."
+    )
     assert username.status_code == 400
     assert "BOXARR_AUTH_USERNAME" in username.json()["message"]
     assert response.status_code == 200, response.text
