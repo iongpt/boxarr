@@ -260,18 +260,18 @@ def dummy_hash(like: Optional[ScryptHash] = None) -> ScryptHash:
         return dummy
 
 
-def verify_dummy(password: object, like: Union[str, ScryptHash, None] = None) -> bool:
+def verify_dummy(password: object, like: Union[str, ScryptHash, None]) -> bool:
     """Do the work of a real check for an unknown username; always False.
 
-    ``like`` is the configured hash: the check then costs exactly what a
-    known username's does. A malformed ``like`` raises HashFormatError, as
-    verify_password() would.
+    ``like`` is the configured hash, required so that no caller forgets it:
+    the check then costs exactly what a known username's does. None (no
+    hash configured) uses the current defaults. A malformed ``like`` raises
+    HashFormatError, as verify_password() would.
     """
-    params = (
-        None
-        if like is None
-        else like if isinstance(like, ScryptHash) else (parse_hash(like))
-    )
+    if like is None or isinstance(like, ScryptHash):
+        params = like
+    else:
+        params = parse_hash(like)
     verify_password(password, dummy_hash(params))
     return False
 

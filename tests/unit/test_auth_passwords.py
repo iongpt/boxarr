@@ -150,7 +150,7 @@ def test_the_dummy_hash_costs_nothing_to_make_and_always_fails(monkeypatch):
     assert (made.log2n, made.r, made.p) == (DEFAULT_LOG2N, DEFAULT_R, DEFAULT_P)
     assert (len(made.salt), len(made.key)) == (16, 32)
     assert dummy_hash() is made  # kept
-    assert verify_dummy(PASSWORD) is False
+    assert verify_dummy(PASSWORD, None) is False
     assert len(runs) == 1
 
 
@@ -177,7 +177,7 @@ def test_nothing_is_made_at_import():
 def test_the_dummy_check_does_the_same_work(monkeypatch):
     runs = _count_scrypt(monkeypatch)
 
-    verify_dummy(PASSWORD)
+    verify_dummy(PASSWORD, None)
 
     assert [run[:3] for run in runs] == [(1 << DEFAULT_LOG2N, DEFAULT_R, DEFAULT_P)]
 
