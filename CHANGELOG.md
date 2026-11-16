@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.1] - 2026-11-16
+
+### Fixed
+- **The setup page shows the Test Connection result**: the result box was never made visible, so a failed test gave no reason. It now shows "✓ Connected successfully!" or the reason the test failed: Radarr's answer, an HTTP error, an unexpected answer or a network failure. A network failure disables Save until a test succeeds. An answer to a test that was replaced by an edit or a newer test is ignored (#171).
+- **Manual installs read the settings they save**: an install run from a clone without `BOXARR_DATA_DIRECTORY` saved its settings to `/config/local.yaml` (the data directory named by the bundled `config/default.yaml`) and never read that file again, so every save was lost at the next start. Boxarr now reads the settings file in the data directory that the first settings file names. A `--config` file still applies after a save. Docker installs are unchanged (#171).
+- **Hyphenated titles no longer match unrelated films**: a title was cut at any hyphen, so "Spider-Man" was matched as "Spider", "X-Men" as "X" and "Ant-Man and the Wasp" as "Ant-Man". A hyphen now starts a subtitle only with spaces on both sides ("Spider-Man - No Way Home") or when doubled (`--`). A hyphen with a space on one side only no longer cuts (#135, #172).
+- **A charted film with an IMDb id is not linked to another film of its franchise**: when the charted film was not in Radarr, the title fallbacks could link it to a film of the same franchise that Radarr lists without an IMDb id ("Avatar: Fire and Ash" to "Avatar", "Superman" to "Superman II"). An entry with an IMDb id now matches only a library film with that id, or one with its whole title. Titles that differ only in spelling still match: a hyphen or a space, accents, "&" or "and" (#135, #172).
+
+### Changed
+- **Manual installs without `BOXARR_DATA_DIRECTORY`** (Docker is not affected):
+  - A `/config/local.yaml` written by an earlier save, which earlier versions ignored, is read from the first start. All its settings apply, including the Radarr URL, the API key and auto-add. Check the setup page after upgrading.
+  - A settings file of your own in `./config` that names `/config` as the data directory is no longer read once `/config/local.yaml` exists. A warning names it and lists its settings that went back to their defaults; copy them into `/config/local.yaml`. Until then, the first save starts from your file, so its settings carry over.
+  - An edit made in place to the bundled `config/default.yaml` stops applying once `/config/local.yaml` exists.
+- **A film that Radarr lists without an IMDb id, under another title than the chart's** ("F1: The Movie" against "F1"), shows "Not in Radarr" until the status refresh links it by its TMDB id. The refresh runs after every scheduled update and from "Refresh status". Auto-add does not add it again (#172).
+
 ## [2.2.0] - 2026-11-15
 
 ### Added
