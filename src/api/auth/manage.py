@@ -54,10 +54,14 @@ on's; the owner chooses forms (or off) and External again once signed in.
 
 Every save that stores sign-in as off - the switch-off while it is on, and
 an Off saved while it is unset, under a stored none or under
-BOXARR_AUTH_METHOD=none - drops the stored trusted proxies and the widget
-token: under external that list is what lets requests in, and the token
-opens the widgets, and neither may outlive sign-in into a later one turned
-on by environment (no first enable runs then to start auth.json over).
+BOXARR_AUTH_METHOD=none - starts auth.json over, as ``--auth-reset`` does:
+only the instance id and the credential generation are kept. The username,
+the password hash, the API key, the widget token, the trusted proxies and
+every setting go. None of them may outlive sign-in into a later one turned
+on by environment, where no first enable runs to start auth.json over:
+the key, the token or the proxy list of whoever had turned sign-in on
+would work again, and so would their password under a BOXARR_AUTH_METHOD
+that names no password of its own.
 
 The widget token (design §3.6) is never taken from a request: Boxarr makes
 it, when the widgets switch to ``token`` with sign-in on (the first enable
@@ -401,7 +405,7 @@ class SettingsPlan:
     # auth.json starts over: the first enable, and new credentials stored
     # under BOXARR_AUTH_METHOD=none (see the module docstring).
     starts_over: bool = False
-    # Sign-in is stored as off: the trusted proxies and the widget token go.
+    # Sign-in is stored as off: auth.json starts over (module docstring).
     drops_access: bool = False
     # forms -> external, or external -> forms (in effect, by a signed-in
     # owner): the sessions of before end either way.
@@ -729,6 +733,23 @@ def apply_plan(
     """Return auth.json's new contents: ``base`` (the file as it is now, or
     None) with what ``plan`` changes. ``fresh_generation`` is the
     generation of a file written where none was."""
+    if plan.drops_access:
+        # Sign-in stored as off keeps only the instance id (the cookie's
+        # name) and the generation; nothing else this save sends is stored
+        # either (see the module docstring).
+        if base is None:
+            return AuthFile(
+                method=Mode.NONE,
+                instance_id=instance_id,
+                credential_generation=fresh_generation,
+                updated_at=utc_now(),
+            )
+        return AuthFile(
+            method=Mode.NONE,
+            instance_id=base.instance_id or instance_id,
+            credential_generation=base.credential_generation + (1 if plan.bump else 0),
+            updated_at=utc_now(),
+        )
     if base is None:
         # A new auth.json starts past any generation a leftover sessions
         # file could name, bump or not.
@@ -771,10 +792,6 @@ def apply_plan(
         changes["api_key"] = api_key
     if "trusted_proxies" in updates:
         changes["trusted_proxies"] = updates.pop("trusted_proxies")
-    if plan.drops_access:
-        # What lets requests in under external: it does not outlive sign-in
-        # (see the module docstring).
-        changes["trusted_proxies"] = None
     changes.update(updates)
     return replace(current, **changes)
 

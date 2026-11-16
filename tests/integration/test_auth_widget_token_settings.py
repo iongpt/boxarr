@@ -408,11 +408,11 @@ def test_a_token_made_before_sign_in_was_turned_off_does_not_come_back(
 ):
     """SEC1, the path a planted token would take. While Boxarr is open,
     someone turns sign-in on with token widgets, keeps the embed URL and
-    turns sign-in off again. The owner then turns sign-in on by environment
-    and restarts - no first enable runs to start over - and auth.json still
-    says token. Turning sign-in off dropped the token, so theirs opens
-    nothing: the widgets answer a session and the key until the owner makes
-    a token of their own."""
+    turns sign-in off again. The owner then turns sign-in on by environment,
+    with token widgets, and restarts - no first enable runs to start over.
+    Turning sign-in off started auth.json over, so theirs opens nothing: the
+    widgets answer a session and the key until the owner makes a token of
+    their own."""
     app, _, data = boxarr()
     stranger = TestClient(app, client=("127.0.0.1", 50000))
     assert _enable(stranger, widgets="token").status_code == 200
@@ -420,10 +420,10 @@ def test_a_token_made_before_sign_in_was_turned_off_does_not_come_back(
     off = _post(stranger, "settings", {"method": "none", "current_password": PASSWORD})
     assert off.status_code == 200, off.text
     assert _stored(data)["widget_token"] is None
-    assert _stored(data)["widgets"] == "token"
+    assert _stored(data)["widgets"] == "public"
 
     monkeypatch.delenv("BOXARR_AUTH_METHOD", raising=False)
-    restarted, owner, _ = boxarr("env-forms")
+    restarted, owner, _ = boxarr("env-forms", widgets="token")
     state = restarted.state.auth_runtime.state
 
     assert state.mode == Mode.FORMS and state.widgets == "token"
