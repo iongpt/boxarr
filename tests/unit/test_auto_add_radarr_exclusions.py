@@ -9,6 +9,7 @@ key out when it is false. Auto-add now skips such a film, unless
 Radarr never sends the key, so nothing changes there.
 """
 
+import json
 import os
 from pathlib import Path
 from unittest.mock import patch
@@ -16,16 +17,19 @@ from unittest.mock import patch
 import httpx
 import pytest
 
+import src.core.radarr as core_radarr
 from src.core import auto_add
 from src.core.auto_add import auto_add_missing_movies
 from src.core.boxoffice import BoxOfficeMovie
 from src.core.exceptions import RadarrError
 from src.core.matcher import MatchResult
-from src.core.radarr import QualityProfile, RadarrMovie
+from src.core.radarr import QualityProfile, RadarrMovie, RadarrService
 from src.utils.config import Settings
 
 FIELD = "boxarr_features_auto_add_skip_radarr_exclusions"
 ENV = FIELD.upper()
+REPO = Path(__file__).resolve().parents[2]
+RADARR_URL = "http://radarr.test:7878"
 
 
 def _tmdb_id(title):
@@ -232,6 +236,93 @@ class TestSlotsAndFailures:
         assert not any("Stopped auto-adding" in r.message for r in caplog.records)
 
 
+class _RadarrOverHttp:
+    """Radarr faked at the HTTP transport, under the real RadarrService.
+
+    ``GET /api/v3/movie/lookup?term=`` answers each title with the JSON a
+    Radarr 5.9+ sends: ``isExcluded: true`` for an ``excluded`` title, and no
+    such key for any other title (Radarr leaves it out when false). The
+    ``tmdb:<id>`` lookup that ``add_movie`` makes answers the same film.
+    Requests are recorded and checked after the run, because auto-add
+    catches every exception a handler could raise.
+    """
+
+    def __init__(self, excluded=()):
+        self.excluded = set(excluded)
+        self.films = {}
+        self.lookups = []
+        self.added = []
+        self.unexpected = []
+
+    def _film(self, title):
+        film = {"tmdbId": _tmdb_id(title), "title": title, "year": 2026}
+        if title in self.excluded:
+            film["isExcluded"] = True
+        self.films[film["tmdbId"]] = film
+        return film
+
+    def handler(self, request):
+        method, path = request.method, request.url.path
+        if method == "GET" and path == "/api/v3/movie/lookup":
+            term = request.url.params["term"]
+            self.lookups.append(term)
+            if term.startswith("tmdb:"):
+                film = self.films.get(int(term[len("tmdb:") :]))
+                return httpx.Response(200, json=[film] if film else [])
+            return httpx.Response(200, json=[self._film(term)])
+        if method == "POST" and path == "/api/v3/movie":
+            body = json.loads(request.content)
+            self.added.append(body)
+            return httpx.Response(
+                201,
+                json={"id": 1, "title": body["title"], "tmdbId": body["tmdbId"]},
+            )
+        if method == "GET" and path == "/api/v3/qualityProfile":
+            return httpx.Response(200, json=[{"id": 1, "name": "HD-1080p"}])
+        # add_movie tags the film when auto-tagging is on.
+        if method == "GET" and path == "/api/v3/tag":
+            return httpx.Response(200, json=[])
+        if method == "POST" and path == "/api/v3/tag":
+            return httpx.Response(201, json={"id": 1, "label": "boxarr"})
+        self.unexpected.append(f"{method} {path}")
+        return httpx.Response(404)
+
+    def service(self):
+        client = httpx.Client(
+            base_url=RADARR_URL, transport=httpx.MockTransport(self.handler)
+        )
+        return RadarrService(url=RADARR_URL, api_key="test", http_client=client)
+
+
+class TestRealRadarrClient:
+    """The flag reaches auto-add through RadarrService.search_movie.
+
+    Every other test fakes search_movie. A change there that maps or filters
+    Radarr's lookup results would drop isExcluded, and the skip fails open.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _fresh_caches(self, monkeypatch):
+        monkeypatch.setattr(core_radarr, "_movies_cache", {"ts": 0.0, "data": []})
+        monkeypatch.setattr(core_radarr, "_profiles_cache", {"ts": 0.0, "data": []})
+
+    def test_excluded_film_from_radarrs_json_is_not_posted(self, run, caplog):
+        radarr = _RadarrOverHttp(excluded={"Deleted Film"})
+        with caplog.at_level("INFO"):
+            added = run(["Deleted Film", "New Film"], radarr.service())
+
+        # Only the film that is not excluded reaches POST /api/v3/movie.
+        assert [body["tmdbId"] for body in radarr.added] == [_tmdb_id("New Film")]
+        assert added == ["New Film"]
+        assert "Deleted Film" in radarr.lookups
+        assert radarr.unexpected == []
+        assert any(
+            "'Deleted Film'" in r.message and "on Radarr's exclusion list" in r.message
+            for r in caplog.records
+        )
+        assert not any("Failed to auto-add" in r.message for r in caplog.records)
+
+
 def _settings_from(yaml_text: str, tmp_path: Path) -> Settings:
     """Load ``yaml_text`` the way Boxarr loads local.yaml, env vars winning."""
     path = tmp_path / "local.yaml"
@@ -283,3 +374,23 @@ class TestSetting:
     ):
         with patch.dict(os.environ, {ENV: env_value}):
             assert getattr(_settings_from(yaml_text, tmp_path), FIELD) is expected
+
+    def test_default_yaml_example_works_when_uncommented(self, tmp_path):
+        """config/default.yaml ships the setting commented out, in place.
+
+        As shipped it leaves the setting on; the example line, uncommented
+        and set to false, turns it off.
+        """
+        bundled = (REPO / "config" / "default.yaml").read_text()
+        example = "    # auto_add_skip_radarr_exclusions: true\n"
+        directory = 'directory: "/config"'
+        assert bundled.count(example) == 1, "default.yaml changed"
+        assert bundled.count(directory) == 1, "default.yaml changed"
+        shipped = bundled.replace(directory, f'directory: "{tmp_path}"')
+        uncommented = shipped.replace(
+            example, "    auto_add_skip_radarr_exclusions: false\n"
+        )
+
+        with patch.dict(os.environ, _without_env(), clear=True):
+            assert getattr(_settings_from(shipped, tmp_path), FIELD) is True
+            assert getattr(_settings_from(uncommented, tmp_path), FIELD) is False
