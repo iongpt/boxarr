@@ -143,3 +143,16 @@ def test_no_page_opens_an_event_source(source):
     text = TEMPLATES.get(source) or SCRIPTS[source]
 
     assert "EventSource" not in text, source
+
+
+def test_the_navbar_wraps_on_a_phone_when_sign_out_is_in_it():
+    """A6: the navbar is wider than a phone; with the sign-out control in it
+    the session-only styles let it wrap. Only there, so pages without
+    authentication stay byte for byte as before."""
+    base = TEMPLATES["base.html"]
+    start = base.index("{%- if auth_principal == 'session' %}")
+    block = base[start : base.index("{%- endif %}", start)]
+
+    assert "@media (max-width: 640px)" in block
+    assert re.search(r"\.navbar-menu\s*{[^}]*flex-wrap:\s*wrap", block)
+    assert re.search(r"\.navbar-container\s*{[^}]*flex-wrap:\s*wrap", block)
