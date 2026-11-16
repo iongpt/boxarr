@@ -645,6 +645,7 @@ def test_turning_sign_in_off_signs_everyone_out_and_clears_the_cookie(boxarr):
 
     assert refused.status_code == 400
     assert response.status_code == 200, response.text
+    assert "new API key" in response.json()["message"]
     assert runtime.state.mode == Mode.NONE
     assert _stored(data)["method"] == "none"
     expired = _cookies(response)
@@ -1294,6 +1295,36 @@ def test_nobody_can_plant_settings_that_weaken_a_later_sign_in(
         headers={**SAME_ORIGIN, "X-Forwarded-For": "203.0.113.99"},
     )
     assert throttled.status_code == 429
+
+
+def test_a_key_and_settings_left_by_someone_else_do_not_survive_the_first_enable(
+    boxarr,
+):
+    """While Boxarr is open, someone turns sign-in on with their own trusted
+    proxy and gets an API key, then turns it off again. The owner's first
+    enable starts over: that key no longer works and the settings are gone."""
+    app, _, data = boxarr()
+    stranger = TestClient(app, client=("127.0.0.1", 50000))
+    planted = _enable(stranger, trusted_proxies="127.0.0.1", remember_days=7)
+    their_key = planted.json()["api_key"]
+    off = _post(stranger, "settings", {"method": "none", "current_password": PASSWORD})
+    assert off.status_code == 200, off.text
+    assert _stored(data)["api_key"]["sha256"] == sha256_hex(their_key)
+
+    owner = TestClient(app, client=("198.51.100.20", 50000))
+    enabled = _enable(owner)
+
+    assert enabled.status_code == 200, enabled.text
+    my_key = enabled.json()["api_key"]
+    assert my_key != their_key
+    stored = _stored(data)
+    assert stored["api_key"]["sha256"] == sha256_hex(my_key)
+    assert {key: stored.get(key) for key in PLANTED} == DEFAULTS
+    script = TestClient(app)
+    assert script.get("/api/config", headers={"X-Api-Key": their_key}).status_code == (
+        401
+    )
+    assert script.get("/api/config", headers={"X-Api-Key": my_key}).status_code == 200
 
 
 def test_nothing_planted_survives_into_sign_in_by_environment(boxarr, monkeypatch):

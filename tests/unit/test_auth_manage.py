@@ -175,7 +175,9 @@ def test_the_first_enable_from_unset():
     assert PASSWORD not in repr(plan)
 
 
-def test_the_first_enable_keeps_a_stored_key():
+def test_the_first_enable_makes_a_new_key_even_with_one_stored():
+    """A key stored before the first enable may be someone else's (sign-in
+    turned on, then off again, while Boxarr was open): it is replaced."""
     from src.api.auth.config import ApiKeyRecord
 
     stored = AuthFile(
@@ -185,7 +187,7 @@ def test_the_first_enable_keeps_a_stored_key():
 
     plan = _plan(_env(), stored, ENABLE)
 
-    assert plan.kind == Kind.FIRST_ENABLE and not plan.generate_key
+    assert plan.kind == Kind.FIRST_ENABLE and plan.generate_key
 
 
 def test_an_env_key_means_no_generated_key():
@@ -341,6 +343,74 @@ def test_an_existing_file_counts_on_and_keeps_its_id():
 
     assert written.credential_generation == 6 and written.instance_id == "0badc0de"
     assert written.username == USERNAME and written.password_hash is not None
+
+
+def _planted_none_file() -> AuthFile:
+    """What someone who turned sign-in on and off again leaves behind."""
+    from src.api.auth.config import ApiKeyRecord
+
+    return AuthFile(
+        method=Mode.NONE,
+        instance_id="0badc0de",
+        username="someone-else",
+        password_hash=SecretStr(cheap_hash("their-fake-password")),
+        credential_generation=9,
+        api_key=ApiKeyRecord(sha256_hex("bxk_planted"), "nted", "2026-11-16T00:00:00Z"),
+        widget_token=SecretStr("bxw_planted"),
+        trusted_proxies=("127.0.0.1",),
+        cookie_secure="never",
+        session_hours=168,
+        remember_days=7,
+    )
+
+
+def test_the_first_enable_starts_auth_json_over():
+    stored = _planted_none_file()
+    plan = _plan(_env(), stored, ENABLE)
+    key, record = new_api_key()
+
+    written = apply_plan(
+        plan,
+        stored,
+        instance_id="feedf00d",
+        fresh_generation=1,
+        password_hash=cheap_hash(PASSWORD),
+        password_source="ui",
+        api_key=record,
+    )
+
+    expected = AuthFile(method=Mode.FORMS)
+    assert written.method == Mode.FORMS and written.username == USERNAME
+    assert written.instance_id == "0badc0de"  # the cookie keeps its name
+    assert written.credential_generation == 10
+    assert written.api_key == record
+    assert written.password_hash.get_secret_value() != cheap_hash("their-fake-password")
+    for name in ("widget_token", "trusted_proxies", "cookie_secure", "widgets"):
+        assert getattr(written, name) == getattr(expected, name), name
+    assert written.session_hours == expected.session_hours
+    assert written.remember_days == expected.remember_days
+
+
+def test_the_first_enable_keeps_settings_sent_with_it():
+    stored = _planted_none_file()
+    body = {**ENABLE, "trusted_proxies": ["172.18.0.5"], "remember_days": 30}
+    plan = _plan(_env(), stored, body)
+
+    written = apply_plan(plan, stored, instance_id="x", fresh_generation=1)
+
+    assert written.trusted_proxies == ("172.18.0.5",)
+    assert written.remember_days == 30
+    assert written.cookie_secure == "auto"
+
+
+def test_with_the_key_in_the_environment_the_first_enable_stores_none():
+    stored = _planted_none_file()
+    plan = _plan(_env(api_key="bxk_" + "FAKE" * 10), stored, ENABLE)
+
+    written = apply_plan(plan, stored, instance_id="x", fresh_generation=1)
+
+    assert not plan.generate_key
+    assert written.api_key is None  # nothing waits for the variable to go
 
 
 def test_an_empty_proxy_list_clears_the_stored_one():

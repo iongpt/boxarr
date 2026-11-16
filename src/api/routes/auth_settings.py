@@ -312,7 +312,10 @@ def _settings_message(plan: SettingsPlan, runtime: AuthRuntime) -> str:
     if plan.kind == Kind.FIRST_ENABLE:
         return "Sign-in is on, and this browser is signed in."
     if plan.switching_off:
-        return "Sign-in is off: anyone who can reach Boxarr can use it."
+        return (
+            "Sign-in is off: anyone who can reach Boxarr can use it. Turning "
+            "it on again starts over, with a new API key."
+        )
     if plan.kind == Kind.ENV_NONE:
         return (
             f"Saved to {runtime.paths.auth_file}. BOXARR_AUTH_METHOD=none keeps "
