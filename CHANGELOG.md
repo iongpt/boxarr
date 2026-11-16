@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - A `/config/local.yaml` written by an earlier save, which earlier versions ignored, is read from the first start. All its settings apply, including the Radarr URL, the API key and auto-add. Check the setup page after upgrading.
   - A settings file of your own in `./config` that names `/config` as the data directory is no longer read once `/config/local.yaml` exists. A warning names it and lists its settings that went back to their defaults; copy them into `/config/local.yaml`. Until then, the first save starts from your file, so its settings carry over.
   - An edit made in place to the bundled `config/default.yaml` stops applying once `/config/local.yaml` exists.
-- **A film that Radarr lists without an IMDb id, under another title than the chart's** ("F1: The Movie" against "F1"), shows "Not in Radarr" until the status refresh links it by its TMDB id. The refresh runs after every scheduled update and from "Refresh status". Auto-add does not add it again (#172).
+- **A film that Radarr lists without an IMDb id, under another title than the chart's** ("F1: The Movie" against "F1"), shows "Not in Radarr" until the status refresh links it by its TMDB id. The refresh runs after every scheduled update and from **Refresh Radarr Status** on the Overview page. Auto-add does not add it again (#172).
 
 ## [2.2.0] - 2026-11-15
 
