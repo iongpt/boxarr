@@ -10,6 +10,9 @@
   mode and session lengths.
 - ``POST /api/auth/api-key`` creates or regenerates the API key, shown in
   that answer only; ``DELETE /api/auth/api-key`` revokes it.
+- ``POST /api/auth/widget-token`` makes the widget token (design §3.6), or
+  a new one: the old one stops working at once. It answers with the
+  widgets' embed URLs, which carry it.
 - ``POST /api/auth/sessions/revoke-all`` signs out everywhere: a new
   credential generation ends every session, and the caller gets a new one.
 - ``POST /api/auth/keep-open`` is the banner's "Keep it open" (A5): it stores
@@ -34,7 +37,7 @@ import hmac
 import json
 import unicodedata
 from dataclasses import replace
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
@@ -56,11 +59,15 @@ from ..auth.manage import (
     Kind,
     SettingsPlan,
     apply_plan,
+    finish_widget_token,
     new_api_key,
+    new_widget_token,
     parse_settings,
     plan_settings,
     security_view,
     set_by,
+    setting_label,
+    widget_embed_paths,
 )
 from ..auth.middleware import AUTH_SCOPE_KEY, cookie_names, session_tokens
 from ..auth.passwords import HashFormatError, hash_password, verify_password
@@ -99,6 +106,12 @@ SECURE_OVER_HTTP_ENV_MESSAGE = (
     "This page is plain http, so a sign-in cookie marked Secure would never "
     "come back and you could not stay signed in. Open Boxarr over https "
     "first, or set {variable}=auto and restart Boxarr."
+)
+WIDGETS_PUBLIC_MESSAGE = (
+    "The widgets are public, so they need no token. Switch them to token " "first."
+)
+WIDGET_TOKEN_CREATED_MESSAGE = (
+    " The widgets now need their token: their embed URLs are under Widgets."
 )
 KEY_NOTE = (
     "Copy it now: it will not be shown again. Send it in the X-Api-Key "
@@ -331,7 +344,7 @@ def _settings_message(plan: SettingsPlan, runtime: AuthRuntime) -> str:
     return "Security settings saved."
 
 
-def _log_settings(plan: SettingsPlan) -> None:
+def _log_settings(plan: SettingsPlan, token_made: bool = False) -> None:
     """Say what changed - names only, never a value."""
     if plan.kind == Kind.FIRST_ENABLE:
         logger.info(
@@ -353,6 +366,8 @@ def _log_settings(plan: SettingsPlan) -> None:
         logger.info(
             "Authentication: changed in Settings → Security: %s", ", ".join(changed)
         )
+    if token_made:
+        logger.info("Authentication: a widget token was created")
 
 
 @router.get("/api/auth/status", include_in_schema=False)
@@ -445,6 +460,10 @@ async def _save_settings(runtime: AuthRuntime, request: Request) -> JSONResponse
     key_record = None
     if plan.generate_key:
         key, key_record = new_api_key()
+    # Used only if the widgets need a token and have none (decided under
+    # the lock, against auth.json as it is then).
+    widget_token = new_widget_token()
+    token_made: List[bool] = []
     # A new auth.json keeps the id the cookie is already named after.
     instance_id = runtime.instance_id
 
@@ -459,7 +478,7 @@ async def _save_settings(runtime: AuthRuntime, request: Request) -> JSONResponse
             base = _base(found, current, runtime)
         else:
             base = None
-        return apply_plan(
+        candidate = apply_plan(
             plan,
             base,
             instance_id=instance_id,
@@ -468,14 +487,21 @@ async def _save_settings(runtime: AuthRuntime, request: Request) -> JSONResponse
             password_source=password_source,
             api_key=key_record,
         )
+        candidate, made = finish_widget_token(candidate, env, plan, widget_token)
+        token_made[:] = [made]
+        return candidate
 
     new_state = await runtime.update_auth_file(decide)
-    _log_settings(plan)
+    made = bool(token_made and token_made[0])
+    _log_settings(plan, made)
 
+    message = _settings_message(plan, runtime)
+    if made:
+        message += WIDGET_TOKEN_CREATED_MESSAGE
     content: Dict[str, Any] = {
         "success": True,
         "method": new_state.mode,
-        "message": _settings_message(plan, runtime),
+        "message": message,
         "warnings": list(plan.warnings),
         "signed_in": False,
     }
@@ -509,22 +535,25 @@ async def _save_settings(runtime: AuthRuntime, request: Request) -> JSONResponse
 
 
 async def _key_preamble(
-    request: Request,
+    request: Request, setting: str = "api_key"
 ) -> Tuple[AuthRuntime, AuthState]:
-    """What creating, regenerating and revoking the key need first: sign-in
-    on, a session, a key the environment does not set, the current
-    password."""
+    """What creating, regenerating and revoking the key (or, with
+    ``setting``, the widget token) need first: sign-in on, a session, a
+    value the environment does not set, the current password."""
     runtime = _runtime(request)
     state = runtime.state
     _require_access(request, state)
     if state.mode != Mode.FORMS:
         raise ChangeRefused(409, NOT_ON_MESSAGE)
-    variable = set_by(runtime.env, "api_key")
+    variable = set_by(runtime.env, setting)
     if variable:
         raise ChangeRefused(
             400,
-            f"The API key is set by {variable}: change it there and restart Boxarr.",
+            f"{setting_label(setting)} is set by {variable}: change it there and "
+            "restart Boxarr.",
         )
+    if setting == "widget_token" and state.widgets != "token":
+        raise ChangeRefused(409, WIDGETS_PUBLIC_MESSAGE)
     data = await _read_json(request, SMALL_BODY_MAX_BYTES)
     if not isinstance(data, dict) or set(data) - {"current_password"}:
         raise ChangeRefused(400, "Send only the current password.")
@@ -598,6 +627,41 @@ async def revoke_api_key(request: Request) -> JSONResponse:
         {
             "success": True,
             "message": ("API key revoked. Anything that still sends it is refused."),
+        },
+    )
+
+
+@router.post("/api/auth/widget-token", include_in_schema=False)
+async def regenerate_widget_token(request: Request) -> JSONResponse:
+    """Make the widget token, or a new one; answer with the embed URLs."""
+    try:
+        runtime, state = await _key_preamble(request, "widget_token")
+        replacing = state.widget_token is not None
+        token = new_widget_token()
+
+        def decide(found: AuthFileResult, current: AuthState) -> AuthFile:
+            _expect(current, state)
+            base = _base(found, current, runtime)
+            return replace(base, widget_token=SecretStr(token), updated_at=utc_now())
+
+        new_state = await runtime.update_auth_file(decide)
+    except ChangeRefused as exc:
+        return _refused(exc)
+    logger.info(
+        "Authentication: the widget token was %s in Settings → Security",
+        "regenerated" if replacing else "created",
+    )
+    return _json(
+        200,
+        {
+            "success": True,
+            "message": (
+                "A new widget token replaces the old one, which no longer works: "
+                "update the embed URL wherever it is used."
+                if replacing
+                else "Widget token created."
+            ),
+            "embed": widget_embed_paths(new_state, _root(request)),
         },
     )
 

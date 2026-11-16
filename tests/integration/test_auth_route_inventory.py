@@ -342,6 +342,61 @@ def test_widgets_in_token_mode_are_denied_in_their_own_format(forms_app):
     assert with_key.status == 200
 
 
+WIDGET_TOKEN = "bxw_fakeWidgetTokenForTests0123"
+
+
+@pytest.mark.parametrize("url_base", URL_BASES)
+@pytest.mark.parametrize("token", [True, False], ids=["with-token", "without"])
+def test_in_token_mode_the_token_opens_the_widget_gets_and_nothing_else(
+    forms_app, url_base, token
+):
+    """Design §3.6: the widget token is the one credential read from a URL,
+    and it grants GET on the two widget routes only. Every route and method
+    is asked with it (and without it): the widgets answer only with it,
+    everything else exactly as when no token is sent."""
+    app, root = forms_app(url_base, widgets="token", widget_token=WIDGET_TOKEN)
+    query = f"token={WIDGET_TOKEN}".encode() if token else b""
+    cases = _route_cases(app)
+
+    requests, labels = [], []
+    for route_path_, concrete_path in cases:
+        for method in METHODS:
+            requests.append((raw_scope(method, root + concrete_path, query=query), b""))
+            labels.append((route_path_, concrete_path, method))
+    answers = call_all(app, requests)
+
+    passed = set()
+    for (route_path_, concrete_path, method), answer in zip(labels, answers):
+        widget_get = method == "GET" and concrete_path in (
+            "/api/widget",
+            "/api/widget/json",
+        )
+        if _expected_public(concrete_path, method) and not widget_get:
+            assert answer.status not in DENIED | {503}, (concrete_path, method)
+            passed.add((route_path_, method))
+        elif widget_get and token:
+            assert answer.status == 200, (concrete_path, answer.body[:200])
+            assert answer.scope["boxarr.auth"]["kind"] == "widget"
+            passed.add((route_path_, method))
+        else:
+            _assert_denied(answer, (concrete_path, method))
+            if widget_get:
+                assert answer.status == 401  # never a redirect
+                assert answer.header("access-control-allow-origin") == "*"
+
+    expected = {
+        ("/api/health", "GET"),
+        ("/static", "GET"),
+        ("/static", "HEAD"),
+        ("/login", "GET"),
+        ("/api/auth/login", "POST"),
+        ("/api/auth/logout", "POST"),
+    }
+    if token:
+        expected |= {("/api/widget", "GET"), ("/api/widget/json", "GET")}
+    assert passed == expected
+
+
 def test_external_is_not_offered_yet_and_fails_closed(forms_app):
     app, _ = forms_app("", method="external", TRUSTED_PROXIES="192.0.2.10")
     # Locked, with that reason: the trusted peer does not pass as a proxy.
@@ -368,6 +423,7 @@ SECURITY_ROUTES = [
     ("POST", "/api/auth/settings", "save_settings"),
     ("POST", "/api/auth/api-key", "create_api_key"),
     ("DELETE", "/api/auth/api-key", "revoke_api_key"),
+    ("POST", "/api/auth/widget-token", "regenerate_widget_token"),
     ("POST", "/api/auth/sessions/revoke-all", "revoke_all_sessions"),
     ("POST", "/api/auth/keep-open", "keep_open"),
 ]

@@ -9,6 +9,11 @@ being "off": no auth.json, auth.json saying none, BOXARR_AUTH_METHOD=none
 (over a broken auth.json too), and credentials ignored under a stored none.
 No answer sets a cookie, health keeps its whole body, nothing redirects that
 did not, and no auth file is written.
+
+Group C (the widget token, design §3.6): widgets stay public while sign-in
+is off, whatever a URL carries and whatever is set - BOXARR_AUTH_WIDGETS
+and BOXARR_AUTH_WIDGET_TOKEN without a method, or a stored none that still
+holds a token mode and a token.
 """
 
 import json
@@ -29,6 +34,8 @@ from tests.auth_support import (
     raw_scope,
     use_url_base,
 )
+
+WIDGET_TOKEN = "bxw_fakeWidgetTokenForTests0123"
 
 # (method, path, query, body) - a sample of every route class.
 SAMPLE: List[Tuple[str, str, bytes, bytes]] = [
@@ -59,6 +66,10 @@ SAMPLE: List[Tuple[str, str, bytes, bytes]] = [
     ("GET", "/api/nope", b"", b""),
     ("GET", "/api/widget", b"", b""),
     ("GET", "/api/widget/json", b"", b""),
+    ("GET", "/api/widget", b"token=" + WIDGET_TOKEN.encode(), b""),
+    ("GET", "/api/widget/json", b"token=" + WIDGET_TOKEN.encode(), b""),
+    ("GET", "/api/widget/json", b"token=bxw_wrongWidgetTokenForTests987", b""),
+    ("HEAD", "/api/widget", b"token=" + WIDGET_TOKEN.encode(), b""),
     ("POST", "/api/movies/ignore", b"", b"{}"),
     ("POST", "/api/movies/status", b"", b"not json"),
     ("DELETE", "/api/weeks/2026/W45/delete", b"", b""),
@@ -85,6 +96,8 @@ NEW_ROUTES = {
     ("POST", "/api/auth/api-key"): (409, None),
     ("DELETE", "/api/auth/api-key"): (409, None),
     ("POST", "/api/auth/sessions/revoke-all"): (409, None),
+    # The widget token (group C): refused while sign-in is off.
+    ("POST", "/api/auth/widget-token"): (409, None),
 }
 
 
@@ -139,7 +152,15 @@ def _comparable(answer: Answer) -> Tuple[Any, ...]:
     return (answer.status, answer.headers, answer.body, answer.close_code)
 
 
-OFF_STATES = ["unset", "file-none", "env-none", "env-none-over-broken", "s3"]
+OFF_STATES = [
+    "unset",
+    "file-none",
+    "env-none",
+    "env-none-over-broken",
+    "s3",
+    "widgets-token-env",
+    "file-none-token",
+]
 
 
 @pytest.fixture
@@ -170,6 +191,21 @@ def off_app(monkeypatch, tmp_path):
                 json.dumps({"version": 1, "method": "none"})
             )
             auth_env(monkeypatch, data, method=None, password=PASSWORD)
+        elif state == "widgets-token-env":
+            # Token mode and a token by environment, with no method.
+            monkeypatch.setenv("BOXARR_AUTH_WIDGETS", "token")
+            monkeypatch.setenv("BOXARR_AUTH_WIDGET_TOKEN", WIDGET_TOKEN)
+        elif state == "file-none-token":
+            (data / "auth.json").write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "method": "none",
+                        "widgets": "token",
+                        "widget_token": WIDGET_TOKEN,
+                    }
+                )
+            )
         root = use_url_base(monkeypatch, url_base)
         app = create_app()
         assert not app.state.auth_runtime.state.in_effect, state
@@ -272,3 +308,25 @@ def test_the_api_schema_does_not_change(off_app):
     ] == []
     health = schema["paths"]["/api/health"]["get"]
     assert health["description"] == "Simple health check endpoint."
+
+
+@pytest.mark.parametrize("state", OFF_STATES)
+def test_nothing_shows_a_widget_token_while_off(off_app, state):
+    """While sign-in is off anyone may read Settings → Security and its
+    status: neither holds the widgets' embed URLs or a token, even when
+    auth.json (a stored none) or the environment holds one."""
+    app, _, _, _ = off_app(state)
+
+    status, setup = call_all(
+        app,
+        [
+            (raw_scope("GET", "/api/auth/status"), b""),
+            (raw_scope("GET", "/setup"), b""),
+        ],
+    )
+
+    assert "widget_embed" not in json.loads(status.body)
+    for answer in (status, setup):
+        assert answer.status == 200
+        assert WIDGET_TOKEN.encode() not in answer.body
+        assert b"securityWidgetEmbed" not in answer.body
