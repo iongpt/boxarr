@@ -46,6 +46,13 @@ function page(options) {
     const b = browser({ confirm: options.confirm });
     b.sb.window.BOXARR_BASE_PATH = options.base || '';
     b.sb.window.location.pathname = (options.base || '') + '/setup';
+    if (options.hash) b.sb.window.location.hash = options.hash;
+    const windowListeners = {};
+    b.sb.window.addEventListener = (type, fn) => {
+        (windowListeners[type] = windowListeners[type] || []).push(fn);
+    };
+    // What the browser does once the page has loaded.
+    b.fireWindow = type => (windowListeners[type] || []).forEach(fn => fn({ type }));
     if (options.banner) b.sb.mount(options.banner);
     b.sb.mount(options.section);
     b.sb.load(options.app);
@@ -134,6 +141,48 @@ def _data(rendered, name: str, **extra):
     page["app"] = str(APP_JS)
     page.update(extra)
     return page
+
+
+# --------------------------------------------------------------------------
+# Arriving from "Set up login"
+# --------------------------------------------------------------------------
+
+FOCUS_DRIVER = r"""
+const { b, el } = page(data);
+const focused = () => (b.sb.document.activeElement || {}).id || null;
+const atInit = focused();
+// The browser's move to #security after load leaves the focus nowhere...
+b.sb.document.activeElement = b.sb.document.body;
+if (data.ownerMovedOn) el('securityMethod').focus();
+b.fireWindow('load');
+await b.sb.flush();
+return { atInit, afterLoad: focused(), errors: b.sb.record.errors };
+"""
+
+
+@pytest.mark.parametrize("name", ["unset", "unset-boxarr"])
+def test_set_up_login_leaves_the_cursor_in_username(rendered, name):
+    """Headless Chrome showed the focus lost: the browser's own move to
+    #security, after load, takes it away from the field focused at init."""
+    result = run(FOCUS_DRIVER, _data(rendered, name, hash="#security"))
+
+    assert result["atInit"] == "securityUsername"
+    assert result["afterLoad"] == "securityUsername"
+    assert result["errors"] == []
+
+
+def test_set_up_login_does_not_take_the_focus_back_from_the_owner(rendered):
+    result = run(
+        FOCUS_DRIVER, _data(rendered, "unset", hash="#security", ownerMovedOn=True)
+    )
+
+    assert result["afterLoad"] == "securityMethod"
+
+
+def test_without_the_hash_nothing_is_focused(rendered):
+    result = run(FOCUS_DRIVER, _data(rendered, "unset"))
+
+    assert result["atInit"] is None and result["afterLoad"] is None
 
 
 # --------------------------------------------------------------------------
