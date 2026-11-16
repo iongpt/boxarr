@@ -35,6 +35,7 @@ from tests.auth_support import (
     call,
     cheap_hash,
     clear_auth_env,
+    freeze_throttle,
     raw_scope,
     use_url_base,
 )
@@ -464,7 +465,8 @@ def test_every_change_needs_the_current_password(boxarr, caplog):
 
 
 def test_wrong_current_passwords_are_throttled(boxarr):
-    _, client, _ = boxarr()
+    app, client, _ = boxarr()
+    freeze_throttle(app)
     _enable(client)
 
     answers = [
@@ -483,6 +485,27 @@ def test_wrong_current_passwords_are_throttled(boxarr):
     assert throttled.status_code == 429
     assert int(throttled.headers["retry-after"]) >= 1
     assert throttled.json()["retry_after"] >= 1
+
+
+def test_the_current_password_throttle_keys_on_the_strict_client(boxarr):
+    """As at login (A1, S4): uvicorn's proxy layer trusts 127.0.0.1 by
+    default, sign-in does not, so a local peer cannot pick a fresh throttle
+    key per request with X-Forwarded-For."""
+    app, _, _ = boxarr()
+    freeze_throttle(app)
+    local = TestClient(app, client=("127.0.0.1", 50000))
+    assert _enable(local).status_code == 200
+
+    def wrong(n: int):
+        return _post(
+            local,
+            "settings",
+            {"session_hours": 12, "current_password": WRONG_PASSWORD},
+            **{"X-Forwarded-For": f"203.0.113.{n}"},
+        ).status_code
+
+    assert [wrong(n) for n in range(5)] == [403] * 5
+    assert wrong(99) == 429
 
 
 @pytest.mark.parametrize(
@@ -644,6 +667,71 @@ def test_a_change_made_meanwhile_is_not_overwritten(boxarr, monkeypatch):
 
     assert response.status_code == 409
     assert passwords.verify_password(PASSWORD, _stored(data)["password_hash"])
+
+
+@pytest.mark.parametrize(
+    "method, path",
+    [
+        ("POST", "/api/auth/api-key"),
+        ("DELETE", "/api/auth/api-key"),
+        ("POST", "/api/auth/sessions/revoke-all"),
+    ],
+)
+def test_a_key_or_sign_out_decided_on_a_stale_state_is_refused(
+    boxarr, monkeypatch, method, path
+):
+    """The key and Sign out everywhere re-check, under the write lock, that
+    auth.json is still what the request was checked against."""
+    app, client, data = boxarr()
+    _enable(client)
+    real_load = runtime_module.load_auth_file
+    moved = []
+
+    def someone_else_saves_first(file_path, *args, **kwargs):
+        if not moved:
+            moved.append(True)
+            stored = json.loads(file_path.read_text())
+            stored["credential_generation"] += 1
+            file_path.write_text(json.dumps(stored))
+        return real_load(file_path, *args, **kwargs)
+
+    monkeypatch.setattr(runtime_module, "load_auth_file", someone_else_saves_first)
+    before = _stored(data)
+
+    response = client.request(
+        method, path, json={"current_password": PASSWORD}, headers=SAME_ORIGIN
+    )
+
+    assert moved
+    assert response.status_code == 409, response.text
+    assert "set-cookie" not in response.headers
+    after = _stored(data)
+    assert after["api_key"] == before["api_key"]
+    assert after["credential_generation"] == before["credential_generation"] + 1
+
+
+@pytest.mark.parametrize("action", ["keep-open", "enable"])
+def test_auth_json_is_private_from_the_moment_it_is_written(
+    boxarr, monkeypatch, action
+):
+    """0600 before anything reads the file back: the loader tightens a
+    too-open file on its next read, which would hide a writer that is not
+    private."""
+    app, client, data = boxarr()
+    runtime = app.state.auth_runtime
+    real_reload = runtime.reload
+    modes = []
+
+    def reload_after_checking_the_mode():
+        modes.append(_mode(data / "auth.json"))
+        return real_reload()
+
+    monkeypatch.setattr(runtime, "reload", reload_after_checking_the_mode)
+
+    response = _post(client, "keep-open") if action == "keep-open" else _enable(client)
+
+    assert response.status_code == 200, response.text
+    assert modes == [0o600]
 
 
 def test_a_write_that_fails_changes_nothing(boxarr, monkeypatch, caplog):
@@ -866,6 +954,41 @@ def test_an_api_key_cannot_manage_security(boxarr, method, path):
     assert (data / "auth.json").read_text() == before
 
 
+@pytest.mark.parametrize(
+    "method, path",
+    [
+        ("GET", "/api/auth/status"),
+        ("GET", "/api/auth/settings"),
+        ("POST", "/api/auth/settings"),
+        ("POST", "/api/auth/api-key"),
+        ("DELETE", "/api/auth/api-key"),
+        ("POST", "/api/auth/sessions/revoke-all"),
+    ],
+)
+def test_the_security_routes_refuse_anyone_but_a_session_on_their_own(
+    boxarr, method, path
+):
+    """Defence in depth: with the middleware taken out, the routes still
+    refuse a caller that is not signed in while sign-in is on."""
+    from src.api.auth.middleware import AuthMiddleware
+
+    app, client, data = boxarr()
+    _enable(client)
+    before = (data / "auth.json").read_text()
+    app.user_middleware = [
+        m for m in app.user_middleware if m.cls is not AuthMiddleware
+    ]
+    app.middleware_stack = None
+
+    response = TestClient(app).request(
+        method, path, json={"current_password": PASSWORD}, headers=SAME_ORIGIN
+    )
+
+    assert response.status_code == 403, response.text
+    assert response.json()["message"] == auth_settings.SESSION_NEEDED_MESSAGE
+    assert (data / "auth.json").read_text() == before
+
+
 def test_the_key_and_session_routes_need_sign_in_to_be_on(boxarr):
     _, client, data = boxarr("file-none")
     before = (data / "auth.json").read_text()
@@ -973,6 +1096,40 @@ def test_keep_it_open_is_refused_under_forms(boxarr):
     assert anonymous.status_code == 401
     assert signed_in.status_code == 409
     assert (data / "auth.json").read_text() == before
+
+
+def test_keep_it_open_racing_a_first_enable_is_refused(boxarr, monkeypatch):
+    """The check that matters runs under the write lock: a first enable that
+    lands after the click passed its early check is never overwritten with
+    none (which would switch sign-in off)."""
+    app, client, data = boxarr()
+    real_load = runtime_module.load_auth_file
+    enabled = []
+
+    def someone_enables_first(file_path, *args, **kwargs):
+        if not enabled:
+            enabled.append(True)
+            file_path.write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "method": "forms",
+                        "username": USERNAME,
+                        "password_hash": cheap_hash(PASSWORD),
+                        "credential_generation": 5,
+                        "instance_id": "abcdef12",
+                    }
+                )
+            )
+        return real_load(file_path, *args, **kwargs)
+
+    monkeypatch.setattr(runtime_module, "load_auth_file", someone_enables_first)
+
+    response = _post(client, "keep-open")
+
+    assert enabled
+    assert response.status_code == 409, response.text
+    assert _stored(data)["method"] == "forms"
 
 
 def test_keep_it_open_after_an_unset_start_never_reopens_old_sessions(boxarr):

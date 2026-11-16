@@ -172,6 +172,11 @@ SAFE_CASES = {
         ("/boxarr/", "/boxarr/"),
         ("/weeks", "/boxarr/"),
         ("/boxarrX/weeks", "/boxarr/"),
+        # Not under BASE_PATH, although what follows its first 7 characters
+        # ("/x", "/weeks") passes the validator: only the prefix check
+        # refuses these.
+        ("//ev.co/x", "/boxarr/"),
+        ("/evilxx/weeks", "/boxarr/"),
         ("/boxarr//evil.example", "/boxarr/"),
         ("/boxarr/login", "/boxarr/"),
         ("/boxarr/../weeks", "/boxarr/"),

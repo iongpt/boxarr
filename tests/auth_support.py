@@ -72,6 +72,30 @@ def auth_env(
         monkeypatch.setenv(AUTH_VARIABLE_PREFIX + name.upper(), value)
 
 
+class FrozenClock:
+    """A monotonic clock that moves only when a test says so, so throttle
+    backoffs never depend on how fast the machine runs the test."""
+
+    def __init__(self, start: float = 10_000.0) -> None:
+        """Start at ``start`` seconds."""
+        self.now = start
+
+    def __call__(self) -> float:
+        """The current time."""
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        """Move the clock on by ``seconds``."""
+        self.now += seconds
+
+
+def freeze_throttle(app) -> FrozenClock:
+    """Give ``app``'s login throttle a frozen clock; return the clock."""
+    clock = FrozenClock()
+    app.state.auth_runtime.throttle._clock = clock
+    return clock
+
+
 def use_url_base(monkeypatch, url_base: str) -> str:
     """Serve under ``url_base`` (as the setting would); return the root path."""
     from src.utils.config import settings
