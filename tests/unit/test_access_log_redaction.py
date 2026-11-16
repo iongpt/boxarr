@@ -190,7 +190,7 @@ def test_a_record_without_arguments_has_its_message_redacted():
         logging.INFO,
         __file__,
         1,
-        f'192.0.2.7:1 - "GET /x?password={FAKE_SECRET} HTTP/1.1" 200',
+        f'192.0.2.7:1 - "GET /x?password=a%20{FAKE_SECRET} HTTP/1.1" 200',
         None,
         None,
     )
@@ -198,7 +198,9 @@ def test_a_record_without_arguments_has_its_message_redacted():
     _SecretQueryFilter().filter(record)
 
     assert FAKE_SECRET not in record.getMessage()
-    assert record.getMessage().endswith('HTTP/1.1" 200')
+    assert record.getMessage() == (
+        f'192.0.2.7:1 - "GET /x?password={REDACTED} HTTP/1.1" 200'
+    )
 
 
 def test_redact_secrets_names_what_it_keeps():
