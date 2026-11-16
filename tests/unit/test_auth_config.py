@@ -5,6 +5,7 @@ auth.json locks (and is copied to .broken), and BOXARR_AUTH_METHOD=none
 overrides all of it. No message quotes a value.
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -334,7 +335,7 @@ def test_an_env_api_key_is_kept_only_as_its_hash():
     env = parse_env({"BOXARR_AUTH_API_KEY": FAKE_KEY})
 
     assert env.errors == ()
-    assert env.api_key_sha256 == sha256_hex(FAKE_KEY)
+    assert env.api_key_sha256 == hashlib.sha256(FAKE_KEY.encode()).hexdigest()
     assert env.api_key_variable == "BOXARR_AUTH_API_KEY"
     assert FAKE_KEY not in repr(env) and FAKE_KEY not in str(vars(env))
 
@@ -487,6 +488,8 @@ MALFORMED = {
     "null": "null",
     "duplicate key": '{"version": 1, "method": "none", "method": "forms"}',
     "NaN": '{"version": 1, "method": "none", "session_hours": NaN}',
+    "NaN in an unknown key": '{"version": 1, "method": "none", "extra": NaN}',
+    "-Infinity in an unknown key": '{"version": 1, "method": "none", "x": -Infinity}',
     "Infinity": '{"version": 1, "method": "none", "session_hours": Infinity}',
     "deep nesting": '{"version": 1, "method": "none", "x": '
     + "[" * 100000
@@ -595,6 +598,52 @@ def test_a_broken_copy_is_0600_even_from_a_world_readable_file(tmp_path):
     assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
 
 
+def test_a_broken_copy_is_created_0600_even_when_tightening_fails(
+    tmp_path, monkeypatch
+):
+    path = _write(tmp_path / "auth.json", "not json", mode=0o644)
+
+    def refuse(*args, **kwargs):
+        raise PermissionError("chmod refused")
+
+    monkeypatch.setattr(auth_config.os, "chmod", refuse)
+    result = load_auth_file(path)
+
+    assert stat.S_IMODE(os.stat(path).st_mode) == 0o644  # could not tighten
+    assert any("could not be made 0600" in w for w in result.warnings)
+    assert stat.S_IMODE(os.stat(result.broken_copy).st_mode) == 0o600
+
+
+def test_a_reused_broken_copy_is_tightened(tmp_path):
+    path = _write(tmp_path / "auth.json", "not json")
+    earlier = _write(tmp_path / "auth.json.broken", "not json", mode=0o644)
+
+    result = load_auth_file(path)
+
+    assert result.broken_copy == earlier
+    assert stat.S_IMODE(os.stat(earlier).st_mode) == 0o600
+
+
+def test_a_readable_identical_copy_that_cannot_be_tightened_is_not_reused(
+    tmp_path, monkeypatch
+):
+    path = _write(tmp_path / "auth.json", "not json")
+    earlier = _write(tmp_path / "auth.json.broken", "not json", mode=0o644)
+    real_chmod = os.chmod
+
+    def refuse_the_old_copy(target, mode, *args, **kwargs):
+        if Path(target) == earlier:
+            raise PermissionError("chmod refused")
+        return real_chmod(target, mode, *args, **kwargs)
+
+    monkeypatch.setattr(auth_config.os, "chmod", refuse_the_old_copy)
+    result = load_auth_file(path)
+
+    assert result.broken_copy not in (None, earlier)
+    assert result.broken_copy.read_text() == "not json"
+    assert stat.S_IMODE(os.stat(result.broken_copy).st_mode) == 0o600
+
+
 def test_a_directory_in_its_place_locks(tmp_path):
     (tmp_path / "auth.json").mkdir()
 
@@ -615,6 +664,54 @@ def test_an_unreadable_file_locks(tmp_path):
     assert result.state == FileState.LOCKED and "cannot be read" in result.problem
 
 
+def test_a_stat_error_locks(tmp_path):
+    (tmp_path / "blocker").write_text("a file where a directory should be")
+    result = load_auth_file(tmp_path / "blocker" / "auth.json")  # NotADirectoryError
+
+    assert result.state == FileState.LOCKED
+    assert "cannot be read" in result.problem
+    assert resolve_state(parse_env({}), result).mode == Mode.LOCKED
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root searches any directory")
+def test_a_file_in_an_unsearchable_directory_locks(tmp_path):
+    directory = tmp_path / "data"
+    directory.mkdir()
+    _write(directory / "auth.json", _valid())
+    os.chmod(directory, 0o600)  # readable, not searchable
+    try:
+        result = load_auth_file(directory / "auth.json")
+    finally:
+        os.chmod(directory, 0o700)
+
+    assert result.state == FileState.LOCKED and "cannot be read" in result.problem
+
+
+def test_a_link_whose_target_is_missing_locks(tmp_path):
+    link = tmp_path / "auth.json"
+    os.symlink(tmp_path / "secrets-volume" / "auth.json", link)
+
+    result = load_auth_file(link)
+
+    assert result.state == FileState.LOCKED
+    assert "link whose target is missing" in result.problem
+    assert result.broken_copy is None
+    assert resolve_state(parse_env({}), result).mode == Mode.LOCKED
+
+
+def test_a_link_to_a_valid_file_is_read(tmp_path):
+    target = _write(tmp_path / "real.json", _valid())
+    os.symlink(target, tmp_path / "auth.json")
+
+    assert load_auth_file(tmp_path / "auth.json").state == FileState.VALID
+
+
+def test_a_missing_directory_is_unset(tmp_path):
+    result = load_auth_file(tmp_path / "not-created-yet" / "auth.json")
+
+    assert result.state == FileState.UNSET
+
+
 def test_a_non_utf8_file_locks(tmp_path):
     path = tmp_path / "auth.json"
     path.write_bytes(b'{"version": 1, "method": "\xff"}')
@@ -630,8 +727,9 @@ def test_a_huge_file_locks(tmp_path):
     assert result.state == FileState.LOCKED and "too large" in result.problem
 
 
-def test_a_group_readable_file_is_tightened(tmp_path):
-    path = _write(tmp_path / "auth.json", _valid(), mode=0o644)
+@pytest.mark.parametrize("mode", [0o640, 0o620, 0o660, 0o604, 0o602, 0o644])
+def test_a_group_or_world_readable_file_is_tightened(tmp_path, mode):
+    path = _write(tmp_path / "auth.json", _valid(), mode=mode)
 
     result = load_auth_file(path)
 
@@ -751,6 +849,57 @@ def test_credentials_with_a_method_in_the_file_do_not_lock():
     assert state.sources["password"] == "env" and state.password_source == "env"
 
 
+@pytest.mark.parametrize(
+    "environ",
+    [
+        {"BOXARR_AUTH_USERNAME": "admin", "BOXARR_AUTH_PASSWORD": FAKE_PASSWORD},
+        {"BOXARR_AUTH_USERNAME": "admin", "BOXARR_AUTH_PASSWORD_HASH": FAKE_HASH},
+        {"BOXARR_AUTH_API_KEY": FAKE_KEY},
+    ],
+)
+def test_credentials_under_a_stored_none_stay_open_and_are_reported(environ, caplog):
+    """A stored none is an explicit choice (Keep it open, --auth-reset): the
+    instance stays open, but the ignored credentials are an error by name."""
+    env = parse_env(environ)
+    file = _file(method="none")
+
+    state = resolve_state(env, file)
+    with caplog.at_level(logging.WARNING, logger="src.api.auth.config"):
+        log_findings(env, file, state)
+
+    assert state.mode == Mode.NONE
+    assert set(state.ignored_variables) == set(environ)
+    errors = [r.getMessage() for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(errors) == 1
+    assert all(name in errors[0] for name in environ)
+    assert "BOXARR_AUTH_METHOD=forms" in errors[0]
+    _assert_no_secret(caplog.text)
+
+
+def test_no_credentials_under_a_stored_none_log_nothing(caplog):
+    env = parse_env({"BOXARR_AUTH_WIDGETS": "token"})
+    file = _file(method="none")
+
+    state = resolve_state(env, file)
+    with caplog.at_level(logging.WARNING, logger="src.api.auth.config"):
+        log_findings(env, file, state)
+
+    assert state.mode == Mode.NONE and state.ignored_variables == ()
+    assert caplog.records == []
+
+
+def test_the_none_variable_ignores_credentials_silently(caplog):
+    env = parse_env({"BOXARR_AUTH_METHOD": "none", "BOXARR_AUTH_API_KEY": FAKE_KEY})
+    file = _file(method="forms", username="admin")
+
+    state = resolve_state(env, file)
+    with caplog.at_level(logging.WARNING, logger="src.api.auth.config"):
+        log_findings(env, file, state)
+
+    assert state.mode == Mode.NONE and state.ignored_variables == ()
+    assert caplog.records == []
+
+
 def test_forms_from_the_environment():
     env = parse_env(
         {
@@ -849,6 +998,42 @@ def test_the_environment_overrides_the_file():
     assert state.sources["remember_days"] == "file"
     assert state.password_source == "ui" and state.sources["password"] == "file"
     assert (state.credential_generation, state.instance_id) == (4, "0123abcd")
+
+
+OTHER_FAKE_HASH = (
+    "scrypt:12:8:1:ZGRkZGRkZGRkZGRkZGRkZA:"
+    "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
+)
+
+
+def test_an_env_password_hash_beats_the_stored_hash():
+    env = parse_env({"BOXARR_AUTH_PASSWORD_HASH": OTHER_FAKE_HASH})
+    stored = _file(
+        method="forms",
+        username="admin",
+        password_hash=SecretStr(FAKE_HASH),
+        password_source="ui",
+    )
+
+    state = resolve_state(env, stored)
+
+    assert env.errors == ()
+    assert state.mode == Mode.FORMS
+    assert state.password_hash.get_secret_value() == OTHER_FAKE_HASH
+    assert state.password_source == "env" and state.sources["password"] == "env"
+
+
+def test_an_env_password_leaves_the_stored_hash_for_startup_to_check():
+    """A plain env password is verified against the stored hash at startup
+    (group B); until then both are carried, the env one as a SecretStr."""
+    env = parse_env({"BOXARR_AUTH_PASSWORD": FAKE_PASSWORD})
+    stored = _file(method="forms", username="admin", password_hash=SecretStr(FAKE_HASH))
+
+    state = resolve_state(env, stored)
+
+    assert state.env_password.get_secret_value() == FAKE_PASSWORD
+    assert state.password_hash.get_secret_value() == FAKE_HASH
+    assert state.password_source == "env" and state.sources["password"] == "env"
 
 
 def test_a_valid_env_with_a_locked_file_locks(tmp_path):

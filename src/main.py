@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Main entry point for Boxarr application."""
 
+import argparse
 import asyncio
 import signal
 import sys
@@ -23,6 +24,28 @@ from src.utils.config import settings, use_config_file  # noqa: E402
 from src.utils.logger import get_logger  # noqa: E402
 
 logger = get_logger(__name__)
+
+
+class _ArgumentParser(argparse.ArgumentParser):
+    """argparse, except that some flags answer only to their full spelling.
+
+    argparse accepts any unambiguous prefix of a flag. ``--auth-reset``
+    changes auth.json, so ``--a`` must stay the error it always was, and
+    ``--hash-password`` must not make ``--h`` ambiguous with ``--help``.
+    """
+
+    exact_only = frozenset({"--hash-password", "--auth-reset"})
+
+    def _get_option_tuples(self, option_string):
+        # Only prefix matches come through here; an exact spelling is looked
+        # up before. Each tuple starts with the matching action.
+        return [
+            option
+            for option in super()._get_option_tuples(option_string)
+            if not self.exact_only.intersection(
+                getattr(option[0], "option_strings", ())
+            )
+        ]
 
 
 def server_config(app) -> uvicorn.Config:
@@ -211,11 +234,7 @@ class BoxarrApplication:
 
 def cli():
     """Command-line interface."""
-    import argparse
-
-    parser = argparse.ArgumentParser(
-        description="Boxarr - Box Office Tracking for Radarr"
-    )
+    parser = _ArgumentParser(description="Boxarr - Box Office Tracking for Radarr")
     parser.add_argument(
         "--mode",
         choices=["api", "cli", "update"],

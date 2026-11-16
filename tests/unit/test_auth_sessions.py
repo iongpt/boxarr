@@ -5,6 +5,7 @@ at most every 5 minutes; 50 sessions at most; a credential generation change
 revokes; a corrupt file signs everyone out without locking.
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -76,6 +77,17 @@ def test_only_the_digest_is_stored_0600(path, clock):
     assert token_digest(token) in text
     assert list(_on_disk(path)["sessions"]) == [token_digest(token)]
     assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+
+
+def test_the_digest_is_the_sha256_of_the_whole_token(path, clock):
+    store = SessionStore.load(path, clock=clock)
+    token, _ = _create(store)
+
+    expected = hashlib.sha256(token.encode("ascii")).hexdigest()
+    assert token_digest(token) == expected
+    assert list(_on_disk(path)["sessions"]) == [expected]
+    assert token_digest("A" * 8 + "x" * 35) != token_digest("A" * 8 + "y" * 35)
+    assert token_digest("x" * 35 + "A" * 8) != token_digest("y" * 35 + "A" * 8)
 
 
 def test_tokens_are_256_bit_and_unique(path, clock):
@@ -207,6 +219,7 @@ def test_prune_drops_invalid_sessions_only(path, clock):
 
     assert store.prune(2) == 2
     assert store.digests() == (token_digest(fresh),)
+    assert list(_on_disk(path)["sessions"]) == [token_digest(fresh)]  # at once
 
 
 @pytest.mark.parametrize(
@@ -249,6 +262,21 @@ def test_last_seen_is_flushed_at_most_every_5_minutes(path, clock):
     assert _on_disk(path)["sessions"][token_digest(token)]["last_seen"] == clock.now
 
 
+def test_the_flush_interval_is_5_minutes(path, clock):
+    assert FLUSH_INTERVAL_SECONDS == 300
+    store = SessionStore.load(path, clock=clock)
+    token, _ = _create(store)
+    created = clock.now
+
+    clock.advance(299)
+    store.touch(token)
+    assert _on_disk(path)["sessions"][token_digest(token)]["last_seen"] == created
+
+    clock.advance(1)  # 300 s after the last write
+    store.touch(token)
+    assert _on_disk(path)["sessions"][token_digest(token)]["last_seen"] == clock.now
+
+
 def test_flush_writes_pending_last_seen_at_shutdown(path, clock):
     store = SessionStore.load(path, clock=clock)
     token, _ = _create(store)
@@ -276,6 +304,27 @@ def test_at_most_50_sessions_least_recently_seen_go_first(path, clock):
     assert store.lookup(tokens[1], 0) is None
     assert store.lookup(newest, 0) is not None
     assert len(_on_disk(path)["sessions"]) == 50
+
+
+def test_load_keeps_only_the_50_most_recently_seen(path, clock):
+    sessions = {}
+    for n in range(60):
+        digest = hashlib.sha256(f"token-{n}".encode()).hexdigest()
+        sessions[digest] = {
+            "created": clock.now - 1000,
+            "last_seen": clock.now - 100 + n,  # higher n: seen more recently
+            "expires": clock.now + DAY,
+            "idle_s": IDLE_SECONDS,
+            "remember": False,
+            "generation": 0,
+        }
+    path.write_text(json.dumps({"version": 1, "sessions": sessions}))
+    os.chmod(path, 0o600)
+
+    store = SessionStore.load(path, clock=clock)
+
+    assert len(store) == 50
+    assert set(store.digests()) == set(list(sessions)[10:])
 
 
 def test_an_unwritable_directory_keeps_sessions_in_memory(tmp_path, clock, caplog):
@@ -371,9 +420,12 @@ def test_malformed_entries_are_dropped_and_the_rest_kept(path, clock, caplog):
     assert path.exists()
 
 
-def test_a_group_readable_sessions_file_is_tightened(path, clock, caplog):
+@pytest.mark.parametrize("mode", [0o640, 0o620, 0o660, 0o604, 0o602, 0o644])
+def test_a_group_or_world_readable_sessions_file_is_tightened(
+    path, clock, caplog, mode
+):
     token, _ = _create(SessionStore.load(path, clock=clock))
-    os.chmod(path, 0o644)
+    os.chmod(path, mode)
 
     with caplog.at_level(logging.WARNING, logger="src.api.auth.sessions"):
         store = SessionStore.load(path, clock=clock)

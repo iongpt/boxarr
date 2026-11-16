@@ -3,12 +3,15 @@
 Both run without starting the server and before settings are read.
 """
 
+import getpass
+import inspect
 import io
 import json
 import os
 import stat
 import subprocess  # nosec B404 - runs this repository's own entry point
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -45,6 +48,13 @@ def _reader(*answers):
 # --------------------------------------------------------------------------
 # --hash-password
 # --------------------------------------------------------------------------
+
+
+def test_hash_password_reads_with_getpass_by_default():
+    """getpass never echoes the password; input() would."""
+    signature = inspect.signature(hash_password_command)
+
+    assert signature.parameters["read_password"].default is getpass.getpass
 
 
 def test_hash_password_prints_only_the_hash():
@@ -90,15 +100,31 @@ def _environ(tmp_path, **extra):
     return {"BOXARR_DATA_DIRECTORY": str(tmp_path), **extra}
 
 
+def _mode(path):
+    return stat.S_IMODE(os.stat(path).st_mode)
+
+
+class Clock:
+    """A fixed clock for the sessions a test makes."""
+
+    def __init__(self, now: float = 1_800_000_000.0) -> None:
+        self.now = now
+
+    def __call__(self) -> float:
+        return self.now
+
+
 def test_reset_without_a_file_writes_method_none(tmp_path):
     out, err = io.StringIO(), io.StringIO()
 
     status = auth_reset_command(_environ(tmp_path), out, err)
 
     assert status == 0
+    # Before anything reads it: load_auth_file() would tighten it itself.
+    assert _mode(tmp_path / "auth.json") == 0o600
     result = load_auth_file(tmp_path / "auth.json")
     assert result.state == FileState.VALID and result.auth.method == "none"
-    assert stat.S_IMODE(os.stat(tmp_path / "auth.json").st_mode) == 0o600
+    assert result.warnings == ()  # nothing needed tightening
     assert "Restart Boxarr" in out.getvalue()
     assert not (tmp_path / "auth-sessions.json").exists()
 
@@ -113,14 +139,19 @@ def test_reset_keeps_credentials_bumps_the_generation_and_signs_out(tmp_path):
         api_key=ApiKeyRecord(sha256_hex(FAKE_KEY), "bxk_ab"),
     )
     save_auth_file(tmp_path / "auth.json", stored)
-    sessions = SessionStore.load(tmp_path / "auth-sessions.json")
+    clock = Clock()
+    sessions = SessionStore.load(tmp_path / "auth-sessions.json", clock=clock)
     token, _ = sessions.create(
         remember=True, generation=4, session_hours=24, remember_days=90
     )
+    os.chmod(tmp_path / "auth-sessions.json", 0o644)  # the reset must fix it
     out = io.StringIO()
 
     assert auth_reset_command(_environ(tmp_path), out, io.StringIO()) == 0
 
+    # Before anything reads them: both loaders tighten a file themselves.
+    assert _mode(tmp_path / "auth.json") == 0o600
+    assert _mode(tmp_path / "auth-sessions.json") == 0o600
     auth = load_auth_file(tmp_path / "auth.json").auth
     assert auth.method == "none"
     assert auth.username == "admin" and auth.api_key == stored.api_key
@@ -128,8 +159,54 @@ def test_reset_keeps_credentials_bumps_the_generation_and_signs_out(tmp_path):
     assert auth.instance_id == "0123abcd"
     on_disk = json.loads((tmp_path / "auth-sessions.json").read_text())
     assert on_disk == {"version": 1, "sessions": {}}
-    assert SessionStore.load(tmp_path / "auth-sessions.json").lookup(token, 4) is None
+    reloaded = SessionStore.load(tmp_path / "auth-sessions.json", clock=clock)
+    assert reloaded.lookup(token, 4) is None
     assert "signed out" in out.getvalue()
+
+
+@pytest.mark.parametrize("broken", ["not json", '{"version": 1, "method": "basic"}'])
+def test_a_reset_of_a_locked_file_outlives_every_old_session(tmp_path, broken):
+    """A running Boxarr writes its sessions back at shutdown, after the reset
+    emptied the file: none of them may hold under the new generation."""
+    save_auth_file(
+        tmp_path / "auth.json",
+        AuthFile(method="forms", username="admin", credential_generation=0),
+    )
+    clock = Clock()
+    live = SessionStore.load(tmp_path / "auth-sessions.json", clock=clock)
+    token, _ = live.create(
+        remember=True, generation=0, session_hours=24, remember_days=90
+    )
+    (tmp_path / "auth.json").write_text(broken)  # now locked
+
+    assert auth_reset_command(_environ(tmp_path), io.StringIO(), io.StringIO()) == 0
+    clock.now += 60
+    live.touch(token)
+    live.flush()  # the running Boxarr shuts down
+
+    auth = load_auth_file(tmp_path / "auth.json").auth
+    assert auth.method == "none"
+    assert auth.credential_generation > 0
+    reloaded = SessionStore.load(tmp_path / "auth-sessions.json", clock=clock)
+    assert reloaded.lookup(token, auth.credential_generation) is None
+
+
+def test_a_reset_of_a_locked_file_passes_its_old_generation(tmp_path):
+    far = int(time.time()) + 10**9  # a hand-set generation, past the clock
+    (tmp_path / "auth.json").write_text(
+        json.dumps({"version": 1, "method": "basic", "credential_generation": far})
+    )
+    (tmp_path / "auth-sessions.json").write_text(
+        json.dumps(
+            {"version": 1, "sessions": {"a" * 64: {"generation": far + 5}, "b": 7}}
+        )
+    )
+
+    assert auth_reset_command(_environ(tmp_path), io.StringIO(), io.StringIO()) == 0
+
+    assert load_auth_file(tmp_path / "auth.json").auth.credential_generation == (
+        far + 6
+    )
 
 
 def test_reset_replaces_a_broken_file_and_keeps_a_copy(tmp_path):
@@ -238,3 +315,29 @@ def test_the_flags_are_mutually_exclusive(tmp_path):
 
     assert result.returncode == 2
     assert "not allowed with" in result.stderr
+
+
+@pytest.mark.parametrize("flag", ["--a", "--au", "--auth", "--auth-r", "--hash"])
+def test_the_flags_answer_only_to_their_full_spelling(tmp_path, flag):
+    """argparse takes any unambiguous prefix: --a must not turn auth off."""
+    result = _run(tmp_path, flag)
+
+    assert result.returncode == 2
+    assert f"unrecognized arguments: {flag}" in result.stderr
+    assert not (tmp_path / "data" / "auth.json").exists()
+
+
+@pytest.mark.parametrize("flag", ["--h", "--he"])
+def test_a_short_help_flag_still_means_help(tmp_path, flag):
+    result = _run(tmp_path, flag)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.startswith("usage:")
+    assert "--hash-password" in result.stdout and "--auth-reset" in result.stdout
+
+
+def test_other_flags_still_take_a_prefix(tmp_path):
+    result = _run(tmp_path, "--m", "bogus")
+
+    assert result.returncode == 2
+    assert "argument --mode: invalid choice" in result.stderr

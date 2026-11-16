@@ -150,10 +150,10 @@ class SessionStore:
         if mode & 0o077:
             try:
                 os.chmod(path, 0o600)
-                logger.warning("%s was readable by other users; it is now 0600", path)
+                logger.warning("%s was open to other users; it is now 0600", path)
             except OSError:
                 logger.warning(
-                    "%s is readable by other users and could not be made 0600", path
+                    "%s is open to other users and could not be made 0600", path
                 )
         sessions = None
         if len(raw) <= _FILE_MAX_BYTES:

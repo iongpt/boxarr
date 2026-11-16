@@ -14,8 +14,10 @@ import getpass
 import json
 import os
 import sys
+import time
 from dataclasses import replace
-from typing import Callable, Mapping, TextIO
+from pathlib import Path
+from typing import Any, Callable, Iterable, List, Mapping, TextIO
 
 from ...utils.atomic import atomic_write_private
 from .config import (
@@ -54,6 +56,54 @@ def hash_password_command(
     return 0
 
 
+_GENERATION_MAX = 2**53  # the most auth.json accepts
+_LENIENT_READ_BYTES = 1024 * 1024
+
+
+def _lenient_json(path: Path) -> Any:
+    """Return what ``path`` holds as JSON, or None - never raise."""
+    try:
+        with open(path, "rb") as handle:
+            return json.loads(handle.read(_LENIENT_READ_BYTES).decode("utf-8"))
+    except (OSError, ValueError, RecursionError):
+        return None
+
+
+def _generations(values: Iterable[Any]) -> List[int]:
+    return [
+        value
+        for value in values
+        if isinstance(value, int)
+        and not isinstance(value, bool)
+        and 0 <= value <= _GENERATION_MAX
+    ]
+
+
+def _generation_after_everything(paths: AuthPaths) -> int:
+    """Return a credential generation past any a session can carry.
+
+    For an auth.json that is locked or absent, whose own generation is not
+    known: a running Boxarr may still hold sessions of it and write them
+    back at shutdown, after the sessions file was emptied. Read leniently,
+    auth.json's own number if its JSON still has one, every session's in
+    auth-sessions.json, and the clock (which only grows, unlike a count
+    restarted at 0) are all passed.
+    """
+    seen = [int(time.time())]
+    auth = _lenient_json(paths.auth_file)
+    if isinstance(auth, dict):
+        seen += _generations([auth.get("credential_generation")])
+    stored = _lenient_json(paths.sessions_file)
+    sessions = stored.get("sessions") if isinstance(stored, dict) else None
+    if isinstance(sessions, dict):
+        seen += _generations(
+            entry.get("generation")
+            for entry in sessions.values()
+            if isinstance(entry, dict)
+        )
+    return min(max(seen) + 1, _GENERATION_MAX)
+
+
 def auth_reset_command(
     environ: Mapping[str, str] = os.environ,
     out: TextIO = sys.stdout,
@@ -61,6 +111,8 @@ def auth_reset_command(
 ) -> int:
     """Turn authentication off in auth.json and sign out every session."""
     paths = AuthPaths.from_env(environ)
+    # Read before anything is written: the sessions file is emptied below.
+    fresh_generation = _generation_after_everything(paths)
     found = load_auth_file(paths.auth_file)
     if found.state == FileState.VALID and found.auth is not None:
         # Keep the rest (username, hash, key) for a later re-enable; a new
@@ -74,8 +126,13 @@ def auth_reset_command(
     else:
         if found.state == FileState.LOCKED:
             err.write(f"{found.problem}.\n")
+        # The old generation is unknown: start past every one in use, so no
+        # session made before (even one a running Boxarr writes back) holds.
         auth = AuthFile(
-            method="none", instance_id=new_instance_id(), updated_at=utc_now()
+            method="none",
+            instance_id=new_instance_id(),
+            credential_generation=fresh_generation,
+            updated_at=utc_now(),
         )
     try:
         save_auth_file(paths.auth_file, auth)

@@ -646,12 +646,19 @@ def _copy_broken(path: Path) -> Optional[Path]:
     """Copy a refused auth file aside at 0600 and return where.
 
     An identical earlier copy (``auth.json.broken`` or a stamped one) is
-    reused, so a restart loop does not pile up copies. The copy is created
-    0600 from the start, never at the source's mode.
+    reused, so a restart loop does not pile up copies; it is tightened to
+    0600 first, or skipped if it cannot be. A new copy is created 0600 from
+    the start, never at the source's mode.
     """
     try:
         for candidate in sorted(path.parent.glob(glob.escape(path.name) + ".broken*")):
             if candidate.is_file() and filecmp.cmp(path, candidate, shallow=False):
+                if stat.S_IMODE(os.stat(candidate).st_mode) & 0o077:
+                    # It holds what auth.json held: never leave it readable.
+                    try:
+                        os.chmod(candidate, 0o600)
+                    except OSError:
+                        continue
                 return candidate
         stamp = datetime.now().strftime("%Y%m%d%H%M%S")
         names = [f"{path.name}.broken", f"{path.name}.broken.{stamp}"]
@@ -680,9 +687,9 @@ def _tighten(path: Path, mode: int, warnings: List[str]) -> None:
     try:
         os.chmod(path, 0o600)
     except OSError:
-        warnings.append(f"{path} is readable by other users and could not be made 0600")
+        warnings.append(f"{path} is open to other users and could not be made 0600")
         return
-    warnings.append(f"{path} was readable by other users; it is now 0600")
+    warnings.append(f"{path} was open to other users; it is now 0600")
 
 
 def load_auth_file(path: Path, *, copy_broken: bool = True) -> AuthFileResult:
@@ -694,7 +701,17 @@ def load_auth_file(path: Path, *, copy_broken: bool = True) -> AuthFileResult:
     try:
         info = os.stat(path)
     except FileNotFoundError:
-        return AuthFileResult(FileState.UNSET)
+        # Absent means unset - but a link whose target is missing (a secrets
+        # volume not mounted on this boot) is present and unreadable: locked.
+        try:
+            os.lstat(path)
+        except FileNotFoundError:
+            return AuthFileResult(FileState.UNSET)
+        except OSError:
+            pass
+        return AuthFileResult(
+            FileState.LOCKED, problem=f"{path} is a link whose target is missing"
+        )
     except OSError:
         return AuthFileResult(FileState.LOCKED, problem=f"{path} cannot be read")
     warnings: List[str] = []
@@ -835,6 +852,8 @@ class AuthState:
     credential_generation: int = 0
     instance_id: Optional[str] = None
     sources: Mapping[str, str] = field(default_factory=dict)
+    # Credential variables set while auth.json's "none" keeps auth off.
+    ignored_variables: Tuple[str, ...] = ()
 
     @property
     def in_effect(self) -> bool:
@@ -867,7 +886,10 @@ def resolve_state(env: EnvAuthConfig, file: AuthFileResult) -> AuthState:
     3. A locked auth.json: locked.
     4. No method anywhere: unset - unless a credential variable is set, which
        locks, so that a missing BOXARR_AUTH_METHOD never leaves an install
-       that meant to be protected open.
+       that meant to be protected open. A "none" stored in auth.json is an
+       explicit choice (the banner's "Keep it open", --auth-reset): it stays
+       open, and the credential variables it overrides are named in
+       ``ignored_variables``, which log_findings() reports as an error.
     5. forms needs a username and a password; external needs an explicit
        trusted-proxy list. Without them: locked.
     """
@@ -885,12 +907,12 @@ def resolve_state(env: EnvAuthConfig, file: AuthFileResult) -> AuthState:
     method = _pick(
         env.method, stored.method if stored else None, None, "method", sources
     )
+    credentials = [
+        name
+        for name in (ENV_USERNAME, *_PASSWORD_VARIABLES, *_API_KEY_VARIABLES)
+        if name in env.set_variables
+    ]
     if method is None:
-        credentials = [
-            name
-            for name in (ENV_USERNAME, *_PASSWORD_VARIABLES, *_API_KEY_VARIABLES)
-            if name in env.set_variables
-        ]
         if credentials:
             return AuthState(
                 mode=Mode.LOCKED,
@@ -974,6 +996,8 @@ def resolve_state(env: EnvAuthConfig, file: AuthFileResult) -> AuthState:
         credential_generation=stored.credential_generation if stored else 0,
         instance_id=stored.instance_id if stored else None,
         sources=sources,
+        # Only auth.json can say none here (the variable returned above).
+        ignored_variables=tuple(credentials) if method == Mode.NONE else (),
     )
 
     reasons: List[str] = []
@@ -1009,6 +1033,14 @@ def log_findings(env: EnvAuthConfig, file: AuthFileResult, state: AuthState) -> 
         logger.warning("Authentication: %s", message)
     if file.state == FileState.LOCKED and file.problem:
         logger.error("Authentication: %s", file.problem)
+    if state.ignored_variables:
+        logger.error(
+            "Authentication is off: auth.json says method none, so %s %s "
+            "ignored. Set %s=forms to use them, or remove them.",
+            ", ".join(state.ignored_variables),
+            "is" if len(state.ignored_variables) == 1 else "are",
+            ENV_METHOD,
+        )
     if state.mode == Mode.LOCKED:
         logger.error(
             "Authentication is locked: only /api/health and static files answer. "
