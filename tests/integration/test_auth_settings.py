@@ -20,6 +20,7 @@ import src.api.auth.runtime as runtime_module
 import src.api.routes.auth_settings as auth_settings
 from src.api.app import create_app
 from src.api.auth.config import (
+    REMEMBER_DAYS_DEFAULT,
     SESSION_HOURS_DEFAULT,
     AuthFile,
     Mode,
@@ -1149,19 +1150,102 @@ def test_keep_it_open_after_an_unset_start_never_reopens_old_sessions(boxarr):
 # --------------------------------------------------------------------------
 
 
-def test_off_keeps_other_settings_but_refuses_credentials(boxarr):
+def test_off_refuses_credentials_and_the_other_settings(boxarr):
     app, client, data = boxarr("file-none")
+    before = (data / "auth.json").read_text()
 
     credentials = _post(client, "settings", {"method": "none", "username": "x"})
     hours = _post(client, "settings", {"session_hours": 12})
 
     assert credentials.status_code == 400
-    assert hours.status_code == 200, hours.text
+    assert hours.status_code == 400 and hours.json()["field"] == "session_hours"
+    assert "BOXARR_AUTH_SESSION_HOURS" in hours.json()["message"]
     assert "set-cookie" not in hours.headers
-    stored = _stored(data)
-    assert stored["method"] == "none" and stored["session_hours"] == 12
+    assert (data / "auth.json").read_text() == before
     assert app.state.auth_runtime.state.mode == Mode.NONE
     assert not (data / "auth-sessions.json").exists()
+
+
+PLANTED = {
+    "trusted_proxies": ["127.0.0.1"],
+    "cookie_secure": "never",
+    "session_hours": 168,
+    "remember_days": 7,
+}
+DEFAULTS = {
+    "trusted_proxies": None,
+    "cookie_secure": "auto",
+    "session_hours": SESSION_HOURS_DEFAULT,
+    "remember_days": REMEMBER_DAYS_DEFAULT,
+}
+
+
+@pytest.mark.parametrize("state", ["unset", "file-none", "env-none"])
+def test_nobody_can_plant_settings_that_weaken_a_later_sign_in(
+    boxarr, monkeypatch, state
+):
+    """While sign-in is off anyone may save. A trusted proxy saved then would
+    let its address pick the throttle key with X-Forwarded-For once the
+    owner turns sign-in on (and the cookie mode would drop Secure): the
+    review's attack, refused at the first step."""
+    app, _, data = boxarr(state)
+    stranger = TestClient(app, client=("127.0.0.1", 50000))
+
+    def files():
+        return {p.name: p.read_bytes() for p in data.iterdir()}
+
+    before = files()
+
+    for field, value in PLANTED.items():
+        planted = _post(stranger, "settings", {"method": "none", field: value})
+        assert planted.status_code == 400, (field, planted.text)
+        assert planted.json()["field"] == field
+    assert files() == before
+
+    # The owner turns sign-in on, sending only what the form sends.
+    if state == "env-none":
+        monkeypatch.delenv("BOXARR_AUTH_METHOD")
+        app, _, _ = boxarr("file-none")
+        stranger = TestClient(app, client=("127.0.0.1", 50000))
+    owner = TestClient(app, client=("198.51.100.20", 50000))
+    assert _enable(owner).status_code == 200
+    stored = _stored(data)
+    assert {key: stored.get(key) for key in PLANTED} == DEFAULTS
+    state_now = app.state.auth_runtime.state
+    assert not state_now.trusted_proxies_explicit
+    assert state_now.cookie_secure == "auto"
+
+    # X-Forwarded-For from 127.0.0.1 picks no fresh throttle key.
+    freeze_throttle(app)
+    for n in range(5):
+        wrong = stranger.post(
+            "/api/auth/login",
+            json={"username": USERNAME, "password": WRONG_PASSWORD},
+            headers={**SAME_ORIGIN, "X-Forwarded-For": f"203.0.113.{n}"},
+        )
+        assert wrong.status_code == 401
+    throttled = stranger.post(
+        "/api/auth/login",
+        json={"username": USERNAME, "password": WRONG_PASSWORD},
+        headers={**SAME_ORIGIN, "X-Forwarded-For": "203.0.113.99"},
+    )
+    assert throttled.status_code == 429
+
+
+def test_nothing_planted_survives_into_sign_in_by_environment(boxarr, monkeypatch):
+    """The same attack, then the owner turns sign-in on by environment and
+    restarts: the stored none holds nothing for the new state to inherit."""
+    app, _, data = boxarr("file-none")
+    stranger = TestClient(app, client=("127.0.0.1", 50000))
+    for field, value in PLANTED.items():
+        assert _post(stranger, "settings", {field: value}).status_code == 400
+
+    restarted, _, _ = boxarr("env-forms")
+
+    state = restarted.state.auth_runtime.state
+    assert state.mode == Mode.FORMS
+    assert not state.trusted_proxies_explicit and state.cookie_secure == "auto"
+    assert state.session_hours == SESSION_HOURS_DEFAULT
 
 
 def test_off_from_unset_is_an_explicit_choice(boxarr):
@@ -1298,17 +1382,16 @@ def test_the_diagnostic_shows_a_trusted_proxys_client_and_scheme(boxarr):
     assert status["peer_trusted"] and status["warning"] is None
 
 
-def test_saved_trusted_proxies_apply_at_once(boxarr):
-    app, client, data = boxarr("file-none")
+def test_trusted_proxies_saved_with_the_first_enable_apply_at_once(boxarr):
+    app, _, data = boxarr("file-none")
+    proxy = TestClient(app, client=("172.18.0.5", 50000))
+    forwarded = {"X-Forwarded-For": "192.168.1.20"}
 
-    response = _post(client, "settings", {"trusted_proxies": "172.18.0.5, 10.1.0.0/16"})
+    response = _enable(proxy, trusted_proxies="172.18.0.5, 10.1.0.0/16")
 
     assert response.status_code == 200, response.text
     assert _stored(data)["trusted_proxies"] == ["172.18.0.5", "10.1.0.0/16"]
-    proxy = TestClient(app, client=("172.18.0.5", 50000))
-    status = proxy.get(
-        "/api/auth/status", headers={"X-Forwarded-For": "192.168.1.20"}
-    ).json()
+    status = proxy.get("/api/auth/status", headers=forwarded).json()
     assert status["request"]["client"] == "192.168.1.20"
     assert status["settings"]["trusted_proxies"]["source"] == "file"
 

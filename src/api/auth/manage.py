@@ -18,10 +18,15 @@ shape (known fields, their types; no message quotes a value), then
   username or password bumps the credential generation, which signs every
   session out, and the caller's cookie is issued again; switching to
   ``none`` signs every session out and clears the cookie;
-- **off**: other settings are stored while sign-in stays off;
+- **off**: ``method: none`` is stored while sign-in stays off;
 - **env none** (BOXARR_AUTH_METHOD=none, the recovery switch, design §5.2):
-  anything may be stored without a password, the instance being open; it
-  applies once the variable is removed.
+  the method, username and password may be stored without a password, the
+  instance being open; they apply once the variable is removed.
+
+While sign-in is off (the last two), anyone who can reach Boxarr may save,
+so the settings that would weaken sign-in once the owner turns it on -
+trusted proxies, the Secure cookie mode, the session lengths - are refused:
+they are saved with the first enable, or later by someone signed in.
 
 A field the environment sets is refused, naming the variable. The page and
 ``GET /api/auth/status`` show the same view (``security_view()``), which
@@ -367,6 +372,31 @@ def plan_settings(
         kind = Kind.FIRST_ENABLE if method == Mode.FORMS else Kind.OFF
     if method is None:
         raise ChangeRefused(400, "Choose whether sign-in is on or off.", "method")
+    if kind in (Kind.OFF, Kind.ENV_NONE):
+        # While sign-in is off, anyone who can reach Boxarr may save here.
+        # What would weaken sign-in later, once the owner turns it on (a
+        # trusted proxy picks the throttle key and the scheme; the cookie
+        # mode and the lifetimes), is saved only by someone signed in, or
+        # along with turning sign-in on.
+        for key in OTHER_SETTINGS:
+            if key not in fields:
+                continue
+            if kind == Kind.OFF:
+                when = (
+                    "as you turn sign-in on, or once it is on and you are "
+                    "signed in: while it is off"
+                )
+            else:
+                when = (
+                    f"once sign-in is on and you are signed in: while {ENV_METHOD}"
+                    "=none keeps it off"
+                )
+            raise ChangeRefused(
+                400,
+                f"{_LABELS[key]} can be saved only {when}, anyone who can reach "
+                f"Boxarr could change it. Or set {FIELD_VARIABLES[key][0]}.",
+                key,
+            )
 
     username_given: Optional[str] = fields.get("username")
     new_password: Optional[str] = fields.get("new_password") or None
