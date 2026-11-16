@@ -393,6 +393,57 @@ def test_a_network_failure_says_nothing_was_saved(rendered):
     assert result["message"]["text"] == "Could not reach Boxarr: nothing was saved."
 
 
+NOTICE_DRIVER = r"""
+// A save answered; its message is on the page, then the page reloads.
+const first = page(data);
+first.b.sb.window.boxarrSecurityMessage(data.text, 'success');
+first.b.sb.window.boxarrSecurityReloadSoon();
+await first.b.sb.flush();
+const stored = first.b.sb.window.sessionStorage.getItem('boxarrSecurityNotice');
+// The reloaded page: a new sandbox with the same tab storage.
+const second = page(data);
+second.b.sb.window.sessionStorage.setItem('boxarrSecurityNotice', stored);
+second.b.sb.window.boxarrInitSecurity();
+const shown = second.result().message;
+const left = second.b.sb.window.sessionStorage.getItem('boxarrSecurityNotice');
+// A third load shows nothing: the notice is read once.
+const third = page(data);
+if (left) third.b.sb.window.sessionStorage.setItem('boxarrSecurityNotice', left);
+third.b.sb.window.boxarrInitSecurity();
+// A notice someone else wrote cannot pick a class or inject markup.
+const fourth = page(data);
+fourth.b.sb.window.sessionStorage.setItem('boxarrSecurityNotice',
+    JSON.stringify({ text: '<img src=x onerror=alert(1)>', kind: 'x" onclick="y' }));
+fourth.b.sb.window.boxarrInitSecurity();
+const msg = fourth.el('securityMessage');
+return {
+    reloads: first.result().reloads,
+    shown,
+    left,
+    third: third.result().message,
+    fourth: { text: msg.textContent, cls: msg.className, children: (msg.children || []).length },
+    errors: [first, second, third, fourth].flatMap(p => p.b.sb.record.errors),
+};
+"""
+
+
+def test_a_saved_message_survives_the_reload_once(rendered):
+    text = "Sign-in is off: its API key and settings were cleared."
+
+    result = run(NOTICE_DRIVER, _data(rendered, "signed-in", text=text))
+
+    assert result["reloads"] == 1
+    assert result["shown"] == {
+        "text": text,
+        "cls": "security-message security-message-success",
+    }
+    assert result["left"] is None and result["third"] is None
+    assert result["fourth"]["text"] == "<img src=x onerror=alert(1)>"
+    assert result["fourth"]["cls"] == "security-message"
+    assert result["fourth"]["children"] == 0
+    assert result["errors"] == []
+
+
 METHOD_DRIVER = r"""
 const p = page(data);
 const select = p.el('securityMethod');
