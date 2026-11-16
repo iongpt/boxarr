@@ -47,6 +47,10 @@ PEER_SCOPE_KEY = "boxarr.peer"
 # Prefixes broad enough to deserve a warning in a trusted-proxy list.
 _BROAD_PREFIX = {4: 24, 6: 64}
 
+# Prefixes too broad to trust at all: no proxy needs them, and a few of them
+# cover everyone as surely as /0 does (0.0.0.0/1 and 128.0.0.0/1 together).
+_MIN_PREFIX = {4: 8, 6: 16}
+
 _LIST_SEPARATOR = re.compile(r"[,\s]+")
 
 
@@ -138,14 +142,16 @@ def install_proxy_headers(app: Any) -> None:
 class TrustedProxies:
     """An explicit set of proxy addresses and networks.
 
-    A network that covers every address of its family (``0.0.0.0/0``,
-    ``::/0``) is never trusted, however it got here.
+    A network broader than /8 (IPv4) or /16 (IPv6) - ``0.0.0.0/0`` and
+    ``::/0`` among them - is never trusted, however it got here.
     """
 
     def __init__(self, networks: Iterable[IPNetwork] = ()) -> None:
-        """Keep every network but the all-covering ones."""
+        """Keep every network but the too-broad ones."""
         self.networks: Tuple[IPNetwork, ...] = tuple(
-            network for network in networks if network.prefixlen > 0
+            network
+            for network in networks
+            if network.prefixlen >= _MIN_PREFIX[network.version]
         )
 
     def __contains__(self, host: object) -> bool:
@@ -179,7 +185,9 @@ class ProxyListProblems(NamedTuple):
     """
 
     invalid: List[str]  # not an address or network: locks
-    refused: List[str]  # *, 0.0.0.0/0, ::/0: dropped, never trusted
+    # *, and IPv4 shorter than /8 or IPv6 shorter than /16 (/0 among them):
+    # dropped, never trusted
+    refused: List[str]
     broad: List[str]  # IPv4 shorter than /24, IPv6 shorter than /64: warn
 
 
@@ -206,9 +214,11 @@ def parse_trusted_proxies(
 
     A string is split on commas and whitespace. ``*``, ``0.0.0.0/0`` and
     ``::/0`` are refused (and dropped): with them any client could claim any
-    address. An entry that is neither an address nor a network is reported
-    as invalid; the caller decides what that means (the environment parser
-    locks the instance).
+    address. So is any IPv4 network shorter than /8 or IPv6 network shorter
+    than /16, since two halves trust everyone as surely as /0 does. An entry
+    that is neither an address nor a network is reported as invalid; the
+    caller decides what that means (the environment parser locks the
+    instance).
     """
     entries = _LIST_SEPARATOR.split(value) if isinstance(value, str) else value
     networks: List[IPNetwork] = []
@@ -233,6 +243,12 @@ def parse_trusted_proxies(
         if network.prefixlen == 0:
             problems.refused.append(
                 f"entry {position} is /0, which covers every address"
+            )
+            continue
+        if network.prefixlen < _MIN_PREFIX[network.version]:
+            problems.refused.append(
+                f"entry {position} is a /{network.prefixlen} network, broader "
+                f"than /{_MIN_PREFIX[network.version]}, which no proxy needs"
             )
             continue
         if network.prefixlen < _BROAD_PREFIX[network.version]:

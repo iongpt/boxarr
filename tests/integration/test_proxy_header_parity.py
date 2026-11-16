@@ -227,6 +227,37 @@ def test_the_matrix_exercises_both_branches(monkeypatch):
     assert result["peer"] == SocketPeer("203.0.113.9", 1, "http")
 
 
+@pytest.mark.parametrize(
+    "env", [None, "*", "*,10.0.0.1", "10.0.0.0/8", "testclient"], ids=repr
+)
+def test_no_list_is_refused_or_warned_about(monkeypatch, caplog, env):
+    """A1: nothing is refused at startup and nothing new is logged, ``*``
+    included - auth's own strict list is a separate setting."""
+    if env is None:
+        monkeypatch.delenv("FORWARDED_ALLOW_IPS", raising=False)
+    else:
+        monkeypatch.setenv("FORWARDED_ALLOW_IPS", env)
+
+    with caplog.at_level(logging.DEBUG):
+        asgi = _served(_with_probe(create_app()), proxy_headers=False)
+        result = asyncio.run(
+            _call(
+                asgi,
+                "GET",
+                ("203.0.113.9", 1),
+                [(b"x-forwarded-for", b"198.51.100.7, 10.0.0.5")],
+            )
+        )
+
+    assert result["status"] == 200
+    noisy = [
+        (r.name, r.levelname, r.getMessage())
+        for r in caplog.records
+        if r.levelno >= logging.WARNING
+    ]
+    assert noisy == []
+
+
 # --------------------------------------------------------------------------
 # Through a real uvicorn server: the access log line
 # --------------------------------------------------------------------------

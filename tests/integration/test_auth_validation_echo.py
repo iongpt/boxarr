@@ -3,16 +3,19 @@
 FastAPI's validation error quotes what was sent - probed before this change:
 ``{"type": "missing", ..., "input": {"password": "hunter2"}}``. The auth
 routes will receive passwords, keys and tokens, so for any path that routes
-as /api/auth/... the ``input`` member is dropped. Other routes keep it.
+as /api/auth/... the ``input`` member is dropped, and so is anything else that
+could quote what was sent: ``ctx``, a dict key deeper in ``loc``, and a
+message that is not constraint text. Other routes keep it all.
 
 No auth route exists yet, so the tests mount a stand-in one on a fresh app.
 """
 
 import json
+from typing import Dict, Optional
 
 import pytest
 from fastapi.testclient import TestClient
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from src.api.app import create_app
 
@@ -93,6 +96,79 @@ def test_other_routes_still_echo_their_input(monkeypatch):
     assert any(
         error.get("input") == BAD_BODIES["missing-field"] for error in detail
     ), json.dumps(detail)
+
+
+class _Meta(BaseModel):
+    labels: Dict[str, int]
+
+
+class _Chatty(BaseModel):
+    """A model whose errors would quote the input in loc, msg and ctx."""
+
+    username: str
+    password: str = Field(min_length=12)
+    meta: Optional[_Meta] = None
+    proxies: Dict[str, int] = {}
+
+    @field_validator("username")
+    @classmethod
+    def _no_root(cls, value: str) -> str:
+        if value.startswith("root"):
+            raise ValueError(f"bad username {value}")
+        return value
+
+
+async def _accept_chatty(body: _Chatty) -> dict:
+    return {"ok": True}
+
+
+CHATTY_BODIES = {
+    "validator message": {"username": "root" + FAKE_PASSWORD, "password": "x" * 12},
+    "dict key in loc": {
+        "username": "admin",
+        "password": "x" * 12,
+        "proxies": {FAKE_KEY: "not a number"},
+    },
+    "nested dict key in loc": {
+        "username": "admin",
+        "password": "x" * 12,
+        "meta": {"labels": {FAKE_PASSWORD: "x"}},
+    },
+    "ctx of a constraint": {"username": "admin", "password": "short"},
+}
+
+
+@pytest.mark.parametrize("base", ["", "boxarr"])
+@pytest.mark.parametrize("case", sorted(CHATTY_BODIES))
+def test_auth_422_quotes_nothing_it_was_sent(monkeypatch, base, case):
+    monkeypatch.setattr("src.api.app.settings.boxarr_url_base", base)
+    app = create_app()
+    app.add_api_route("/api/auth/probe", _accept_chatty, methods=["POST"])
+    path = (f"/{base}" if base else "") + "/api/auth/probe"
+
+    response = TestClient(app).post(path, json=CHATTY_BODIES[case])
+
+    assert response.status_code == 422
+    assert FAKE_PASSWORD not in response.text and FAKE_KEY not in response.text
+    for error in response.json()["detail"]:
+        assert set(error) == {"type", "loc", "msg"}
+        assert error["loc"][0] == "body" and len(error["loc"]) <= 2
+
+
+def test_auth_422_keeps_constraint_messages(monkeypatch):
+    monkeypatch.setattr("src.api.app.settings.boxarr_url_base", "")
+    app = create_app()
+    app.add_api_route("/api/auth/probe", _accept_chatty, methods=["POST"])
+
+    response = TestClient(app).post(
+        "/api/auth/probe", json={"username": "root-x", "password": "short"}
+    )
+
+    by_field = {e["loc"][-1]: e for e in response.json()["detail"]}
+    assert by_field["password"]["type"] == "string_too_short"
+    assert "12 characters" in by_field["password"]["msg"]
+    assert by_field["username"]["type"] == "value_error"
+    assert by_field["username"]["msg"] == "Invalid value"
 
 
 @pytest.mark.parametrize("path", ["/api/authx/settings", "/x/api/auth/settings"])

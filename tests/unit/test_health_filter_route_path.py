@@ -49,6 +49,10 @@ def _dropped(request_line: str) -> bool:
         ("/a/b", "GET /a/api/health HTTP/1.1", False),
         ("", "GET /api/health HTTP/1.1", True),
         ("", "GET /boxarr/api/health HTTP/1.1", False),
+        # uvicorn logs the path percent-quoted; the router saw it decoded.
+        ("/b\u00f6x", "GET /b%C3%B6x/api/health HTTP/1.1", True),
+        ("/my box", "GET /my%20box/api/health HTTP/1.1", True),
+        ("/b\u00f6x", "GET /b%C3%B6xX/api/health HTTP/1.1", False),
     ],
 )
 def test_the_filter_drops_what_the_router_sends_to_health(root_path, line, dropped):

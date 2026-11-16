@@ -167,6 +167,17 @@ def test_a_list_parses_with_commas_and_spaces():
 
 
 @pytest.mark.parametrize(
+    "host",
+    ["testclient", "unix:/run/boxarr.sock", "", None, "proxy.lan", 7, b"10.0.0.1"],
+)
+def test_a_host_that_is_not_an_address_is_never_trusted(host):
+    """Group B checks scope["boxarr.peer"] membership directly."""
+    proxies, _ = parse_trusted_proxies("10.0.0.0/8, 192.168.1.10, fd00::/64")
+
+    assert host not in proxies
+
+
+@pytest.mark.parametrize(
     "value", ["*", "0.0.0.0/0", "::/0", "0.0.0.0/0,::/0", "*,::/0"]
 )
 def test_star_and_slash_zero_are_refused(value):
@@ -184,6 +195,48 @@ def test_slash_zero_is_never_trusted_even_when_constructed_directly():
 
     assert not proxies
     assert "203.0.113.1" not in proxies
+
+
+@pytest.mark.parametrize(
+    "value, outside",
+    [
+        ("0.0.0.0/1,128.0.0.0/1", "6.6.6.6"),
+        ("0.0.0.0/2,64.0.0.0/2,128.0.0.0/1", "203.0.113.1"),
+        ("10.0.0.0/7", "11.0.0.1"),
+        ("::/1,8000::/1", "2001:db8::1"),
+        ("2001:db8::/15", "2001:db8::1"),
+    ],
+)
+def test_networks_broader_than_the_floor_are_refused(value, outside):
+    """Two halves trust everyone as surely as /0: refused like it (A1)."""
+    proxies, problems = parse_trusted_proxies(value)
+
+    assert not proxies
+    assert outside not in proxies
+    assert len(problems.refused) == len(value.split(","))
+    assert all("broader than" in p for p in problems.refused)
+    assert not problems.invalid
+
+
+def test_the_floor_is_8_for_ipv4_and_16_for_ipv6():
+    proxies, problems = parse_trusted_proxies("10.0.0.0/8, 2001:db8::/16")
+
+    assert "10.255.0.1" in proxies and "2001:db8:ffff::1" in proxies
+    assert problems.refused == [] and len(problems.broad) == 2
+
+
+def test_too_broad_networks_are_never_trusted_even_when_constructed_directly():
+    proxies = TrustedProxies(
+        [
+            ipaddress.ip_network("0.0.0.0/1"),
+            ipaddress.ip_network("128.0.0.0/1"),
+            ipaddress.ip_network("::/1"),
+            ipaddress.ip_network("8000::/1"),
+        ]
+    )
+
+    assert not proxies
+    assert "6.6.6.6" not in proxies and "2001:db8::1" not in proxies
 
 
 @pytest.mark.parametrize(

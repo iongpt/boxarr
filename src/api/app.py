@@ -1,7 +1,7 @@
 """Boxarr API application."""
 
 import math
-from typing import Optional, Union
+from typing import Any, Dict, Optional, Union
 
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
@@ -61,10 +61,66 @@ _SWAGGER_REQUEST_INTERCEPTOR = f"""
 # Routes whose request bodies hold credentials: a 422 never echoes their input.
 _SECRET_INPUT_PREFIX = "/api/auth/"
 
+# Error types whose pydantic message is constraint text only, never a piece
+# of the input. Any other message (a validator's own, a parser's that quotes
+# a character) is replaced under /api/auth/.
+_CONSTRAINT_ONLY_MESSAGES = frozenset(
+    {
+        "missing",
+        "extra_forbidden",
+        "none_required",
+        "string_type",
+        "string_too_short",
+        "string_too_long",
+        "string_pattern_mismatch",
+        "int_type",
+        "int_parsing",
+        "int_from_float",
+        "float_type",
+        "float_parsing",
+        "finite_number",
+        "bool_type",
+        "bool_parsing",
+        "greater_than",
+        "greater_than_equal",
+        "less_than",
+        "less_than_equal",
+        "multiple_of",
+        "literal_error",
+        "enum",
+        "dict_type",
+        "list_type",
+        "model_type",
+        "model_attributes_type",
+        "too_short",
+        "too_long",
+        "json_invalid",
+        "json_type",
+    }
+)
+
 
 def _echo_is_secret(request: Request) -> bool:
     """Return whether a validation error must not echo the request's input."""
     return route_path(request.scope).startswith(_SECRET_INPUT_PREFIX)
+
+
+def _secret_safe_error(error: Dict[str, Any]) -> Dict[str, Any]:
+    """Return a validation error that tells nothing the request held.
+
+    ``input`` and ``ctx`` go, ``loc`` keeps where the field sits in the
+    request (``["body", "password"]``) but not a dict key below it, and a
+    message that could quote a value becomes a fixed one.
+    """
+    error_type = error.get("type")
+    message = error.get("msg")
+    if error_type not in _CONSTRAINT_ONLY_MESSAGES or not isinstance(message, str):
+        message = "Invalid value"
+    return {
+        "type": error_type,
+        "loc": list(error.get("loc", ()))[:2],
+        "msg": message,
+    }
 
 
 def _swagger_ui_html(openapi_url: str, title: str) -> HTMLResponse:
@@ -149,15 +205,13 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
         allow_nan=False, so serializing that echo raised and the rejection
         came back as a 500. Only the echoed value changes shape here.
 
-        Under /api/auth/ the echo is dropped altogether: what those routes
-        are sent is a password, a key or a token.
+        Under /api/auth/ the echo is dropped altogether, with anything
+        else that could quote what was sent (see _secret_safe_error): what
+        those routes are sent is a password, a key or a token.
         """
-        errors = exc.errors()
+        errors = list(exc.errors())
         if _echo_is_secret(request):
-            errors = [
-                {key: value for key, value in error.items() if key != "input"}
-                for error in errors
-            ]
+            errors = [_secret_safe_error(error) for error in errors]
         return JSONResponse(
             status_code=422,
             content={

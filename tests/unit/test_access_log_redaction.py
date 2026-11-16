@@ -73,6 +73,19 @@ SECRET_QUERIES = {
     "with encoded ampersand": f"password={FAKE_SECRET}%26more".encode(),
     "with a semicolon": f"password={FAKE_SECRET};{FAKE_SECRET}".encode(),
     "repeated": f"token={FAKE_SECRET}&token={FAKE_SECRET}".encode(),
+    "with an escape mid-value": f"password=abc%20def-{FAKE_SECRET}".encode(),
+    "with a quote mid-value": f'password=ab"{FAKE_SECRET}'.encode(),
+    "with a quote first": f'token="{FAKE_SECRET}"'.encode(),
+    # The login redirect quotes a page's own query into next= (group B).
+    "encoded in another value": (
+        f"next=%2Fdashboard%3Fapikey%3D{FAKE_SECRET}".encode()
+    ),
+    "encoded after another parameter": (
+        f"next=%2Fweeks%3Fregion%3DDE%26password%3D{FAKE_SECRET}".encode()
+    ),
+    "encoded with a plus": f"next=%2Fx%3Ftoken%3D{FAKE_SECRET}+more".encode(),
+    "encoded twice": f"next=%252Fx%253Fapi_key%253D{FAKE_SECRET}".encode(),
+    "encoded name": f"next=%2Fx%3Fapi%255Fkey%3D{FAKE_SECRET}".encode(),
 }
 
 
@@ -82,6 +95,7 @@ def test_secret_query_values_are_redacted(query):
 
     assert line is not None
     assert FAKE_SECRET not in line
+    assert "%26more" not in line  # the whole value, not up to an escape
     assert REDACTED in line
     # The rest of the line is uvicorn's usual one.
     assert line.startswith('192.0.2.7:51000 - "GET /api/widget?')
@@ -117,10 +131,33 @@ def test_boxarr_credentials_are_redacted_anywhere(path, query):
     assert REDACTED in line
 
 
+def test_an_encoded_secret_takes_its_whole_value_and_nothing_more():
+    target = (
+        f"/login?region=DE&next=%2Fdashboard%3Fapikey%3D{FAKE_SECRET}%26x%3D1&limit=5"
+    )
+
+    assert redact_secrets(target, target=True) == (
+        f"/login?region=DE&next={REDACTED}&limit=5"
+    )
+
+
+def test_a_quote_ends_a_value_only_in_a_whole_line():
+    target = f'/x?password=ab"{FAKE_SECRET}&region=DE'
+    line = '192.0.2.7:1 - "GET /x?password=abc HTTP/1.1" 200'
+
+    assert redact_secrets(target, target=True) == f"/x?password={REDACTED}&region=DE"
+    assert redact_secrets(line) == (
+        f'192.0.2.7:1 - "GET /x?password={REDACTED} HTTP/1.1" 200'
+    )
+
+
 @pytest.mark.parametrize(
     "path, query",
     [
         ("/api/widget", b"region=DE&limit=10"),
+        ("/login", b"next=%2Fweeks%3Fregion%3DDE"),  # an encoded harmless query
+        ("/login", b"next=%2Fweeks%3Ftokens%3D3"),  # not one of the names
+        ("/api/widget", b"q=a%20b+c%2525"),
         ("/2026W45", b""),
         ("/api/widget", b"tokens=abc"),  # not one of the names
         ("/api/widget", b"mytoken=abc"),
@@ -171,14 +208,69 @@ def test_redact_secrets_names_what_it_keeps():
     assert redact_secrets(f"/w/{FAKE_KEY}") == f"/w/bxk_{REDACTED}"
 
 
+def _websocket_record(path: str, query: bytes = b"") -> logging.LogRecord:
+    """A refused WebSocket handshake, as uvicorn logs it on uvicorn.error."""
+    scope = {"path": path, "query_string": query}
+    return logging.LogRecord(
+        name="uvicorn.error",
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=1,
+        msg='%s - "WebSocket %s" 403',
+        args=(
+            "192.0.2.7:51000",
+            get_path_with_query_string(scope),  # type: ignore[arg-type]
+        ),
+        exc_info=None,
+    )
+
+
+@pytest.mark.parametrize(
+    "path, query",
+    [
+        ("/ws", f"token={FAKE_SECRET}".encode()),
+        ("/boxarr/api/x", f"apikey={FAKE_SECRET}".encode()),
+        (f"/ws/{FAKE_KEY}", b""),
+    ],
+)
+def test_a_websocket_line_is_redacted(path, query):
+    record = _websocket_record(path, query)
+
+    assert _SecretQueryFilter().filter(record) is True
+
+    line = record.getMessage()
+    assert FAKE_SECRET not in line and FAKE_KEY not in line
+    assert REDACTED in line
+    assert line.startswith('192.0.2.7:51000 - "WebSocket /') and line.endswith('" 403')
+
+
+def test_other_server_lines_are_left_alone():
+    record = logging.LogRecord(
+        "uvicorn.error",
+        logging.INFO,
+        __file__,
+        1,
+        "Uvicorn running on %s://%s:%d (Press CTRL+C to quit)",
+        ("http", "0.0.0.0", 8888),
+        None,
+    )
+    before = record.getMessage()
+
+    assert _SecretQueryFilter().filter(record) is True
+    assert record.getMessage() == before
+    assert record.args[2] == 8888
+
+
 @pytest.fixture
 def restored_logging(tmp_path, monkeypatch):
     """Let a test run setup_logging(), then take its handlers away again."""
     root = logging.getLogger()
     access = logging.getLogger("uvicorn.access")
+    server = logging.getLogger("uvicorn.error")
     saved_root_level = root.level
     saved_handlers = root.handlers[:]
     saved_filters = access.filters[:]
+    saved_server_filters = server.filters[:]
     monkeypatch.setattr(boxarr_logger, "_console_handler", None)
     monkeypatch.setattr(boxarr_logger, "_boxarr_handlers", [])
     yield tmp_path
@@ -188,6 +280,7 @@ def restored_logging(tmp_path, monkeypatch):
     root.handlers[:] = saved_handlers
     root.setLevel(saved_root_level)
     access.filters[:] = saved_filters
+    server.filters[:] = saved_server_filters
 
 
 def test_setup_logging_attaches_the_redaction_filter(restored_logging):
@@ -198,6 +291,10 @@ def test_setup_logging_attaches_the_redaction_filter(restored_logging):
     # The health filter is still attached, and is not the redaction filter.
     assert any(type(f) is _HealthCheckFilter for f in filters)
     assert not issubclass(_SecretQueryFilter, _HealthCheckFilter)
+    # Refused WebSocket handshakes are logged with their target here.
+    server_filters = logging.getLogger("uvicorn.error").filters
+    assert sum(isinstance(f, _SecretQueryFilter) for f in server_filters) >= 1
+    assert not any(type(f) is _HealthCheckFilter for f in server_filters)
 
 
 def test_the_attached_filters_redact_a_logged_line(restored_logging):
