@@ -239,16 +239,56 @@ def test_in_effect_switching_off_bumps_without_a_new_session():
     assert plan.method == Mode.NONE
 
 
-def test_off_refuses_credentials_and_keeps_other_settings():
+def test_off_stores_the_choice_and_refuses_everything_else():
     stored = AuthFile(method=Mode.NONE)
 
-    plan = _plan(_env(), stored, {"session_hours": 12})
+    plan = _plan(_env(), stored, {"method": "none"})
     with pytest.raises(ChangeRefused):
         _plan(_env(), stored, {"username": USERNAME})
 
     assert plan.kind == Kind.OFF and plan.method == Mode.NONE
-    assert dict(plan.updates) == {"session_hours": 12}
+    assert dict(plan.updates) == {}
     assert not plan.bump and not plan.mint
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"trusted_proxies": ["127.0.0.1"]},
+        {"cookie_secure": "never"},
+        {"session_hours": 168},
+        {"remember_days": 90},
+        {"method": "none", "cookie_secure": "auto"},
+    ],
+)
+@pytest.mark.parametrize(
+    "env, stored",
+    [
+        ({}, None),  # unset
+        ({}, AuthFile(method=Mode.NONE)),  # a stored none
+        ({"method": "none"}, None),  # BOXARR_AUTH_METHOD=none
+        ({"method": "none"}, AuthFile(method=Mode.FORMS)),
+    ],
+)
+def test_while_off_nothing_that_weakens_a_later_sign_in_can_be_saved(body, env, stored):
+    """Anyone may save while sign-in is off: a trusted proxy, the cookie
+    mode or a lifetime saved then would quietly weaken the owner's sign-in
+    once it is turned on."""
+    if stored is None and "method" not in body:
+        body = {"method": "none", **body}
+    with pytest.raises(ChangeRefused) as refused:
+        _plan(_env(**env), stored, body)
+
+    field = next(k for k in body if k != "method")
+    assert refused.value.status == 400 and refused.value.field == field
+    assert "BOXARR_AUTH_" in refused.value.message
+
+
+def test_turning_sign_in_on_may_set_the_other_settings():
+    plan = _plan(_env(), AuthFile(method=Mode.NONE), {**ENABLE, "session_hours": 12})
+
+    assert plan.kind == Kind.FIRST_ENABLE
+    assert dict(plan.updates) == {"session_hours": 12}
 
 
 def test_env_none_stores_without_a_session():
