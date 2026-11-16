@@ -635,6 +635,15 @@ class Settings(BaseSettings):
             "Ignore re-releases: skip movies released before (selected year - 1)"
         ),
     )
+    # Settings file and environment only: the setup page has no field for it,
+    # and its save keeps whatever local.yaml holds.
+    boxarr_features_auto_add_skip_radarr_exclusions: bool = Field(
+        default=True,
+        description=(
+            "Auto-add skips films on Radarr's exclusion list (needs Radarr 5.9 "
+            "or later, whose movie lookup reports isExcluded)"
+        ),
+    )
     boxarr_features_auto_add_language_filter_enabled: bool = Field(
         default=False, description="Enable language filtering for auto-add"
     )
