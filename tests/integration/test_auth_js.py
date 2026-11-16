@@ -512,7 +512,7 @@ def _login_run(login_pages, root="", **data):
     form = BeautifulSoup(html, "html.parser").find("form", id="loginForm")
     payload = {
         "app": static_script("app.js"),
-        "script": inline_script(html, "cookieProblem"),
+        "script": inline_script(html, "async function signIn"),
         "form": dom_tree(form),
         "base": root,
         "search": "",
@@ -592,9 +592,18 @@ def test_a_redirect_it_does_not_trust_goes_home(login_pages, redirect):
         (
             "path rewritten",
             {"cookie": {"path": "/boxarr/", "secure": False}},
-            "the sign-in cookie is for /boxarr/ and this page is at /login",
+            "the sign-in cookie is for /boxarr/ and this page is at /login. A "
+            "reverse proxy may be rewriting the URL base: set BOXARR_URL_BASE to "
+            "the path the browser sees, and have the proxy pass that path through "
+            "unchanged.",
         ),
-        ("anything else", {}, "did not send the sign-in cookie back"),
+        (
+            "anything else",
+            {},
+            "did not send the sign-in cookie back. Cookies may be blocked for "
+            "this site, or a reverse proxy may have rewritten the cookie's Path "
+            "(for example nginx proxy_cookie_path).",
+        ),
     ],
 )
 def test_a_cookie_that_did_not_come_back_is_explained(login_pages, case, data, message):
@@ -656,7 +665,19 @@ def test_a_failed_session_check_does_not_navigate(login_pages):
             {"status": 429, "headers": {"Retry-After": "9"}, "body": {}},
             "Too many attempts, try again in 9 s",
         ),
-        ({"status": 502}, "Invalid username or password"),
+        # Not Boxarr's 401: a proxy's 502 while Boxarr restarts, a
+        # misrouted /api. The password was never checked.
+        (
+            {"status": 502},
+            "Boxarr did not answer the sign-in (HTTP 502). Check that it is "
+            "running and that the reverse proxy reaches it, then try again.",
+        ),
+        ({"status": 404, "body": {"detail": "Not Found"}}, "(HTTP 404)"),
+        ({"status": 401, "body": {}}, "Invalid username or password"),
+        (
+            {"status": 503, "body": {"success": False, "message": "Locked: fake"}},
+            "Locked: fake",
+        ),
         ({"network": True}, "Could not reach Boxarr"),
     ],
 )

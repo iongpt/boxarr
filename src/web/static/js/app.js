@@ -44,7 +44,10 @@ const BOXARR_REQUEST_HEADER = 'X-Boxarr-Request';
             return nativeFetch.call(window, input, init);
         }
         if (SAFE_METHODS.includes(method)) {
-            return nativeFetch.call(window, input, init).then(onAuthResponse);
+            const answer = nativeFetch.call(window, input, init);
+            // A check that expects a 401 and explains it itself (the session
+            // check after sign-in is turned on) asks for no banner.
+            return init && init.boxarrQuietAuth ? answer : answer.then(onAuthResponse);
         }
         let headers = (init && init.headers) || (request ? request.headers : {});
         if (typeof Headers !== 'undefined' && headers instanceof Headers) {
@@ -123,6 +126,42 @@ function boxarrShowSessionExpired() {
     link.style.cssText = 'color:#fff;text-decoration:underline;';
     banner.appendChild(link);
     document.body.insertBefore(banner, document.body.firstChild);
+}
+
+// A sign-in worked but its cookie did not come back (A4): say why, from what
+// the server said about the cookie (path, secure) and what this page sees.
+// ``lead`` starts the sentence: "Signed in" or "Sign-in is on".
+function boxarrCookieProblem(cookie, lead) {
+    cookie = cookie || {};
+    lead = lead || 'Signed in';
+    if (cookie.secure && window.location.protocol !== 'https:') {
+        return lead + ', but the browser dropped the sign-in cookie: it is marked Secure '
+            + 'and this page is plain http. Open Boxarr over https, or set '
+            + 'BOXARR_AUTH_COOKIE_SECURE to auto.';
+    }
+    let framed = false;
+    try {
+        framed = window.top !== window.self;
+    } catch (e) {
+        framed = true;
+    }
+    if (framed) {
+        return lead + ', but the browser blocked the sign-in cookie in this frame. '
+            + 'A dashboard on another site (Organizr, Homarr) cannot keep Boxarr signed in: '
+            + 'open Boxarr in its own tab, or serve both from the same site.';
+    }
+    if (cookie.path && window.location.pathname.indexOf(cookie.path) !== 0) {
+        return lead + ', but the sign-in cookie is for ' + cookie.path
+            + ' and this page is at ' + window.location.pathname
+            + '. A reverse proxy may be rewriting the URL base: set BOXARR_URL_BASE '
+            + 'to the path the browser sees, and have the proxy pass that path '
+            + 'through unchanged.';
+    }
+    return lead + ', but the browser did not send the sign-in cookie back. '
+        + 'Cookies may be blocked for this site, or a reverse proxy may have '
+        + "rewritten the cookie's Path (for example nginx proxy_cookie_path). "
+        + 'Allow cookies for this site, or have the proxy pass the cookie '
+        + 'unchanged, and try again.';
 }
 
 // Where to go after signing in: the server's answer, if it stays inside this
@@ -376,10 +415,12 @@ function boxarrSaveSecurity(event) {
         let text = data.message || 'Saved.';
         if (Array.isArray(data.warnings) && data.warnings.length) text += ' ' + data.warnings.join(' ');
         boxarrSecurityMessage(text, 'success');
+        if (data.method === 'forms') boxarrSecuritySignInIsOn();
         const next = data.signed_in ? boxarrSecurityCheckSignedIn() : Promise.resolve(true);
         return next.then(function(signedIn) {
             if (!signedIn) {
-                boxarrSecurityMessage(data.message + ' This browser did not keep its sign-in, so sign in now.', 'error');
+                // Replaces "... this browser is signed in": it is not.
+                boxarrSecurityMessage(boxarrCookieProblem(data.cookie, 'Sign-in is on'), 'error');
                 if (data.api_key) {
                     boxarrShowKeyOnce(data.api_key, data.api_key_note, makeUrl('/login'));
                 } else {
@@ -399,9 +440,20 @@ function boxarrSaveSecurity(event) {
     });
 }
 
+// Sign-in was just turned on: the "not protected" banner and the status line
+// no longer hold (the page reloads only once the new API key has been seen).
+function boxarrSecuritySignInIsOn() {
+    const banner = document.getElementById('authBanner');
+    if (banner && banner.parentNode) banner.parentNode.removeChild(banner);
+    const status = document.getElementById('securityStatus');
+    if (status) status.textContent = 'Sign-in is on.';
+}
+
 // After sign-in was turned on: whether this browser kept its new session.
+// Its 401 is expected when it did not, and explained in the message, so it
+// does not show the "session expired" banner.
 function boxarrSecurityCheckSignedIn() {
-    return fetch(apiUrl('/auth/session'))
+    return fetch(apiUrl('/auth/session'), { boxarrQuietAuth: true })
         .then(function(response) { return response.ok ? response.json() : null; })
         .then(function(data) { return !!(data && data.authenticated); })
         .catch(function() { return true; });  // unknown: the reload will tell

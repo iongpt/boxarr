@@ -90,7 +90,7 @@ def test_the_login_page_loads_app_js_before_its_script_and_nothing_else_remote()
     sources = [s.get("src", "") for s in scripts]
     app = next(i for i, src in enumerate(sources) if "/static/js/app.js" in src)
     login = next(
-        i for i, s in enumerate(scripts) if "cookieProblem" in (s.string or "")
+        i for i, s in enumerate(scripts) if "async function signIn" in (s.string or "")
     )
 
     assert app < login

@@ -73,6 +73,9 @@ function page(options) {
         key: el('securityKeyValue') ? el('securityKeyValue').value : null,
         keyNote: el('securityKeyNote') ? el('securityKeyNote').textContent : null,
         focused: b.sb.document.activeElement ? b.sb.document.activeElement.id || null : null,
+        authBanner: !!el('authBanner'),
+        expiredBanner: b.banner(),
+        status: el('securityStatus') ? el('securityStatus').textContent.trim() : null,
         reloads: b.sb.record.reloads,
         navigations: b.sb.record.navigations,
         confirms: b.sb.record.confirms,
@@ -261,6 +264,9 @@ def test_turning_sign_in_on_posts_the_credentials_and_shows_the_key_once(
     assert result["keyShown"] and result["key"] == FAKE_KEY
     assert result["keyNote"] == "Copy it now: it will not be shown again."
     assert result["message"]["text"].startswith("Sign-in is on")
+    # While the key is on screen, the page no longer says Boxarr is open.
+    assert result["authBanner"] is False
+    assert result["status"] == "Sign-in is on."
     assert result["passwordsCleared"]
     assert result["reloads"] == 0 and result["navigations"] == []
     # Continue: the key leaves the page, which reloads signed in.
@@ -270,18 +276,87 @@ def test_turning_sign_in_on_posts_the_credentials_and_shows_the_key_once(
     assert result["errors"] == after["errors"] == []
 
 
-def test_a_browser_that_lost_its_new_session_is_sent_to_sign_in(rendered):
+# What the server answers when the new cookie did not come back.
+SESSION_401 = {
+    "status": 401,
+    "headers": {"X-Boxarr-Auth": "login-required"},
+    "body": {
+        "success": False,
+        "message": "Authentication required. Sign in again.",
+        "login_url": "/login",
+    },
+}
+
+
+@pytest.mark.parametrize("session", [SESSION_401, NOT_SIGNED_IN])
+def test_a_browser_that_lost_its_new_session_is_sent_to_sign_in(rendered, session):
     data = _data(
-        rendered, "unset", answer=ENABLED, session=NOT_SIGNED_IN, **{"continue": True}
+        rendered, "unset", answer=ENABLED, session=session, **{"continue": True}
     )
 
     result = run(ENABLE_DRIVER, data)
 
-    assert "did not keep its sign-in" in result["message"]["text"]
+    # One message, saying what happened and why; it does not claim this
+    # browser is signed in, and no "session expired" banner contradicts it.
+    message = result["message"]
+    assert message["cls"] == "security-message security-message-error"
+    assert message["text"].startswith(
+        "Sign-in is on, but the browser did not send the sign-in cookie back."
+    )
+    assert "this browser is signed in" not in message["text"]
+    assert "proxy_cookie_path" in message["text"]
+    assert result["expiredBanner"] is None
+    assert result["authBanner"] is False
     # The key is still shown once; continuing goes to the login page.
     assert result["keyShown"] and result["key"] == FAKE_KEY
     assert result["after"]["navigations"] == ["/login"]
     assert result["after"]["reloads"] == 0
+    assert result["errors"] == []
+
+
+@pytest.mark.parametrize(
+    "cookie, why",
+    [
+        (
+            {"path": "/boxarr/", "secure": False},
+            "the sign-in cookie is for /boxarr/ and this page is at /setup",
+        ),
+        (
+            {"path": "/", "secure": True},
+            "it is marked Secure and this page is plain http",
+        ),
+    ],
+)
+def test_a_lost_session_after_turning_sign_in_on_is_explained(rendered, cookie, why):
+    answer = {"status": 200, "body": dict(ENABLED["body"], cookie=cookie)}
+
+    result = run(
+        ENABLE_DRIVER, _data(rendered, "unset", answer=answer, session=SESSION_401)
+    )
+
+    assert result["message"]["text"].startswith("Sign-in is on, but ")
+    assert why in result["message"]["text"]
+    assert result["expiredBanner"] is None
+
+
+def test_the_session_check_after_sign_in_is_on_is_the_only_quiet_request(rendered):
+    """Any other request that gets the same 401 still shows the banner."""
+    driver = ENABLE_DRIVER.replace(
+        "return shown;",
+        "await p.b.sb.window.fetch('/api/config');\n"
+        "shown.later = p.result();\nreturn shown;",
+    ).replace(
+        "return { status: 404, body: {} };",
+        "return data.session;",
+    )
+    data = _data(rendered, "unset", answer=ENABLED, session=SESSION_401)
+
+    result = run(driver, data)
+
+    assert result["expiredBanner"] is None
+    assert result["later"]["expiredBanner"]["text"].startswith(
+        "Your session has expired"
+    )
 
 
 def test_a_refusal_shows_the_servers_message_and_focuses_the_field(rendered):
