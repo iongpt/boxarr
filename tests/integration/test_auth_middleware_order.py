@@ -177,6 +177,31 @@ def test_a_state_reader_that_raises_answers_503_never_pass_through(
     assert ws.close_code == 1008
 
 
+def test_a_widget_token_does_not_get_past_a_state_reader_that_raises(
+    monkeypatch, tmp_path
+):
+    """Token mode (#151 group C): the token is checked inside the auth
+    layer, so a failure to read the state answers 503 to it as to anything
+    else - never the widget."""
+    token = "bxw_fakeWidgetTokenForTests0123"
+    auth_env(monkeypatch, tmp_path, widgets="token", widget_token=token)
+    app = create_app()
+    monkeypatch.setattr(AuthRuntime, "state", property(_raise))
+
+    answers = call_all(
+        app,
+        [
+            (raw_scope("GET", path, query=f"token={token}".encode()), b"")
+            for path in ("/api/widget", "/api/widget/json")
+        ],
+    )
+
+    for answer in answers:
+        assert answer.status == 503
+        assert answer.endpoint is None
+        assert answer.header("x-boxarr-auth") == "locked"
+
+
 def test_an_off_state_reader_that_raises_still_answers_503(monkeypatch, tmp_path):
     """Even with no authentication configured: a failure is not 'open'."""
     clear_auth_env(monkeypatch)
