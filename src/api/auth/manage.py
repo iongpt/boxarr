@@ -30,12 +30,22 @@ shape (known fields, their types; no message quotes a value), then
 
 While sign-in is off (the last two), anyone who can reach Boxarr may save,
 so the settings that would weaken sign-in once the owner turns it on -
-trusted proxies, the Secure cookie mode, the session lengths - are refused:
-they are saved with the first enable, or later by someone signed in.
+trusted proxies, the Secure cookie mode, the session lengths, the widgets'
+mode - are refused: they are saved with the first enable, or later by
+someone signed in.
+
+The widget token (design §3.6) is never taken from a request: Boxarr makes
+it, when the widgets switch to ``token`` with sign-in on (the first enable
+included) or on Regenerate, which needs the current password. Turning
+sign-in off drops it, so a token made by whoever had sign-in on cannot
+outlive that into a later sign-in by environment either; the first enable
+starts auth.json over anyway (SEC1, see ``finish_widget_token()``).
 
 A field the environment sets is refused, naming the variable. The page and
 ``GET /api/auth/status`` show the same view (``security_view()``), which
-never holds a hash, a key or a token.
+never holds a hash or a key. The one secret it shows is the widget token,
+inside the embed URLs, and only to a signed-in session: it is a read-only
+credential for this week's chart, kept in plain text for just that.
 """
 
 import ipaddress
@@ -67,6 +77,7 @@ from .config import (
     ENV_SESSION_HOURS,
     ENV_TRUSTED_PROXIES,
     ENV_USERNAME,
+    ENV_WIDGET_TOKEN,
     ENV_WIDGETS,
     REMEMBER_DAYS_DEFAULT,
     REMEMBER_DAYS_MAX,
@@ -74,6 +85,8 @@ from .config import (
     SESSION_HOURS_DEFAULT,
     SESSION_HOURS_MAX,
     SESSION_HOURS_MIN,
+    WIDGET_MODES,
+    WIDGET_TOKEN_PREFIX,
     ApiKeyRecord,
     AuthFile,
     AuthState,
@@ -108,6 +121,7 @@ FIELD_VARIABLES: Mapping[str, Tuple[str, ...]] = {
     "password": PASSWORD_VARIABLES,
     "api_key": API_KEY_VARIABLES,
     "widgets": (ENV_WIDGETS,),
+    "widget_token": (ENV_WIDGET_TOKEN,),
     "trusted_proxies": (ENV_TRUSTED_PROXIES,),
     "cookie_secure": (ENV_COOKIE_SECURE,),
     "session_hours": (ENV_SESSION_HOURS,),
@@ -121,18 +135,29 @@ SETTINGS_FIELDS: Mapping[str, Optional[str]] = {
     "new_password": "password",
     "confirm_password": "password",
     "current_password": None,
+    "widgets": "widgets",
     "trusted_proxies": "trusted_proxies",
     "cookie_secure": "cookie_secure",
     "session_hours": "session_hours",
     "remember_days": "remember_days",
 }
-OTHER_SETTINGS = ("trusted_proxies", "cookie_secure", "session_hours", "remember_days")
+# Refused while sign-in is off (SEC1), saved with the first enable or by
+# someone signed in.
+OTHER_SETTINGS = (
+    "trusted_proxies",
+    "cookie_secure",
+    "session_hours",
+    "remember_days",
+    "widgets",
+)
 
 _LABELS = {
     "method": "Sign-in",
     "username": "The username",
     "password": "The password",
     "api_key": "The API key",
+    "widgets": "The widgets setting",
+    "widget_token": "The widget token",
     "trusted_proxies": "Trusted proxies",
     "cookie_secure": "The Secure cookie setting",
     "session_hours": "The session length",
@@ -143,6 +168,11 @@ CHANGED_MESSAGE = (
     "The security settings changed while this was being saved. Reload the "
     "page and try again."
 )
+
+
+def setting_label(setting: str) -> str:
+    """How messages name ``setting`` ("The API key", "The widget token")."""
+    return _LABELS[setting]
 
 
 def set_by(env: EnvAuthConfig, setting: str) -> Optional[str]:
@@ -273,6 +303,11 @@ def parse_settings(data: Any) -> Dict[str, Any]:
         value = _text(data, key, what)
         if value is not None:
             fields[key] = value
+    widgets = data.get("widgets")
+    if widgets is not None:
+        if widgets not in WIDGET_MODES:
+            raise ChangeRefused(400, "The widgets must be public or token.", "widgets")
+        fields["widgets"] = widgets
     if data.get("trusted_proxies") is not None:
         fields["trusted_proxies"] = data["trusted_proxies"]  # parse_proxies()
     cookie = data.get("cookie_secure")
@@ -470,7 +505,7 @@ def plan_settings(
             credentials_changed = True
     switching_off = in_effect and requested == Mode.NONE
 
-    for key in ("cookie_secure", "session_hours", "remember_days"):
+    for key in ("cookie_secure", "session_hours", "remember_days", "widgets"):
         if key in fields:
             updates[key] = fields[key]
 
@@ -543,6 +578,55 @@ def apply_plan(
         changes["trusted_proxies"] = updates.pop("trusted_proxies")
     changes.update(updates)
     return replace(current, **changes)
+
+
+def new_widget_token() -> str:
+    """Return a new widget token: ``bxw_`` and 24 random bytes (design §3.6).
+    The prefix lets the access log and secret scanners find it."""
+    return WIDGET_TOKEN_PREFIX + secrets.token_urlsafe(24)
+
+
+def finish_widget_token(
+    auth: AuthFile, env: EnvAuthConfig, plan: SettingsPlan, token: str
+) -> Tuple[AuthFile, bool]:
+    """auth.json as a save leaves it, with its widget token settled; and
+    whether ``token`` (a fresh one) went in.
+
+    - Turning sign-in off drops the stored token. While sign-in is off,
+      anyone may save and read Settings → Security; a token that someone
+      with sign-in on had made, then left behind by turning it off, would
+      otherwise open the widgets again once the owner turns sign-in on by
+      environment (no first enable runs then to start over).
+    - With sign-in on (the first enable included, which has just started
+      over without one), widgets that need a token and have none, from the
+      file or the environment, get ``token``.
+    - Anything else keeps what it has: a token kept while the widgets are
+      public makes the same embed URL work again once they need it.
+    """
+    if plan.switching_off:
+        return replace(auth, widget_token=None), False
+    if plan.kind not in (Kind.FIRST_ENABLE, Kind.IN_EFFECT):
+        return auth, False
+    mode = env.widgets or auth.widgets
+    if mode != "token" or auth.widget_token is not None:
+        return auth, False
+    if env.widget_token is not None:
+        return auth, False
+    return replace(auth, widget_token=SecretStr(token)), True
+
+
+def widget_embed_paths(state: AuthState, root_path: str) -> Optional[Dict[str, str]]:
+    """The widgets' URLs (the root path and the route, plus the token when
+    they need one), or None while they need a token that does not exist."""
+    query = ""
+    if state.widgets == "token":
+        if state.widget_token is None:
+            return None
+        query = "?token=" + state.widget_token.get_secret_value()
+    return {
+        "html": f"{root_path}/api/widget{query}",
+        "json": f"{root_path}/api/widget/json{query}",
+    }
 
 
 def new_api_key() -> Tuple[str, ApiKeyRecord]:
@@ -741,7 +825,7 @@ def security_view(runtime: AuthRuntime, scope: Scope) -> Dict[str, Any]:
     sessions = (
         runtime.sessions.count_valid(state.credential_generation) if in_effect else None
     )
-    return {
+    view: Dict[str, Any] = {
         "method": state.mode,
         "in_effect": in_effect,
         "principal": auth.get("kind"),
@@ -791,3 +875,18 @@ def security_view(runtime: AuthRuntime, scope: Scope) -> Dict[str, Any]:
         },
         "request": request_diagnostic(scope, trusted, proxies_var is None),
     }
+    if in_effect:
+        # Only while sign-in is on: while it is off, anyone may read this.
+        signed_in = auth.get("kind") == "session"
+        view["widget_embed"] = {
+            "mode": state.widgets,
+            "token_set": state.widget_token is not None,
+            "token_variable": set_by(env, "widget_token"),
+            # The token itself, inside the URLs: for a signed-in owner only.
+            "paths": (
+                widget_embed_paths(state, str(scope.get("root_path", "")))
+                if signed_in
+                else None
+            ),
+        }
+    return view
