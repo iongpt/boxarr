@@ -182,6 +182,373 @@ function boxarrSignOut() {
         });
 }
 
+// ==========================================
+// Settings → Security (#151)
+// ==========================================
+//
+// The section in setup.html posts JSON to /api/auth/*. Its form has no
+// method and its inputs no name, so nothing is sent without this code. A
+// field the environment sets is readonly or disabled and never sent (the
+// server refuses it, naming the variable). Every message is set with
+// textContent: none of it is markup.
+
+// The values the page was rendered with: a save sends only what changed,
+// so a setting left alone keeps its default.
+let boxarrSecurityInitial = null;
+
+const BOXARR_SECURITY_FIELDS = {
+    trusted_proxies: 'securityTrustedProxies',
+    cookie_secure: 'securityCookieSecure',
+    session_hours: 'securitySessionHours',
+    remember_days: 'securityRememberDays'
+};
+
+// An input the page lets the user change: not one the environment sets.
+function boxarrSecurityField(id) {
+    const el = document.getElementById(id);
+    if (!el || el.disabled || el.readOnly) return null;
+    if (typeof el.hasAttribute === 'function' && el.hasAttribute('readonly')) return null;
+    return el;
+}
+
+function boxarrSecurityValue(id) {
+    const el = document.getElementById(id);
+    return el && typeof el.value === 'string' ? el.value : '';
+}
+
+function boxarrSecurityInEffect() {
+    const form = document.getElementById('securityForm');
+    return !!(form && form.getAttribute('data-in-effect') === 'true');
+}
+
+function boxarrSecurityMessage(text, kind) {
+    const box = document.getElementById('securityMessage');
+    if (!box) return;
+    box.textContent = text || '';
+    box.className = 'security-message' + (kind ? ' security-message-' + kind : '');
+    box.hidden = !text;
+}
+
+// The server's message (it never repeats what was typed), else a fallback.
+function boxarrSecurityFailure(data, status, fallback) {
+    if (data && typeof data.message === 'string' && data.message) return data.message;
+    if (data && typeof data.detail === 'string' && data.detail) return data.detail;
+    return fallback + (status ? ' (HTTP ' + status + ')' : '') + '.';
+}
+
+function boxarrSecurityFocus(field) {
+    const ids = {
+        method: 'securityMethod',
+        username: 'securityUsername',
+        new_password: 'securityNewPassword',
+        confirm_password: 'securityConfirmPassword',
+        current_password: 'securityCurrentPassword',
+        trusted_proxies: 'securityTrustedProxies',
+        cookie_secure: 'securityCookieSecure',
+        session_hours: 'securitySessionHours',
+        remember_days: 'securityRememberDays'
+    };
+    const el = ids[field] ? document.getElementById(ids[field]) : null;
+    if (!el) return;
+    const advanced = document.getElementById('securityAdvanced');
+    if (advanced && typeof advanced.contains === 'function' && advanced.contains(el)) {
+        advanced.open = true;
+    }
+    if (typeof el.focus === 'function') el.focus();
+}
+
+function boxarrSecurityClearPasswords() {
+    ['securityNewPassword', 'securityConfirmPassword', 'securityCurrentPassword'].forEach(function(id) {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+}
+
+// Send a JSON body to /api/auth/<path>; resolve to {ok, status, data}.
+function boxarrSecurityRequest(path, method, body) {
+    const init = { method: method, headers: { 'Content-Type': 'application/json' } };
+    if (body !== undefined) init.body = JSON.stringify(body);
+    return fetch(apiUrl('/auth/' + path), init).then(function(response) {
+        return response.json()
+            .catch(function() { return null; })
+            .then(function(data) {
+                return { ok: response.ok, status: response.status, data: data };
+            });
+    });
+}
+
+function boxarrSecurityReloadSoon() {
+    setTimeout(function() { window.location.reload(); }, 1200);
+}
+
+function boxarrInitSecurity() {
+    const form = document.getElementById('securityForm');
+    if (!form) return;
+    boxarrSecurityInitial = {
+        username: boxarrSecurityValue('securityUsername')
+    };
+    Object.keys(BOXARR_SECURITY_FIELDS).forEach(function(key) {
+        boxarrSecurityInitial[key] = boxarrSecurityValue(BOXARR_SECURITY_FIELDS[key]);
+    });
+    form.addEventListener('submit', boxarrSaveSecurity);
+    boxarrSecurityMethodChanged();
+    // "Set up login" (the banner) lands here: start with the username.
+    if (window.location.hash === '#security' && form.getAttribute('data-state') === 'unset') {
+        const username = boxarrSecurityField('securityUsername');
+        if (username && typeof username.focus === 'function') username.focus();
+    }
+}
+
+function boxarrSecurityMethodChanged() {
+    const select = document.getElementById('securityMethod');
+    const credentials = document.getElementById('securityCredentials');
+    if (select && credentials) credentials.hidden = select.value !== 'forms';
+}
+
+// The body of a save: the method, the credentials when sign-in is to be on,
+// the current password, and the advanced settings that changed.
+function boxarrCollectSecurity() {
+    const body = {};
+    const initial = boxarrSecurityInitial || {};
+    const inEffect = boxarrSecurityInEffect();
+    const select = boxarrSecurityField('securityMethod');
+    const methodEl = document.getElementById('securityMethod');
+    const method = methodEl ? methodEl.value : 'forms';
+    if (select) body.method = method;
+    if (method === 'forms') {
+        const username = boxarrSecurityField('securityUsername');
+        if (username && (!inEffect || username.value !== initial.username)) {
+            body.username = username.value.trim();
+        }
+        const fresh = boxarrSecurityValue('securityNewPassword');
+        const confirm = boxarrSecurityValue('securityConfirmPassword');
+        if (fresh || confirm) {
+            body.new_password = fresh;
+            body.confirm_password = confirm;
+        }
+    }
+    const current = boxarrSecurityValue('securityCurrentPassword');
+    if (current) body.current_password = current;
+    Object.keys(BOXARR_SECURITY_FIELDS).forEach(function(key) {
+        const el = boxarrSecurityField(BOXARR_SECURITY_FIELDS[key]);
+        if (!el || el.value === initial[key]) return;
+        if (key === 'trusted_proxies') {
+            body[key] = el.value.split(/[\s,]+/).filter(function(part) { return part; });
+        } else if (key === 'cookie_secure') {
+            body[key] = el.value;
+        } else {
+            const text = el.value.trim();
+            // Not a whole number: sent as it is, so the server says why.
+            body[key] = /^\d+$/.test(text) ? parseInt(text, 10) : text;
+        }
+    });
+    return body;
+}
+
+function boxarrSaveSecurity(event) {
+    if (event && typeof event.preventDefault === 'function') event.preventDefault();
+    const button = document.getElementById('securitySaveBtn');
+    const body = boxarrCollectSecurity();
+    if (button) button.disabled = true;
+    boxarrSecurityMessage('Saving…', null);
+    return boxarrSecurityRequest('settings', 'POST', body).then(function(result) {
+        const data = result.data;
+        if (!result.ok || !data || !data.success) {
+            if (button) button.disabled = false;
+            boxarrSecurityMessage(boxarrSecurityFailure(data, result.status, 'Could not save the security settings'), 'error');
+            if (data && data.field) boxarrSecurityFocus(data.field);
+            return;
+        }
+        boxarrSecurityClearPasswords();
+        let text = data.message || 'Saved.';
+        if (Array.isArray(data.warnings) && data.warnings.length) text += ' ' + data.warnings.join(' ');
+        boxarrSecurityMessage(text, 'success');
+        const next = data.signed_in ? boxarrSecurityCheckSignedIn() : Promise.resolve(true);
+        return next.then(function(signedIn) {
+            if (!signedIn) {
+                boxarrSecurityMessage(data.message + ' This browser did not keep its sign-in, so sign in now.', 'error');
+                if (data.api_key) {
+                    boxarrShowKeyOnce(data.api_key, data.api_key_note, makeUrl('/login'));
+                } else {
+                    setTimeout(function() { window.location.assign(makeUrl('/login')); }, 2500);
+                }
+                return;
+            }
+            if (data.api_key) {
+                boxarrShowKeyOnce(data.api_key, data.api_key_note, null);
+                return;
+            }
+            boxarrSecurityReloadSoon();
+        });
+    }).catch(function() {
+        if (button) button.disabled = false;
+        boxarrSecurityMessage('Could not reach Boxarr: nothing was saved.', 'error');
+    });
+}
+
+// After sign-in was turned on: whether this browser kept its new session.
+function boxarrSecurityCheckSignedIn() {
+    return fetch(apiUrl('/auth/session'))
+        .then(function(response) { return response.ok ? response.json() : null; })
+        .then(function(data) { return !!(data && data.authenticated); })
+        .catch(function() { return true; });  // unknown: the reload will tell
+}
+
+// The new API key, shown once; "continue" goes on to ``after`` (or reloads).
+function boxarrShowKeyOnce(key, note, after) {
+    const box = document.getElementById('securityKeyOnce');
+    const value = document.getElementById('securityKeyValue');
+    if (!box || !value) return;
+    value.value = key;
+    const noteEl = document.getElementById('securityKeyNote');
+    if (noteEl) noteEl.textContent = note || '';
+    box.setAttribute('data-after', after || '');
+    box.hidden = false;
+    if (typeof box.scrollIntoView === 'function') box.scrollIntoView({ block: 'center' });
+    if (typeof value.select === 'function') value.select();
+}
+
+function boxarrSecurityContinue() {
+    const box = document.getElementById('securityKeyOnce');
+    const value = document.getElementById('securityKeyValue');
+    const after = box ? box.getAttribute('data-after') : '';
+    if (value) value.value = '';
+    if (box) box.hidden = true;
+    if (after) {
+        window.location.assign(after);
+    } else {
+        window.location.reload();
+    }
+}
+
+function boxarrCopyKey() {
+    const value = document.getElementById('securityKeyValue');
+    const button = document.getElementById('securityKeyCopy');
+    if (!value) return;
+    function done(ok) {
+        if (button) button.textContent = ok ? 'Copied' : 'Select and copy it';
+    }
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        navigator.clipboard.writeText(value.value).then(function() { done(true); }, function() { done(false); });
+        return;
+    }
+    try {
+        value.select();
+        done(document.execCommand('copy'));
+    } catch (e) {
+        done(false);
+    }
+}
+
+// The key and Sign out everywhere ask for the current password in the form.
+function boxarrSecurityCurrentPassword() {
+    const current = boxarrSecurityValue('securityCurrentPassword');
+    if (!current) {
+        boxarrSecurityMessage('Enter your current password first.', 'error');
+        boxarrSecurityFocus('current_password');
+    }
+    return current;
+}
+
+function boxarrApiKeyCreate() {
+    const button = document.getElementById('securityApiKeyCreate');
+    const replacing = !!(button && button.getAttribute('data-has-key') === 'true');
+    const current = boxarrSecurityCurrentPassword();
+    if (!current) return Promise.resolve();
+    if (replacing && !window.confirm('Regenerate the API key? The old key stops working at once: update it wherever it is used.')) {
+        return Promise.resolve();
+    }
+    if (button) button.disabled = true;
+    return boxarrSecurityRequest('api-key', 'POST', { current_password: current }).then(function(result) {
+        if (button) button.disabled = false;
+        const data = result.data;
+        if (!result.ok || !data || !data.api_key) {
+            boxarrSecurityMessage(boxarrSecurityFailure(data, result.status, 'Could not make an API key'), 'error');
+            if (data && data.field) boxarrSecurityFocus(data.field);
+            return;
+        }
+        boxarrSecurityClearPasswords();
+        boxarrSecurityMessage(data.message || 'API key created.', 'success');
+        boxarrShowKeyOnce(data.api_key, data.api_key_note, null);
+    }).catch(function() {
+        if (button) button.disabled = false;
+        boxarrSecurityMessage('Could not reach Boxarr: the API key was not changed.', 'error');
+    });
+}
+
+function boxarrApiKeyRevoke() {
+    const current = boxarrSecurityCurrentPassword();
+    if (!current) return Promise.resolve();
+    if (!window.confirm('Revoke the API key? Anything that still uses it is refused.')) {
+        return Promise.resolve();
+    }
+    return boxarrSecurityRequest('api-key', 'DELETE', { current_password: current }).then(function(result) {
+        const data = result.data;
+        if (!result.ok || !data || !data.success) {
+            boxarrSecurityMessage(boxarrSecurityFailure(data, result.status, 'Could not revoke the API key'), 'error');
+            if (data && data.field) boxarrSecurityFocus(data.field);
+            return;
+        }
+        boxarrSecurityClearPasswords();
+        boxarrSecurityMessage(data.message || 'API key revoked.', 'success');
+        boxarrSecurityReloadSoon();
+    }).catch(function() {
+        boxarrSecurityMessage('Could not reach Boxarr: the API key was not changed.', 'error');
+    });
+}
+
+function boxarrSignOutEverywhere() {
+    const current = boxarrSecurityCurrentPassword();
+    if (!current) return Promise.resolve();
+    if (!window.confirm('Sign out every browser and device? This one stays signed in.')) {
+        return Promise.resolve();
+    }
+    return boxarrSecurityRequest('sessions/revoke-all', 'POST', { current_password: current }).then(function(result) {
+        const data = result.data;
+        if (!result.ok || !data || !data.success) {
+            boxarrSecurityMessage(boxarrSecurityFailure(data, result.status, 'Could not sign out everywhere'), 'error');
+            if (data && data.field) boxarrSecurityFocus(data.field);
+            return;
+        }
+        boxarrSecurityClearPasswords();
+        boxarrSecurityMessage(data.message || 'Signed out everywhere.', 'success');
+        boxarrSecurityReloadSoon();
+    }).catch(function() {
+        boxarrSecurityMessage('Could not reach Boxarr: no one was signed out.', 'error');
+    });
+}
+
+// The banner's "Keep it open": saved at once; the page stays as it is (the
+// Settings form may hold unsaved changes), without the banner.
+function boxarrKeepOpen(button) {
+    if (!window.confirm('Keep Boxarr open? Anyone who can reach it can use it and change Radarr. You can turn sign-in on later in Settings → Security.')) {
+        return Promise.resolve();
+    }
+    if (button) button.disabled = true;
+    return boxarrSecurityRequest('keep-open', 'POST').then(function(result) {
+        const data = result.data;
+        if (!result.ok || !data || !data.success) {
+            if (button) button.disabled = false;
+            window.alert(boxarrSecurityFailure(data, result.status, 'Could not save the choice'));
+            return;
+        }
+        const banner = document.getElementById('authBanner');
+        if (banner && banner.parentNode) banner.parentNode.removeChild(banner);
+        const status = document.getElementById('securityStatus');
+        if (status) status.textContent = 'Sign-in is off, by your choice: anyone who can reach Boxarr can use it and change Radarr.';
+        const form = document.getElementById('securityForm');
+        if (form) form.setAttribute('data-state', 'none');
+        const select = document.getElementById('securityMethod');
+        if (select) {
+            select.value = 'none';
+            boxarrSecurityMethodChanged();
+        }
+    }).catch(function() {
+        if (button) button.disabled = false;
+        window.alert('Could not reach Boxarr: nothing was saved.');
+    });
+}
+
 // URL helper functions
 function makeUrl(path) {
     // Ensure path starts with /
@@ -2005,6 +2372,10 @@ function reloadScheduler() {
             updateMovieStatuses();
         }
         
+        // Settings → Security (#151): its own form and Save. Wherever
+        // setup.html is served; a page without the section is left alone.
+        boxarrInitSecurity();
+
         // Setup page specific initialization
         if (isCurrentPath('/setup')) {
             // Rehydrate root-folder mapping UI from server state
