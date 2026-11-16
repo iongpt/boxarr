@@ -32,7 +32,7 @@ import os
 import threading
 import weakref
 from dataclasses import replace
-from typing import Any, Callable, Mapping, Optional, TypeVar
+from typing import Any, Callable, Mapping, Optional, Tuple, TypeVar
 
 import anyio
 import anyio.to_thread
@@ -244,9 +244,28 @@ class AuthRuntime:
                     pass
             new_hash = hash_password(plain)
 
+        cleared: Tuple[str, ...] = ()
         if stored is not None:
             generation = stored.credential_generation + 1
             base = stored
+            if stored.password_hash is not None and stored.password_source != "env":
+                # A password set in Settings → Security is replaced from the
+                # environment. Whoever set it may be whoever reached Boxarr
+                # while it was open, and the API key, the widget token and the
+                # trusted proxies made under it would outlive it: start over,
+                # as the first enable does, keeping only the instance id. A
+                # password the environment had set before is the owner's own
+                # rotation, and keeps the rest.
+                cleared = tuple(
+                    name
+                    for name, value in (
+                        ("the API key", stored.api_key),
+                        ("the widget token", stored.widget_token),
+                        ("the trusted proxies", stored.trusted_proxies),
+                    )
+                    if value
+                )
+                base = AuthFile(method=Mode.FORMS, instance_id=stored.instance_id)
         else:
             # Nothing to count from: start past any generation a leftover
             # sessions file could name.
@@ -287,6 +306,16 @@ class AuthRuntime:
             "signed out",
             env.password_variable,
         )
+        if base is not stored and stored is not None:
+            logger.warning(
+                "Authentication: the password from %s replaces the one set in "
+                "Settings → Security, so %s started over: %s and every setting "
+                "saved there were cleared. Create a new API key in Settings → "
+                "Security if you use one.",
+                env.password_variable,
+                self.paths.auth_file,
+                ", ".join(cleared) if cleared else "the sign-in settings",
+            )
         self.reload()
 
     # ------------------------------------------------------------ sessions
