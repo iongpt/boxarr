@@ -295,7 +295,20 @@ function boxarrInitSecurity() {
     // "Set up login" (the banner) lands here: start with the username.
     if (window.location.hash === '#security' && form.getAttribute('data-state') === 'unset') {
         const username = boxarrSecurityField('securityUsername');
-        if (username && typeof username.focus === 'function') username.focus();
+        if (username && typeof username.focus === 'function') {
+            username.focus();
+            // Once the page has loaded, the browser moves to #security and
+            // takes the focus with it (the section cannot hold it, so it
+            // lands nowhere). Put it back, unless the owner has moved on.
+            const again = function() {
+                setTimeout(function() {
+                    const active = document.activeElement;
+                    if (!active || active === document.body) username.focus();
+                }, 0);
+            };
+            if (document.readyState === 'complete') again();
+            else window.addEventListener('load', again);
+        }
     }
 }
 
