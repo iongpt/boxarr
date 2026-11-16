@@ -240,7 +240,6 @@ p.b.respond(call => {
 const form = p.el('securityForm');
 form.dispatchEvent(new p.b.sb.Event('submit'));
 await p.b.sb.flush();
-await new Promise(resolve => setTimeout(resolve, 1600));
 await p.b.sb.flush();
 return p.result();
 """
@@ -307,12 +306,74 @@ def test_a_refused_switch_is_shown_and_focuses_the_method(boxarr):
     assert result["reloads"] == 0
 
 
+NO_LIST = {
+    "status": 400,
+    "body": {
+        "success": False,
+        "message": "External needs your reverse proxy's address in Trusted proxies.",
+        "field": "trusted_proxies",
+    },
+}
+# SAVE_DRIVER, watching where the focus goes (and whether it scrolls) and
+# whether the message under Save is brought into view.
+REVEAL_DRIVER = SAVE_DRIVER.replace(
+    "const p = page(data);",
+    r"""const p = page(data);
+const seen = { focus: [], scrolled: [] };
+['securityMethod', 'securityTrustedProxies'].forEach(id => {
+    const el = p.el(id);
+    const real = el.focus.bind(el);
+    el.focus = options => { seen.focus.push({ id, options: options || null }); real(options); };
+});
+const box = p.el('securityMessage');
+box.scrollIntoView = options => seen.scrolled.push({ options: options || null, shown: !box.hidden });
+""",
+).replace(
+    "return p.result();",
+    "return Object.assign(p.result(), { seen, advancedOpen: !!p.el('securityAdvanced').open });",
+)
+
+
+@needs_node
+@pytest.mark.parametrize(
+    "answer, field",
+    [(LOCKOUT, "securityMethod"), (NO_LIST, "securityTrustedProxies")],
+    ids=["lockout", "no-list"],
+)
+def test_a_refused_switch_keeps_its_message_in_view(boxarr, answer, field):
+    """Review (flows, major): the refusal focused Sign-in, at the top of the
+    section, and the page jumped up, away from the message under Save. The
+    cursor still goes to the field, without scrolling, and the message is
+    brought into view."""
+    client, _ = boxarr()
+    _enable_and_sign_in(client)
+    data = _page(client)
+    data["answer"] = answer
+
+    result = run_driver(PRELUDE + DRIVER_HELPERS + REVEAL_DRIVER, data)
+
+    assert result["message"]["text"] == answer["body"]["message"]
+    assert result["focused"] == field
+    assert result["seen"]["focus"] == [
+        {"id": field, "options": {"preventScroll": True}}
+    ]
+    assert result["seen"]["scrolled"] == [
+        {"options": {"block": "nearest"}, "shown": True}
+    ]
+    assert result["advancedOpen"] is True  # Trusted proxies is in there
+    assert result["reloads"] == 0 and result["errors"] == []
+
+
 ACTION_DRIVER = r"""
 const p = page(data);
 p.b.respond(() => data.answer);
 await p.b.sb.window[data.action]();
 await p.b.sb.flush();
-return p.result();
+const shown = p.result();
+const box = p.el('securityWidgetMessage');
+shown.widgetMessage = box && box.hidden === false
+    ? { text: box.textContent, cls: box.className } : null;
+return shown;
 """
 
 FAKE_KEY = "bxk_" + "FAKEKEYFAKEKEY12" * 3
@@ -362,9 +423,115 @@ def test_without_a_password_the_proxy_alone_makes_a_key_or_a_token(
     (call,) = result["calls"]
     assert (call["url"], call["method"]) == (path, "POST")
     assert call["marked"] and call["body"] == {}
-    assert result["message"]["text"] != "Enter your current password first."
-    assert "success" in result["message"]["cls"]
+    # The token's answer is shown next to its button (review: the form's
+    # message is out of view there on a phone).
+    shown = (
+        result["widgetMessage"]
+        if action == "boxarrWidgetTokenRegenerate"
+        else result["message"]
+    )
+    assert shown["text"] != "Enter your current password first."
+    assert "success" in shown["cls"]
     assert result["errors"] == []
     # And the server takes it: the proxy alone, nothing to prove.
     made = client.post(path, json=call["body"], headers=SAME_ORIGIN)
     assert made.status_code == 200, made.text
+
+
+# --------------------------------------------------------------------------
+# What the page says, under each method (review: flows)
+# --------------------------------------------------------------------------
+
+
+def test_under_external_the_help_texts_say_what_holds_there(boxarr):
+    """With a stored password: it confirms changes, the API key and the
+    widget token included (no Sign out everywhere under External); the
+    widgets' URLs go through the proxy, which must let them through."""
+    client, root = boxarr()
+    _enable_and_sign_in(client)
+    _switch(client)
+    saved = client.post(
+        "/api/auth/settings",
+        json={"widgets": "token", "current_password": PASSWORD},
+        headers=SAME_ORIGIN,
+    )
+    assert saved.status_code == 200, saved.text
+
+    soup = _soup(client.get("/setup"))
+
+    help_text = _text(soup.select_one("#securityCurrentPasswordGroup small"))
+    assert help_text == (
+        "Needed for every change here, the API key and the widget token included."
+    )
+    assert _text(soup.select_one("#securityExternalCredentials")) == (
+        "Under External the username and password do not sign anyone in. The "
+        "password confirms changes here, and both sign you in if you switch "
+        "back to Boxarr's own sign-in."
+    )
+    note = _text(soup.select_one("#securityWidgetProxyNote"))
+    assert note.startswith("These URLs go through your reverse proxy")
+    assert "without its sign-in" in note
+    assert soup.select_one("#securityWidgetMessage").has_attr("hidden")
+
+
+def test_under_forms_the_help_texts_are_as_before(boxarr):
+    client, _ = boxarr()
+    _enable_and_sign_in(client)
+
+    soup = _soup(client.get("/setup"))
+
+    assert _text(soup.select_one("#securityCurrentPasswordGroup small")) == (
+        "Needed for every change here, the API key and signing out everywhere "
+        "included."
+    )
+    assert soup.select_one("#securityWidgetProxyNote") is None
+    assert soup.select_one("#securityExternalHint") is None
+
+
+def test_external_by_environment_without_a_password_says_so(monkeypatch, tmp_path):
+    """No password anywhere: nothing is asked for, so the note does not say
+    the password confirms changes; the method is the environment's, so it
+    does not offer a switch back."""
+    from src.utils.config import settings
+
+    clear_auth_env(monkeypatch)
+    monkeypatch.setenv("BOXARR_DATA_DIRECTORY", str(tmp_path))
+    monkeypatch.setenv("BOXARR_AUTH_METHOD", "external")
+    monkeypatch.setenv("BOXARR_AUTH_TRUSTED_PROXIES", PROXY)
+    monkeypatch.setattr(settings, "radarr_api_key", "fake-radarr-key")
+    use_url_base(monkeypatch, "")
+    client = TestClient(create_app(), client=(PROXY, 50000))
+
+    soup = _soup(client.get("/setup"))
+
+    assert soup.select_one("#securityCurrentPasswordGroup") is None
+    note = _text(soup.select_one("#securityExternalCredentials"))
+    assert note == (
+        "Under External the username and password do not sign anyone in. No "
+        "password is set, so anyone your proxy lets through can change these "
+        "settings: set one here to have it asked for."
+    )
+
+
+@pytest.mark.parametrize("stored", [None, "none"], ids=["unset", "stored-none"])
+def test_while_off_the_page_says_how_external_is_reached(boxarr, stored):
+    """External is a switch a signed-in owner makes, never the first choice:
+    while sign-in is off the page says so, under the Sign-in select."""
+    client, _ = boxarr()
+    if stored:
+        assert (
+            client.post(
+                "/api/auth/settings", json={"method": "none"}, headers=SAME_ORIGIN
+            ).status_code
+            == 200
+        )
+
+    soup = _soup(client.get("/setup"))
+
+    options = [o["value"] for o in soup.select("#securityMethod option")]
+    assert options == ["forms", "none"]
+    assert _text(soup.select_one("#securityExternalHint")) == (
+        "Does a reverse proxy sign people in for you (Authelia, Authentik)? "
+        "Turn sign-in on first: once you are signed in, you can switch to "
+        "External."
+    )

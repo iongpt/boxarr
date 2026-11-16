@@ -190,3 +190,43 @@ def test_while_off_the_choice_is_offered_with_sign_in_and_nothing_else(
     assert section.select_one("#securityWidgetEmbed") is None
     assert section.select_one("#securityWidgetToken") is None
     assert "bxw_" not in str(section)
+
+
+@pytest.mark.parametrize("source", ["env", "file"])
+def test_while_off_a_token_mode_says_it_waits_for_sign_in(
+    monkeypatch, tmp_path, source
+):
+    """Review (off state): while sign-in is off the widgets are public
+    whatever the mode says, and the page said nothing of it."""
+    from src.utils.config import settings
+
+    clear_auth_env(monkeypatch)
+    monkeypatch.setenv("BOXARR_DATA_DIRECTORY", str(tmp_path))
+    monkeypatch.setattr(settings, "radarr_api_key", "fake-radarr-key")
+    use_url_base(monkeypatch, "")
+    if source == "env":
+        monkeypatch.setenv("BOXARR_AUTH_WIDGETS", "token")
+    else:
+        (tmp_path / "auth.json").write_text(
+            json.dumps({"version": 1, "method": "none", "widgets": "token"})
+        )
+        (tmp_path / "auth.json").chmod(0o600)
+    client = TestClient(create_app(), client=("198.51.100.30", 50000))
+
+    section = BeautifulSoup(client.get("/setup").text, "html.parser").select_one(
+        "section#security"
+    )
+
+    note = section.select_one("#securityWidgetsOff")
+    assert note is not None
+    assert note.get_text(strip=True) == (
+        "Sign-in is off, so the widgets are public for now: a token applies "
+        "once it is on."
+    )
+    assert client.get("/api/widget/json").status_code == 200
+
+
+def test_while_off_a_public_mode_says_nothing_more(setup_page):
+    section, _, _ = setup_page("unset")
+
+    assert section.select_one("#securityWidgetsOff") is None

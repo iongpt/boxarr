@@ -294,7 +294,33 @@ function boxarrSecurityFocus(field) {
     if (advanced && typeof advanced.contains === 'function' && advanced.contains(el)) {
         advanced.open = true;
     }
-    if (typeof el.focus === 'function') el.focus();
+    // The cursor goes to the field, but the page stays on the message,
+    // which says what is wrong: the field may sit far above it (Sign-in is
+    // the first thing in the section).
+    if (typeof el.focus === 'function') el.focus({ preventScroll: true });
+    boxarrSecurityRevealMessage();
+}
+
+// Bring the message under the Save button into view, if it is out of it.
+function boxarrSecurityRevealMessage() {
+    const box = document.getElementById('securityMessage');
+    if (box && !box.hidden && typeof box.scrollIntoView === 'function') {
+        box.scrollIntoView({ block: 'nearest' });
+    }
+}
+
+// The widgets' own message, next to Regenerate (the form's is above it,
+// out of view on a phone); the form's message is cleared.
+function boxarrWidgetMessage(text, kind) {
+    const box = document.getElementById('securityWidgetMessage');
+    if (!box) {
+        boxarrSecurityMessage(text, kind);
+        return;
+    }
+    boxarrSecurityMessage('', null);
+    box.textContent = text || '';
+    box.className = 'security-message' + (kind ? ' security-message-' + kind : '');
+    box.hidden = !text;
 }
 
 function boxarrSecurityClearPasswords() {
@@ -394,8 +420,13 @@ function boxarrCollectSecurity() {
             body.new_password = fresh;
             body.confirm_password = confirm;
         }
+        // Turning sign-in on starts auth.json over, the widgets back at
+        // public: what the select shows is what that saves, whether or not
+        // it was changed. Otherwise only a change is sent.
         const widgets = boxarrSecurityField('securityWidgets');
-        if (widgets && widgets.value !== initial.widgets) body.widgets = widgets.value;
+        const firstEnable = !inEffect && !document.getElementById('securityEnvNone');
+        const unchanged = firstEnable ? 'public' : initial.widgets;
+        if (widgets && widgets.value !== unchanged) body.widgets = widgets.value;
     }
     const current = boxarrSecurityValue('securityCurrentPassword');
     if (current) body.current_password = current;
@@ -566,7 +597,7 @@ function boxarrWidgetTokenRegenerate() {
             return;
         }
         boxarrSecurityClearPasswords();
-        boxarrSecurityMessage(data.message || 'Widget token created.', 'success');
+        boxarrWidgetMessage(data.message || 'Widget token created.', 'success');
         if (document.getElementById('securityWidgetHtml') && data.embed) {
             boxarrShowEmbedUrls(data.embed);
         } else {

@@ -194,6 +194,9 @@ const shown = p.result();
 shown.embeds = embeds(p);
 shown.passwordCleared = p.el('securityCurrentPassword').value === '';
 shown.buttonDisabled = p.el('securityWidgetToken').disabled;
+const box = p.el('securityWidgetMessage');
+shown.widgetMessage = box && box.hidden === false
+    ? { text: box.textContent, cls: box.className } : null;
 return shown;
 """
 
@@ -233,7 +236,13 @@ def test_regenerate_confirms_posts_and_shows_the_new_urls(rendered, name, root):
     assert call["body"] == {"current_password": "fake-current-1"}
     assert len(result["confirms"]) == 1
     assert "stop working at once" in result["confirms"][0]
-    assert result["message"]["cls"] == "security-message security-message-success"
+    # Shown next to Regenerate, where the owner is (review: the form's own
+    # message is out of view there on a phone), and the form's is cleared.
+    assert result["message"] is None
+    assert result["widgetMessage"] == {
+        "text": "A new widget token replaces the old one, which no longer works.",
+        "cls": "security-message security-message-success",
+    }
     assert result["embeds"]["html"]["value"] == (
         f"{ORIGIN}{root}/api/widget?token={NEW_TOKEN}"
     )
@@ -311,7 +320,7 @@ def test_create_asks_no_confirmation_and_reloads_to_show_the_urls(rendered):
     (call,) = result["calls"]
     assert call["url"] == "/api/auth/widget-token"
     assert result["confirms"] == []
-    assert result["message"]["text"] == "Widget token created."
+    assert result["widgetMessage"]["text"] == "Widget token created."
     assert result["reloads"] == 1
 
 
@@ -362,3 +371,92 @@ def test_a_save_never_sends_widgets_with_sign_in_off_or_set_by_the_environment(
 
     assert "widgets" not in off
     assert "widgets" not in env
+
+
+def _render_off(mp, data_dir, stored, **variables):
+    """The page while sign-in is off (open): auth.json as given, or none."""
+    clear_auth_env(mp)
+    mp.setenv("BOXARR_DATA_DIRECTORY", str(data_dir))
+    for name, value in variables.items():
+        mp.setenv("BOXARR_AUTH_" + name.upper(), value)
+    if stored is not None:
+        (data_dir / "auth.json").write_text(json.dumps({"version": 1, **stored}))
+        (data_dir / "auth.json").chmod(0o600)
+    root = use_url_base(mp, "")
+    client = TestClient(create_app(), client=("198.51.100.42", 50000))
+    soup = BeautifulSoup(client.get(f"{root}/setup").text, "html.parser")
+    page = {
+        "base": root,
+        "section": dom_tree(soup.select_one("section#security")),
+        "banner": None,
+        "app": str(APP_JS),
+    }
+    return client, page
+
+
+FIRST_ENABLE_VALUES = {
+    "securityMethod": "forms",
+    "securityUsername": USERNAME,
+    "securityNewPassword": PASSWORD,
+    "securityConfirmPassword": PASSWORD,
+}
+
+
+def test_turning_sign_in_on_saves_the_widgets_mode_the_page_shows(
+    monkeypatch, tmp_path
+):
+    """Review (off state): sign-in turned off with token widgets leaves
+    auth.json saying token, and the page showed Token; turning sign-in on
+    again sent nothing (it had not changed), the first enable started over
+    and the widgets came back public, readable by anyone."""
+    from src.utils.config import settings
+
+    monkeypatch.setattr(settings, "radarr_api_key", "fake-radarr-key")
+    monkeypatch.setattr(passwords, "DEFAULT_LOG2N", 12)
+    monkeypatch.setattr(passwords, "DEFAULT_R", 1)
+    monkeypatch.setattr(passwords, "DEFAULT_P", 1)
+    data_dir = tmp_path / "off"
+    data_dir.mkdir()
+    client, page = _render_off(
+        monkeypatch, data_dir, {"method": "none", "widgets": "token"}
+    )
+    assert (
+        BeautifulSoup(client.get("/setup").text, "html.parser").select_one(
+            "#securityWidgets option[selected]"
+        )["value"]
+        == "token"
+    )
+
+    body = run(COLLECT_DRIVER, {**page, "values": FIRST_ENABLE_VALUES})
+
+    assert body["widgets"] == "token"
+    enabled = client.post("/api/auth/settings", json=body, headers=SAME_ORIGIN)
+    assert enabled.status_code == 200, enabled.text
+    stored = json.loads((data_dir / "auth.json").read_text())
+    assert stored["widgets"] == "token" and stored["widget_token"]
+    anonymous = TestClient(client.app).get("/api/widget/json")
+    assert anonymous.status_code == 401
+
+
+@pytest.mark.parametrize(
+    "stored, variables",
+    [
+        (None, {}),  # unset: the select shows public, the default
+        ({"method": "none"}, {}),
+        # Under BOXARR_AUTH_METHOD=none the widgets cannot be saved (SEC1):
+        # only a change is sent (and refused, naming the reason).
+        ({"method": "forms", "widgets": "token"}, {"method": "none"}),
+    ],
+    ids=["unset", "stored-none", "env-none"],
+)
+def test_turning_sign_in_on_sends_no_widgets_mode_it_does_not_need(
+    monkeypatch, tmp_path, stored, variables
+):
+    from src.utils.config import settings
+
+    monkeypatch.setattr(settings, "radarr_api_key", "fake-radarr-key")
+    _, page = _render_off(monkeypatch, tmp_path, stored, **variables)
+
+    body = run(COLLECT_DRIVER, {**page, "values": FIRST_ENABLE_VALUES})
+
+    assert body["method"] == "forms" and "widgets" not in body
