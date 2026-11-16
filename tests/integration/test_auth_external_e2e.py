@@ -216,7 +216,10 @@ class _Proxy(ThreadingHTTPServer):
 @contextmanager
 def _proxy(upstream: Tuple[str, int], source: Optional[str]) -> Iterator[str]:
     proxy = _Proxy(upstream, (source, 0) if source else None)
-    thread = threading.Thread(target=proxy.serve_forever, daemon=True)
+    # shutdown() waits for serve_forever's next poll: 0.05 s, not 0.5 s.
+    thread = threading.Thread(
+        target=proxy.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True
+    )
     thread.start()
     try:
         yield f"http://127.0.0.1:{proxy.server_address[1]}"

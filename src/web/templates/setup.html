@@ -933,6 +933,9 @@
                     {%- if st.method.locked %}
                     <small class="security-locked" id="securityMethodLocked">🔒 Set by <code>{{ st.method.variable }}</code></small>
                     {%- endif %}
+                    {%- if not sec.in_effect and not sec.env_method_none %}
+                    <small class="text-muted" id="securityExternalHint">Does a reverse proxy sign people in for you (Authelia, Authentik)? Turn sign-in on first: once you are signed in, you can switch to External.</small>
+                    {%- endif %}
                 </div>
                 {%- if sec.external %}
                 <div class="security-alert{% if not sec.external.request_trusted %} security-alert-warning{% endif %}" id="securityExternal" data-request-trusted="{{ 'true' if sec.external.request_trusted else 'false' }}"{% if sec.chosen != 'external' %} hidden{% endif %}>
@@ -943,7 +946,10 @@
 
                 <div id="securityCredentials"{% if sec.chosen not in ('forms', 'external') %} hidden{% endif %}>
                     {%- if sec.external %}
-                    <p class="text-muted" id="securityExternalCredentials"{% if sec.chosen != 'external' %} hidden{% endif %}>Under External the username and password do not sign anyone in: the password confirms changes here, and both sign you in if you switch back to Boxarr's own sign-in.</p>
+                    <p class="text-muted" id="securityExternalCredentials"{% if sec.chosen != 'external' %} hidden{% endif %}>Under External the username and password do not sign anyone in.
+                        {%- if sec.method == 'external' and not sec.needs_current_password %} No password is set, so anyone your proxy lets through can change these settings: set one here to have it asked for{% if not st.method.locked %}; with the username, it also signs you in if you switch back to Boxarr's own sign-in{% endif %}.
+                        {%- else %} The password confirms changes here{% if not st.method.locked %}, and both sign you in if you switch back to Boxarr's own sign-in{% endif %}.
+                        {%- endif %}</p>
                     {%- endif %}
                     <div class="form-group">
                         <label for="securityUsername" class="form-label">Username</label>
@@ -989,6 +995,9 @@
                         </select>
                         {%- if st.widgets.variable %}
                         <small class="security-locked" id="securityWidgetsLocked">🔒 Set by <code>{{ st.widgets.variable }}</code></small>
+                        {%- endif %}
+                        {%- if not sec.in_effect and st.widgets.value == 'token' %}
+                        <small class="text-muted" id="securityWidgetsOff">Sign-in is off, so the widgets are public for now: a token applies once it is on.</small>
                         {%- endif %}
                         <small class="text-muted"><code>/api/widget</code> and <code>/api/widget/json</code> show this week's chart. With a token, a signed-in browser and the API key still read them too.</small>
                     </div>
@@ -1045,7 +1054,7 @@
                     <label for="securityCurrentPassword" class="form-label">Current password</label>
                     <input type="password" id="securityCurrentPassword" class="form-input"
                            autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false">
-                    <small class="text-muted">Needed for every change here, the API key and signing out everywhere included.</small>
+                    <small class="text-muted">{% if sec.method == 'external' %}Needed for every change here, the API key and the widget token included.{% else %}Needed for every change here, the API key and signing out everywhere included.{% endif %}</small>
                 </div>
                 {%- endif %}
                 <div class="security-actions">
@@ -1094,6 +1103,9 @@
                         <button type="button" class="btn btn-secondary btn-sm" data-target="securityWidgetJson" onclick="boxarrCopyEmbed(this)">Copy</button>
                     </div>
                 </div>
+                {%- if sec.method == 'external' %}
+                <p class="text-muted" id="securityWidgetProxyNote">These URLs go through your reverse proxy, as this page does: let the two widget paths through it without its sign-in, or embed Boxarr's own address instead.</p>
+                {%- endif %}
                 {%- elif we.mode == 'token' %}
                 <p id="securityWidgetNoToken">No widget token yet: until there is one, only a signed-in browser and the API key can read the widgets.</p>
                 {%- endif %}
@@ -1104,6 +1116,7 @@
                 <div class="security-actions">
                     <button type="button" class="btn btn-secondary btn-sm" id="securityWidgetToken" onclick="boxarrWidgetTokenRegenerate()" data-has-token="{{ 'true' if we.token_set else 'false' }}">{% if we.token_set %}Regenerate the token{% else %}Create a widget token{% endif %}</button>
                 </div>
+                <div id="securityWidgetMessage" class="security-message" role="status" aria-live="polite" hidden></div>
                 {%- endif %}
                 {%- endif %}
             </div>
