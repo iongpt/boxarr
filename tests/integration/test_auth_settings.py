@@ -646,6 +646,7 @@ def test_turning_sign_in_off_signs_everyone_out_and_clears_the_cookie(boxarr):
     assert refused.status_code == 400
     assert response.status_code == 200, response.text
     assert "new API key" in response.json()["message"]
+    assert "widget token and settings were cleared" in response.json()["message"]
     assert runtime.state.mode == Mode.NONE
     assert _stored(data)["method"] == "none"
     expired = _cookies(response)

@@ -365,8 +365,9 @@ def _settings_message(plan: SettingsPlan, runtime: AuthRuntime) -> str:
         return "Boxarr's own sign-in is back on, and this browser is signed in."
     if plan.switching_off:
         return (
-            "Sign-in is off: anyone who can reach Boxarr can use it. Turning "
-            "it on again starts over, with a new API key."
+            "Sign-in is off: anyone who can reach Boxarr can use it. Its "
+            "username, password, API key, widget token and settings were "
+            "cleared: turning it on again starts over, with a new API key."
         )
     if plan.kind == Kind.ENV_NONE:
         started_over = (
