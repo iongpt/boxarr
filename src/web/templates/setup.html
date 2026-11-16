@@ -967,6 +967,17 @@
                     {%- if sec.in_effect %}
                     <small class="text-muted">A new username or password signs out every other browser and device.</small>
                     {%- endif %}
+                    <div class="form-group">
+                        <label for="securityWidgets" class="form-label">Chart widgets</label>
+                        <select id="securityWidgets" class="form-select"{% if st.widgets.variable %} disabled{% endif %}>
+                            <option value="public"{% if st.widgets.value == 'public' %} selected{% endif %}>Public: dashboards embed them without signing in</option>
+                            <option value="token"{% if st.widgets.value == 'token' %} selected{% endif %}>Token: embeds need the widget token in their URL</option>
+                        </select>
+                        {%- if st.widgets.variable %}
+                        <small class="security-locked" id="securityWidgetsLocked">🔒 Set by <code>{{ st.widgets.variable }}</code></small>
+                        {%- endif %}
+                        <small class="text-muted"><code>/api/widget</code> and <code>/api/widget/json</code> show this week's chart. With a token, a signed-in browser and the API key still read them too.</small>
+                    </div>
                 </div>
 
                 <details class="security-advanced" id="securityAdvanced">
@@ -1013,7 +1024,6 @@
                             <small class="text-muted">{{ sec.limits.remember_days[0] }} to {{ sec.limits.remember_days[1] }}; 0 removes the option from the sign-in page.</small>
                         </div>
                     </div>
-                    <p class="text-muted" id="securityWidgets">The chart widgets (<code>/api/widget</code> and <code>/api/widget/json</code>) {% if st.widgets.value == 'public' %}stay readable without signing in, so dashboards can embed them{% else %}need a sign-in or the API key{% endif %}{% if st.widgets.variable %} (🔒 set by <code>{{ st.widgets.variable }}</code>){% endif %}.</p>
                 </details>
 
                 {%- if sec.in_effect %}
@@ -1044,6 +1054,43 @@
                     <button type="button" class="btn btn-secondary btn-sm" id="securityApiKeyRevoke" onclick="boxarrApiKeyRevoke()">Revoke</button>
                     {%- endif %}
                 </div>
+                {%- endif %}
+            </div>
+
+            {%- set we = sec.widget_embed %}
+            <div class="security-subsection" id="securityWidgetEmbed" data-mode="{{ we.mode }}">
+                <h3 class="security-subtitle">Widgets</h3>
+                {%- if we.mode == 'token' %}
+                <p class="text-muted">Embeds need the widget token, which these URLs carry. It opens these two widgets and nothing else. Anyone who has the URL can read this week's chart: if it leaks, regenerate the token.</p>
+                {%- else %}
+                <p class="text-muted">Public: anyone who can reach Boxarr can read this week's chart, so a dashboard embeds these URLs as they are.</p>
+                {%- endif %}
+                {%- if we.paths %}
+                <div class="form-group">
+                    <label for="securityWidgetHtml" class="form-label">HTML widget</label>
+                    <div class="security-key-row">
+                        <input type="text" id="securityWidgetHtml" class="form-input" readonly spellcheck="false" autocomplete="off" value="{{ we.paths.html }}" data-embed-path="{{ we.paths.html }}">
+                        <button type="button" class="btn btn-secondary btn-sm" data-target="securityWidgetHtml" onclick="boxarrCopyEmbed(this)">Copy</button>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="securityWidgetJson" class="form-label">JSON widget</label>
+                    <div class="security-key-row">
+                        <input type="text" id="securityWidgetJson" class="form-input" readonly spellcheck="false" autocomplete="off" value="{{ we.paths.json }}" data-embed-path="{{ we.paths.json }}">
+                        <button type="button" class="btn btn-secondary btn-sm" data-target="securityWidgetJson" onclick="boxarrCopyEmbed(this)">Copy</button>
+                    </div>
+                </div>
+                {%- elif we.mode == 'token' %}
+                <p id="securityWidgetNoToken">No widget token yet: until there is one, only a signed-in browser and the API key can read the widgets.</p>
+                {%- endif %}
+                {%- if we.mode == 'token' %}
+                {%- if we.token_variable %}
+                <p class="security-locked" id="securityWidgetTokenLocked">🔒 The token is set by <code>{{ we.token_variable }}</code>. Change it there and restart Boxarr.</p>
+                {%- else %}
+                <div class="security-actions">
+                    <button type="button" class="btn btn-secondary btn-sm" id="securityWidgetToken" onclick="boxarrWidgetTokenRegenerate()" data-has-token="{{ 'true' if we.token_set else 'false' }}">{% if we.token_set %}Regenerate the token{% else %}Create a widget token{% endif %}</button>
+                </div>
+                {%- endif %}
                 {%- endif %}
             </div>
 

@@ -282,6 +282,7 @@ function boxarrSecurityFocus(field) {
         new_password: 'securityNewPassword',
         confirm_password: 'securityConfirmPassword',
         current_password: 'securityCurrentPassword',
+        widgets: 'securityWidgets',
         trusted_proxies: 'securityTrustedProxies',
         cookie_secure: 'securityCookieSecure',
         session_hours: 'securitySessionHours',
@@ -324,13 +325,15 @@ function boxarrInitSecurity() {
     const form = document.getElementById('securityForm');
     if (!form) return;
     boxarrSecurityInitial = {
-        username: boxarrSecurityValue('securityUsername')
+        username: boxarrSecurityValue('securityUsername'),
+        widgets: boxarrSecurityValue('securityWidgets')
     };
     Object.keys(BOXARR_SECURITY_FIELDS).forEach(function(key) {
         boxarrSecurityInitial[key] = boxarrSecurityValue(BOXARR_SECURITY_FIELDS[key]);
     });
     form.addEventListener('submit', boxarrSaveSecurity);
     boxarrSecurityMethodChanged();
+    boxarrShowEmbedUrls(null);
     // "Set up login" (the banner) lands here: start with the username.
     if (window.location.hash === '#security' && form.getAttribute('data-state') === 'unset') {
         const username = boxarrSecurityField('securityUsername');
@@ -378,6 +381,8 @@ function boxarrCollectSecurity() {
             body.new_password = fresh;
             body.confirm_password = confirm;
         }
+        const widgets = boxarrSecurityField('securityWidgets');
+        if (widgets && widgets.value !== initial.widgets) body.widgets = widgets.value;
     }
     const current = boxarrSecurityValue('securityCurrentPassword');
     if (current) body.current_password = current;
@@ -487,8 +492,16 @@ function boxarrSecurityContinue() {
 }
 
 function boxarrCopyKey() {
-    const value = document.getElementById('securityKeyValue');
-    const button = document.getElementById('securityKeyCopy');
+    boxarrCopyInput(document.getElementById('securityKeyValue'), document.getElementById('securityKeyCopy'));
+}
+
+// The widgets' Copy buttons name their input in data-target.
+function boxarrCopyEmbed(button) {
+    const id = button && typeof button.getAttribute === 'function' ? button.getAttribute('data-target') : null;
+    boxarrCopyInput(id ? document.getElementById(id) : null, button);
+}
+
+function boxarrCopyInput(value, button) {
     if (!value) return;
     function done(ok) {
         if (button) button.textContent = ok ? 'Copied' : 'Select and copy it';
@@ -503,6 +516,53 @@ function boxarrCopyKey() {
     } catch (e) {
         done(false);
     }
+}
+
+// The widgets' embed URLs. The page holds each as a path (the URL base, the
+// route and, in token mode, the token), and shows it whole, from the origin
+// this browser reached Boxarr at: what a dashboard on the same network uses.
+// ``paths`` ({html, json}) replaces them after the token was regenerated.
+function boxarrShowEmbedUrls(paths) {
+    [['securityWidgetHtml', 'html'], ['securityWidgetJson', 'json']].forEach(function(pair) {
+        const el = document.getElementById(pair[0]);
+        if (!el) return;
+        const path = paths ? paths[pair[1]] : el.getAttribute('data-embed-path');
+        if (typeof path !== 'string' || path.charAt(0) !== '/' || path.charAt(1) === '/') return;
+        el.setAttribute('data-embed-path', path);
+        el.value = window.location.origin + path;
+    });
+}
+
+// Create the widget token, or replace it: the current password first, and a
+// confirmation before the old embed URLs stop working.
+function boxarrWidgetTokenRegenerate() {
+    const button = document.getElementById('securityWidgetToken');
+    const replacing = !!(button && button.getAttribute('data-has-token') === 'true');
+    const current = boxarrSecurityCurrentPassword();
+    if (!current) return Promise.resolve();
+    if (replacing && !window.confirm('Regenerate the widget token? Embeds that use the old one stop working at once: update their URL wherever it is used.')) {
+        return Promise.resolve();
+    }
+    if (button) button.disabled = true;
+    return boxarrSecurityRequest('widget-token', 'POST', { current_password: current }).then(function(result) {
+        if (button) button.disabled = false;
+        const data = result.data;
+        if (!result.ok || !data || !data.success) {
+            boxarrSecurityMessage(boxarrSecurityFailure(data, result.status, 'Could not make a widget token'), 'error');
+            if (data && data.field) boxarrSecurityFocus(data.field);
+            return;
+        }
+        boxarrSecurityClearPasswords();
+        boxarrSecurityMessage(data.message || 'Widget token created.', 'success');
+        if (document.getElementById('securityWidgetHtml') && data.embed) {
+            boxarrShowEmbedUrls(data.embed);
+        } else {
+            boxarrSecurityReloadSoon();  // the first token: the page shows its URLs
+        }
+    }).catch(function() {
+        if (button) button.disabled = false;
+        boxarrSecurityMessage('Could not reach Boxarr: the widget token was not changed.', 'error');
+    });
 }
 
 // The key and Sign out everywhere ask for the current password in the form.
