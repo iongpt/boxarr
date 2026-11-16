@@ -446,8 +446,10 @@ def test_turning_sign_in_on_saves_the_widgets_mode_the_page_shows(
         # Under BOXARR_AUTH_METHOD=none the widgets cannot be saved (SEC1):
         # only a change is sent (and refused, naming the reason).
         ({"method": "forms", "widgets": "token"}, {"method": "none"}),
+        # BOXARR_AUTH_WIDGETS=token disables the select: never sent.
+        (None, {"widgets": "token"}),
     ],
-    ids=["unset", "stored-none", "env-none"],
+    ids=["unset", "stored-none", "env-none", "env-widgets-token"],
 )
 def test_turning_sign_in_on_sends_no_widgets_mode_it_does_not_need(
     monkeypatch, tmp_path, stored, variables
@@ -455,11 +457,17 @@ def test_turning_sign_in_on_sends_no_widgets_mode_it_does_not_need(
     from src.utils.config import settings
 
     monkeypatch.setattr(settings, "radarr_api_key", "fake-radarr-key")
-    _, page = _render_off(monkeypatch, tmp_path, stored, **variables)
+    monkeypatch.setattr(passwords, "DEFAULT_LOG2N", 12)
+    monkeypatch.setattr(passwords, "DEFAULT_R", 1)
+    monkeypatch.setattr(passwords, "DEFAULT_P", 1)
+    client, page = _render_off(monkeypatch, tmp_path, stored, **variables)
 
     body = run(COLLECT_DRIVER, {**page, "values": FIRST_ENABLE_VALUES})
 
     assert body["method"] == "forms" and "widgets" not in body
+    if variables.get("method") != "none":  # under env none sign-in stays off
+        enabled = client.post("/api/auth/settings", json=body, headers=SAME_ORIGIN)
+        assert enabled.status_code == 200, enabled.text
 
 
 def test_under_env_none_a_stored_external_is_not_what_save_sends(monkeypatch, tmp_path):
