@@ -14,6 +14,7 @@ Run with no url_base, ``boxarr`` and a nested one, plus odd spellings:
 """
 
 import json
+import logging
 from typing import Any, List, Optional, Tuple
 
 import pytest
@@ -239,12 +240,15 @@ def test_the_bare_url_base_and_unprefixed_paths(forms_app, url_base):
 
 
 @pytest.mark.parametrize("url_base", URL_BASES)
-def test_websockets_are_closed_with_1008(forms_app, url_base):
+def test_websockets_are_closed_with_1008(forms_app, url_base, caplog):
     app, root = forms_app(url_base)
-    for path in ("/ws", "/api/ws", "/api/health", "/static/x"):
-        answer = call(app, raw_scope("GET", root + path, kind="websocket"))
-        assert answer.close_code == 1008, path
-        assert answer.endpoint is None
+    with caplog.at_level(logging.WARNING):
+        for path in ("/ws", "/api/ws", "/api/health", "/static/x"):
+            answer = call(app, raw_scope("GET", root + path, kind="websocket"))
+            assert answer.close_code == 1008, path
+            assert answer.endpoint is None
+    # Refused on purpose, not through the could-not-read-the-state fallback.
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
 
 
 @pytest.mark.parametrize("url_base", URL_BASES)
@@ -366,6 +370,31 @@ SECURITY_ROUTES = [
     ("POST", "/api/auth/sessions/revoke-all", "revoke_all_sessions"),
     ("POST", "/api/auth/keep-open", "keep_open"),
 ]
+
+
+# /api/auth/* routes that answer without a session (the rest are above).
+SIGN_IN_ROUTES = {
+    ("POST", "/api/auth/login"),
+    ("POST", "/api/auth/logout"),
+    ("GET", "/api/auth/session"),
+}
+
+
+def test_every_auth_route_is_in_one_of_the_two_lists(forms_app):
+    """A new /api/auth/* route must be added to SECURITY_ROUTES (and so be
+    checked below) or be one of the sign-in routes."""
+    app, _ = forms_app()
+    registered = {
+        (method, path)
+        for path, route in leaf_routes(app.routes)
+        if path.startswith("/api/auth/")
+        for method in getattr(route, "methods", None) or ()
+        if method != "HEAD"
+    }
+
+    listed = {(method, path) for method, path, _ in SECURITY_ROUTES}
+    assert registered - SIGN_IN_ROUTES == listed
+    assert SIGN_IN_ROUTES <= registered
 
 
 @pytest.mark.parametrize("url_base", URL_BASES)

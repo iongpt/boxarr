@@ -34,6 +34,7 @@ from tests.auth_support import (
     auth_env,
     cheap_hash,
     clear_auth_env,
+    freeze_throttle,
     use_url_base,
 )
 
@@ -263,6 +264,7 @@ def test_login_is_refused_while_forms_is_not_in_effect(monkeypatch, tmp_path):
 
 def test_backoff_is_per_client_and_username(forms):
     app, attacker = forms(client_address=("198.51.100.7", 4000))
+    freeze_throttle(app)
     other_client = TestClient(app, client=("198.51.100.8", 4000))
 
     for _ in range(5):
@@ -279,7 +281,8 @@ def test_backoff_is_per_client_and_username(forms):
 
 def test_a_throttled_client_with_invalid_json_gets_429_not_400(forms):
     """The per-client ceiling is checked before the body is parsed."""
-    _, client = forms(client_address=("198.51.100.9", 4000))
+    app, client = forms(client_address=("198.51.100.9", 4000))
+    freeze_throttle(app)
     for n in range(20):  # one failure per username: only the ceiling counts
         assert (
             _login(client, username=f"user{n}", password="wrong-password-123")
@@ -296,6 +299,7 @@ def test_a_throttled_client_with_invalid_json_gets_429_not_400(forms):
 
 def test_ipv6_clients_share_a_slash_64(forms):
     app, first = forms(client_address=("2001:db8::1", 4000))
+    freeze_throttle(app)
     second = TestClient(app, client=("2001:db8::ffff", 4000))
     for _ in range(5):
         _login(first, password="wrong-password-123")
@@ -331,6 +335,41 @@ def test_failed_api_keys_never_count_toward_the_throttle(forms, caplog):
     assert OTHER_KEY not in caplog.text and API_KEY not in caplog.text
 
 
+@pytest.mark.parametrize("path", ["/api/health", "/api/widget/json", "/api/widget"])
+def test_a_stale_key_on_a_public_path_never_counts_toward_the_throttle(forms, path):
+    """A dashboard polling health or a widget with an old key must not slow
+    down its owner's sign-ins from the same address."""
+    app, client = forms(client_address=("198.51.100.12", 4000))
+
+    for _ in range(25):
+        response = client.get(path, headers={"X-Api-Key": OTHER_KEY})
+        assert response.status_code not in (401, 429), (path, response.status_code)
+
+    assert app.state.auth_runtime.throttle.sizes() == (0, 0)
+    assert _login(client).status_code == 200
+
+
+def test_a_successful_login_does_not_reset_the_per_client_ceiling(forms):
+    """S7: the owner signing in from an address must not wipe the count of
+    someone spraying other usernames from it."""
+    app, client = forms(client_address=("198.51.100.13", 4000))
+    clock = freeze_throttle(app)
+    for n in range(20):
+        wrong = _login(client, username=f"user{n}", password="wrong-password-123")
+        assert wrong.status_code == 401
+    clock.advance(5)  # past the ceiling's first backoff
+
+    assert _login(client).status_code == 200
+    clock.advance(5)
+    assert (
+        _login(client, username="user98", password="wrong-password-123").status_code
+        == 401
+    )
+    # 21 failures from this client in the window: the ceiling still holds.
+    throttled = _login(client, username="user99", password="wrong-password-123")
+    assert throttled.status_code == 429
+
+
 # --------------------------------------------------------------------------
 # Sessions: logout, fixation, background requests
 # --------------------------------------------------------------------------
@@ -360,6 +399,7 @@ def test_logout_revokes_the_session_and_expires_both_cookie_names(forms):
     assert set(expired) == {plain, secure}
     for cookie in expired.values():
         assert cookie["max-age"] == "0" and cookie["path"] == "/boxarr/"
+        assert "httponly" in cookie and cookie["samesite"].lower() == "lax"
     assert "secure" in expired[secure]
     assert len(runtime.sessions) == 0
 
@@ -484,6 +524,52 @@ def test_auto_secure_ignores_an_untrusted_peers_https(forms):
     assert "secure" not in _cookie_attrs(_set_cookies(response)[0])
 
 
+def test_auto_secure_ignores_a_loopback_peers_https(forms):
+    """uvicorn's own proxy layer trusts 127.0.0.1 by default; sign-in trusts
+    no proxy it was not told about, so a local peer's X-Forwarded-Proto does
+    not make the cookie Secure (A1, S4)."""
+    _, client = forms(client_address=("127.0.0.1", 4000))
+
+    response = client.post(
+        "/api/auth/login",
+        json={"username": USERNAME, "password": PASSWORD},
+        headers={**SAME_ORIGIN, "X-Forwarded-Proto": "https"},
+    )
+
+    assert response.status_code == 200
+    cookie = _cookie_attrs(_set_cookies(response)[0])
+    assert "secure" not in cookie and not cookie["name"].startswith("__Secure-")
+    assert response.json()["cookie"]["secure"] is False
+
+
+@pytest.mark.parametrize(
+    "mode, stale_prefix, fresh_prefix",
+    [("never", "__Secure-", ""), ("always", "", "__Secure-")],
+)
+def test_a_login_expires_the_cookie_of_the_other_name(
+    forms, mode, stale_prefix, fresh_prefix
+):
+    """Design test plan 9: a later login under the other Secure mode on the
+    same host still works, because the stale cookie is expired."""
+    app, client = forms(cookie_secure=mode)
+    instance = app.state.auth_runtime.instance_id
+    stale = f"{stale_prefix}boxarr_{instance}"
+
+    response = client.post(
+        "/api/auth/login",
+        json={"username": USERNAME, "password": PASSWORD},
+        headers={**SAME_ORIGIN, "Cookie": f"{stale}=old-fake-token"},
+    )
+
+    assert response.status_code == 200
+    cookies = {
+        _cookie_attrs(h)["name"]: _cookie_attrs(h) for h in _set_cookies(response)
+    }
+    assert set(cookies) == {stale, f"{fresh_prefix}boxarr_{instance}"}
+    assert cookies[stale]["max-age"] == "0" and cookies[stale]["value"] in ("", '""')
+    assert "httponly" in cookies[stale]
+
+
 def test_cookie_secure_never_is_never_secure(forms):
     _, client = forms(
         client_address=("192.0.2.10", 4000),
@@ -506,6 +592,7 @@ def test_the_throttle_keys_on_the_strict_client(forms):
     app, proxy = forms(
         client_address=("192.0.2.10", 4000), trusted_proxies="192.0.2.10"
     )
+    freeze_throttle(app)
     direct = TestClient(app, client=("198.51.100.30", 4000))
     for _ in range(5):
         proxy.post(

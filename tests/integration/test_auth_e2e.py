@@ -10,18 +10,22 @@ use the cookie, use the API key, sign out, and hit the throttle.
 import threading
 import time
 from contextlib import contextmanager
+from functools import partial
 from typing import Dict, Iterator, List, Optional
 
 import httpx
 import pytest
 import uvicorn
 
+import src.api.auth.runtime as runtime_module
 from src.api.app import create_app
+from src.api.auth.throttle import LoginThrottle
 from src.main import server_config
 from tests.auth_support import (
     API_KEY,
     PASSWORD,
     USERNAME,
+    FrozenClock,
     auth_env,
     clear_auth_env,
     use_url_base,
@@ -191,7 +195,13 @@ def test_api_keys_on_a_real_server(boxarr, url_base):
 
 
 @pytest.mark.parametrize("url_base", ["", "boxarr"])
-def test_the_throttle_on_a_real_server(boxarr, url_base):
+def test_the_throttle_on_a_real_server(boxarr, monkeypatch, url_base):
+    # A clock that stands still: the 1 s backoff never runs out between two
+    # requests, however slow the machine.
+    clock = FrozenClock()
+    monkeypatch.setattr(
+        runtime_module, "LoginThrottle", partial(LoginThrottle, clock=clock)
+    )
     base_url, root, _ = boxarr(url_base)
 
     with httpx.Client(base_url=base_url) as client:
