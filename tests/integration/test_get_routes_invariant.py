@@ -134,6 +134,16 @@ REVIEWED_GET_ROUTES: Dict[Tuple[str, FrozenSet[str], str], str] = {
         GET,
         "src.api.app.create_app.<locals>.health_check",
     ): "reads cached Radarr status",
+    (
+        "/login",
+        GET,
+        "src.api.routes.auth.login_page",
+    ): "renders the login page, or redirects",
+    (
+        "/api/auth/session",
+        GET,
+        "src.api.routes.auth.session_check",
+    ): "reports the request's own session",
 }
 
 

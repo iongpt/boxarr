@@ -32,6 +32,7 @@ from fastapi import Request
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from src.api.app import create_app
+from src.api.auth.middleware import AuthMiddleware
 from src.api.client_address import PEER_SCOPE_KEY, PeerRecorder, SocketPeer
 from src.api.security import CrossSiteRequestGuard
 
@@ -109,6 +110,7 @@ def _legacy_app():
         m
         for m in app.user_middleware
         if m.cls is not PeerRecorder
+        and m.cls is not AuthMiddleware
         and not (m.cls is ProxyHeadersMiddleware and "trusted_hosts" in m.kwargs)
     ]
     assert [(m.cls, m.kwargs) for m in app.user_middleware] == [

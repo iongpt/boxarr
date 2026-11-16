@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en" data-server-theme="{{ theme|default('light') }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex">
+    <title>Sign in - Boxarr</title>
+    <link rel="icon" type="image/png" href="{{ request.scope.get('root_path', '') }}/static/boxar-logo.png">
+    <link rel="stylesheet" href="{{ request.scope.get('root_path', '') }}/static/css/style.css?v=3">
+    <script>
+        // Apply theme immediately to prevent flash
+        (function() {
+            const stored = localStorage.getItem('boxarr-theme-preference');
+            let theme = stored || document.documentElement.dataset.serverTheme || 'light';
+            if (theme === 'auto') {
+                theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+            }
+            document.documentElement.setAttribute('data-theme', theme);
+        })();
+    </script>
+    <style>
+        .login-container {
+            max-width: 26rem;
+        }
+        .login-container .setup-header {
+            margin-bottom: 1.5rem;
+        }
+        .login-logo {
+            height: 56px;
+            width: auto;
+            display: block;
+            margin: 0 auto 1rem;
+        }
+        /* 16px or more: phones zoom into smaller inputs on focus (#151, A6). */
+        #loginForm .form-input {
+            font-size: 16px;
+        }
+        #loginForm .form-group {
+            margin-bottom: 1rem;
+        }
+        .login-remember {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin: 0.25rem 0 1.25rem;
+            font-size: 16px;
+            color: var(--text-primary);
+            cursor: pointer;
+        }
+        .login-remember input {
+            width: 1.125rem;
+            height: 1.125rem;
+        }
+        .login-error {
+            margin-bottom: 1rem;
+            padding: 0.75rem;
+            border-radius: 6px;
+            border: 1px solid var(--error-color, #f56565);
+            color: var(--error-color, #f56565);
+            font-size: 0.9375rem;
+            overflow-wrap: anywhere;
+        }
+        #loginButton {
+            width: 100%;
+        }
+    </style>
+</head>
+<body class="setup-page" data-page="login">
+    <script>
+        // Inject base path for JavaScript usage
+        window.BOXARR_BASE_PATH = "{{ request.scope.get('root_path', '') }}";
+    </script>
+    <main class="setup-container login-container">
+        <div class="setup-header">
+            <img src="{{ request.scope.get('root_path', '') }}/static/boxar-logo.png" alt="Boxarr Logo" class="login-logo">
+            <h1 class="setup-title">Sign in to Boxarr</h1>
+        </div>
+        {# No method, no action and no name on any input: without JavaScript
+           the form submits nothing, so a password never lands in a URL or a
+           log. The script below posts JSON with fetch. #}
+        <form id="loginForm">
+            <div class="form-group">
+                <label for="loginUsername" class="form-label">Username</label>
+                <input type="text" id="loginUsername" class="form-input" autocomplete="username"
+                       autocapitalize="none" autocorrect="off" spellcheck="false" required autofocus>
+            </div>
+            <div class="form-group">
+                <label for="loginPassword" class="form-label">Password</label>
+                <input type="password" id="loginPassword" class="form-input" autocomplete="current-password"
+                       autocapitalize="none" autocorrect="off" spellcheck="false" required>
+            </div>
+            {% if remember_offered %}
+            <label class="login-remember" for="loginRemember">
+                <input type="checkbox" id="loginRemember" checked>
+                Keep me signed in
+            </label>
+            {% endif %}
+            <div id="loginError" class="login-error" role="alert" hidden></div>
+            <button type="submit" class="btn btn-primary btn-lg" id="loginButton">Sign in</button>
+        </form>
+    </main>
+
+<script src="{{ request.scope.get('root_path', '') }}/static/js/theme-manager.js?v=1"></script>
+<script src="{{ request.scope.get('root_path', '') }}/static/js/update-result.js?v=1"></script>
+<script src="{{ request.scope.get('root_path', '') }}/static/js/app.js?v=13"></script>
+<script>
+// Sign in (#151). The target after sign-in is read from this page's own URL
+// and checked by the server, then once more here before navigating.
+(function() {
+    'use strict';
+
+    const form = document.getElementById('loginForm');
+    const errorBox = document.getElementById('loginError');
+    const button = document.getElementById('loginButton');
+
+    function showError(text) {
+        errorBox.textContent = text;
+        errorBox.hidden = false;
+    }
+
+    function clearError() {
+        errorBox.textContent = '';
+        errorBox.hidden = true;
+    }
+
+    // The sign-in worked but the cookie did not come back: say why (A4).
+    function cookieProblem(cookie) {
+        cookie = cookie || {};
+        if (cookie.secure && window.location.protocol !== 'https:') {
+            return 'Signed in, but the browser dropped the sign-in cookie: it is marked Secure '
+                + 'and this page is plain http. Open Boxarr over https, or set '
+                + 'BOXARR_AUTH_COOKIE_SECURE to auto.';
+        }
+        let framed = false;
+        try {
+            framed = window.top !== window.self;
+        } catch (e) {
+            framed = true;
+        }
+        if (framed) {
+            return 'Signed in, but the browser blocked the sign-in cookie in this frame. '
+                + 'A dashboard on another site (Organizr, Homarr) cannot keep Boxarr signed in: '
+                + 'open Boxarr in its own tab, or serve both from the same site.';
+        }
+        if (cookie.path && window.location.pathname.indexOf(cookie.path) !== 0) {
+            return 'Signed in, but the sign-in cookie is for ' + cookie.path
+                + ' and this page is at ' + window.location.pathname
+                + '. A reverse proxy may be rewriting the URL base: set BOXARR_URL_BASE '
+                + 'to the path the browser sees.';
+        }
+        return 'Signed in, but the browser did not send the sign-in cookie back. '
+            + 'Allow cookies for this site and try again.';
+    }
+
+    async function signIn(event) {
+        event.preventDefault();
+        clearError();
+        const remember = document.getElementById('loginRemember');
+        const target = new URLSearchParams(window.location.search).get('next') || '/';
+        button.disabled = true;
+        try {
+            let response;
+            try {
+                response = await fetch(apiUrl('/auth/login'), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        username: document.getElementById('loginUsername').value,
+                        password: document.getElementById('loginPassword').value,
+                        remember: remember ? remember.checked : false,
+                        next: target
+                    })
+                });
+            } catch (e) {
+                showError('Could not reach Boxarr. Check the connection and try again.');
+                return;
+            }
+            let data = {};
+            try {
+                data = (await response.json()) || {};
+            } catch (e) {
+                data = {};
+            }
+            if (response.status === 429) {
+                const wait = Number(response.headers.get('Retry-After')) || data.retry_after || 1;
+                showError(data.message || ('Too many attempts, try again in ' + wait + ' s'));
+                return;
+            }
+            if (!response.ok || !data.success) {
+                showError(data.message || 'Invalid username or password');
+                return;
+            }
+            // Only navigate once the cookie has come back: otherwise the next
+            // page would send the browser straight back here, in a loop.
+            let check = null;
+            try {
+                check = await fetch(apiUrl('/auth/session'));
+            } catch (e) {
+                check = null;
+            }
+            let session = {};
+            try {
+                session = check && check.ok ? ((await check.json()) || {}) : {};
+            } catch (e) {
+                session = {};
+            }
+            if (!session.authenticated) {
+                showError(cookieProblem(data.cookie));
+                return;
+            }
+            window.location.assign(boxarrSafeRedirect(data.redirect));
+        } finally {
+            button.disabled = false;
+        }
+    }
+
+    form.addEventListener('submit', signIn);
+})();
+</script>
+</body>
+</html>
