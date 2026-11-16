@@ -13,7 +13,12 @@ shape (known fields, their types; no message quotes a value), then
   environment holds the password (S3: credential variables ignored under a
   stored ``none``), the request carries that password as
   ``current_password`` instead, so that the browser that turns sign-in on,
-  and gets a session for it, is one that knows it;
+  and gets a session for it, is one that knows it. The first enable starts
+  auth.json over: only the instance id and the credential generation are
+  kept, so nothing saved before - by anyone who reached Boxarr while it was
+  open, say someone who turned sign-in on with their own key and trusted
+  proxies, then off again - carries over. It always makes a new API key,
+  unless the environment sets the key;
 - **in effect** (forms): every change needs the current password. A new
   username or password bumps the credential generation, which signs every
   session out, and the caller's cookie is issued again; switching to
@@ -481,11 +486,7 @@ def plan_settings(
         switching_off=switching_off,
         bump=first or credentials_changed or switching_off,
         mint=first or (credentials_changed and in_effect and not switching_off),
-        generate_key=(
-            first
-            and set_by(env, "api_key") is None
-            and not (stored is not None and stored.api_key is not None)
-        ),
+        generate_key=first and set_by(env, "api_key") is None,
         updates=updates,
         warnings=tuple(warnings),
     )
@@ -514,6 +515,13 @@ def apply_plan(
         # file could name, bump or not.
         current = AuthFile(method=plan.method)
         generation = fresh_generation
+    elif plan.kind == Kind.FIRST_ENABLE:
+        # The first enable starts over: the stored file may hold a key and
+        # settings from anyone who reached Boxarr while it was open. Only the
+        # instance id (the cookie's name) and the generation, bumped past
+        # every session made before, carry over.
+        current = AuthFile(method=plan.method, instance_id=base.instance_id)
+        generation = base.credential_generation + 1
     else:
         current = base
         generation = base.credential_generation + (1 if plan.bump else 0)
