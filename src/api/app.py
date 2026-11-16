@@ -16,6 +16,7 @@ from ..core.scheduler import BoxarrScheduler
 from ..utils.config import settings
 from ..utils.logger import get_logger, set_access_log_root_path
 from ..utils.route_path import route_path
+from .client_address import install_proxy_headers
 from .health import RadarrHealthCheck
 from .routes import (
     admin_router,
@@ -125,6 +126,13 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
     # state-changing requests a browser sends from another site, which removing
     # CORS alone does not stop: a form POST needs no preflight.
     app.add_middleware(CrossSiteRequestGuard)
+
+    # In front of both: the socket peer is recorded as scope["boxarr.peer"],
+    # then uvicorn's own proxy-header middleware runs with FORWARDED_ALLOW_IPS
+    # as it did in uvicorn's server, which src/main.py now starts with
+    # proxy_headers=False. scope["client"] and scope["scheme"] are what they
+    # were (#151, see client_address.py).
+    install_proxy_headers(app)
 
     # Mount static files
     app.mount("/static", StaticFiles(directory="src/web/static"), name="static")

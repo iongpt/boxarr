@@ -24,6 +24,23 @@ from src.utils.logger import get_logger  # noqa: E402
 logger = get_logger(__name__)
 
 
+def server_config(app) -> uvicorn.Config:
+    """Return the uvicorn configuration Boxarr serves ``app`` with.
+
+    ``proxy_headers=False``: the app runs uvicorn's proxy-header middleware
+    itself, with the same FORWARDED_ALLOW_IPS list, behind a recorder of the
+    socket peer that uvicorn's would hide (#151, src/api/client_address.py).
+    """
+    return uvicorn.Config(
+        app=app,
+        host=settings.boxarr_host,
+        port=settings.boxarr_port,
+        log_level=settings.log_level.lower(),
+        access_log=True,
+        proxy_headers=False,
+    )
+
+
 class BoxarrApplication:
     """Main application class."""
 
@@ -92,15 +109,7 @@ class BoxarrApplication:
         """Run FastAPI application."""
         self.app = create_app_with_scheduler()
 
-        config = uvicorn.Config(
-            app=self.app,
-            host=settings.boxarr_host,
-            port=settings.boxarr_port,
-            log_level=settings.log_level.lower(),
-            access_log=True,
-        )
-
-        server = uvicorn.Server(config)
+        server = uvicorn.Server(server_config(self.app))
 
         # Start server in background
         asyncio.create_task(server.serve())
