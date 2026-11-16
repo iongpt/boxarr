@@ -19,10 +19,16 @@ shape (known fields, their types; no message quotes a value), then
   open, say someone who turned sign-in on with their own key and trusted
   proxies, then off again - carries over. It always makes a new API key,
   unless the environment sets the key;
-- **in effect** (forms): every change needs the current password. A new
-  username or password bumps the credential generation, which signs every
-  session out, and the caller's cookie is issued again; switching to
-  ``none`` signs every session out and clears the cookie;
+- **in effect** (forms, or external): every change needs the current
+  password - under external only when one is stored (design §3.3.7: the
+  ``proxy`` principal alone otherwise). A new username or password bumps
+  the credential generation, which signs every session out, and the
+  caller's cookie is issued again; switching to ``none`` signs every
+  session out and clears the cookie. A signed-in owner may switch forms ↔
+  external: to external only with a trusted-proxy list, and only from a
+  request that came through one of those proxies (else the switch would
+  shut this browser out); back to forms only with a username and a
+  password, and the caller is signed in. Either switch ends every session;
 - **off**: ``method: none`` is stored while sign-in stays off;
 - **env none** (BOXARR_AUTH_METHOD=none, the recovery switch, design §5.2):
   the method, username and password may be stored without a password, the
@@ -32,7 +38,16 @@ While sign-in is off (the last two), anyone who can reach Boxarr may save,
 so the settings that would weaken sign-in once the owner turns it on -
 trusted proxies, the Secure cookie mode, the session lengths, the widgets'
 mode - are refused: they are saved with the first enable, or later by
-someone signed in.
+someone signed in. So is ``external``: the first enable is forms (design
+§3.3.7), and an external chosen by whoever reaches an open Boxarr would let
+in everyone behind a trusted proxy once sign-in is on. Under
+BOXARR_AUTH_METHOD=none an ``external`` already stored may be kept.
+
+Turning sign-in off also drops the stored trusted proxies, as it drops the
+widget token: under external that list is what lets requests in, and a
+list left by whoever had sign-in on must not open Boxarr again when the
+owner later turns external on by environment (no first enable runs then
+to start auth.json over).
 
 The widget token (design §3.6) is never taken from a request: Boxarr makes
 it, when the widgets switch to ``token`` with sign-in on (the first enable
@@ -63,6 +78,7 @@ from ..client_address import (
     TrustedProxies,
     parse_trusted_proxies,
     strict_client,
+    trusted_peer,
 )
 from .config import (
     COOKIE_SECURE_MODES,
@@ -167,6 +183,26 @@ _LABELS = {
 CHANGED_MESSAGE = (
     "The security settings changed while this was being saved. Reload the "
     "page and try again."
+)
+EXTERNAL_WHILE_OFF_MESSAGE = (
+    "Turn sign-in on with a username and a password first: once you are "
+    "signed in, you can switch to External."
+)
+EXTERNAL_UNDER_ENV_NONE_MESSAGE = (
+    "External can be chosen only once sign-in is on and you are signed in: "
+    f"while {ENV_METHOD}=none keeps it off, anyone who can reach Boxarr could "
+    "choose it."
+)
+EXTERNAL_NEEDS_PROXIES_MESSAGE = (
+    "External needs your reverse proxy's address in Trusted proxies: Boxarr "
+    "lets in only the requests that come through it."
+)
+EXTERNAL_NEEDS_PROXIES_ENV_MESSAGE = (
+    f"External needs your reverse proxy's address in {ENV_TRUSTED_PROXIES}, "
+    "which names none Boxarr will trust: change it there and restart Boxarr."
+)
+FORMS_NEEDS_CREDENTIALS_MESSAGE = (
+    "Boxarr's own sign-in needs a username and a password: enter both."
 )
 
 
@@ -280,14 +316,10 @@ def parse_settings(data: Any) -> Dict[str, Any]:
     fields: Dict[str, Any] = {}
     method = data.get("method")
     if method is not None:
-        if method == "external":
+        if method not in (Mode.FORMS, Mode.EXTERNAL, Mode.NONE):
             raise ChangeRefused(
-                400,
-                "External sign-in is not available in this version of Boxarr.",
-                "method",
+                400, "Sign-in must be forms, external or none.", "method"
             )
-        if method not in ("forms", "none"):
-            raise ChangeRefused(400, "Sign-in must be forms or none.", "method")
         fields["method"] = method
     username = _text(data, "username", "The username")
     if username is not None:
@@ -356,11 +388,28 @@ class SettingsPlan:
     env_password_proof: bool = False  # current_password must be the env one
     credentials_changed: bool = False
     switching_off: bool = False
+    # forms -> external, or external -> forms (in effect, by a signed-in
+    # owner): the sessions of before end either way.
+    switching_method: bool = False
     bump: bool = False  # a new credential generation: every session ends
     mint: bool = False  # a new session for the caller, and its cookie
     generate_key: bool = False  # A12: a first API key, shown once
     updates: Mapping[str, Any] = field(default_factory=dict)
     warnings: Tuple[str, ...] = ()
+    # When external is in effect after this save: the trusted proxies it
+    # lets in, which the request making the save must come through (else
+    # the save would shut its own browser out), and the field to name if
+    # it does not. None when external is not in effect afterwards.
+    external_proxies: Optional[TrustedProxies] = None
+    external_field: str = "method"
+
+    @property
+    def ends_sessions(self) -> bool:
+        """Whether every session ends and the caller's cookie is cleared:
+        sign-in turned off, or forms left for external."""
+        return self.switching_off or (
+            self.switching_method and self.method == Mode.EXTERNAL
+        )
 
     @property
     def cookie_mode_set(self) -> Optional[str]:
@@ -396,14 +445,14 @@ def plan_settings(
     if "trusted_proxies" in fields:
         updates["trusted_proxies"], warnings = parse_proxies(fields["trusted_proxies"])
 
-    in_effect = state.mode == Mode.FORMS
+    in_effect = state.mode in (Mode.FORMS, Mode.EXTERNAL)
     stored_method = stored.method if stored is not None else None
     requested = fields.get("method")
     if in_effect:
         kind = Kind.IN_EFFECT
         # No method sent: auth.json keeps the one it has (forms, or a none
-        # that BOXARR_AUTH_METHOD=forms overrides).
-        method = requested or stored_method or Mode.FORMS
+        # that BOXARR_AUTH_METHOD=forms overrides), else the one in effect.
+        method = requested or stored_method or state.mode
     elif env.method_none:
         kind = Kind.ENV_NONE
         method = requested or stored_method
@@ -412,6 +461,15 @@ def plan_settings(
         kind = Kind.FIRST_ENABLE if method == Mode.FORMS else Kind.OFF
     if method is None:
         raise ChangeRefused(400, "Choose whether sign-in is on or off.", "method")
+    if method == Mode.EXTERNAL and not in_effect:
+        # The first enable is forms; external is a switch a signed-in owner
+        # makes. Under BOXARR_AUTH_METHOD=none, an external already stored
+        # (what the owner recovers from) may stay.
+        if kind == Kind.ENV_NONE:
+            if requested is not None and stored_method != Mode.EXTERNAL:
+                raise ChangeRefused(400, EXTERNAL_UNDER_ENV_NONE_MESSAGE, "method")
+        else:
+            raise ChangeRefused(400, EXTERNAL_WHILE_OFF_MESSAGE, "method")
     if kind in (Kind.OFF, Kind.ENV_NONE):
         # While sign-in is off, anyone who can reach Boxarr may save here.
         # What would weaken sign-in later, once the owner turns it on (a
@@ -504,12 +562,48 @@ def plan_settings(
         if new_password is not None:
             credentials_changed = True
     switching_off = in_effect and requested == Mode.NONE
+    switching_method = (
+        in_effect
+        and requested in (Mode.FORMS, Mode.EXTERNAL)
+        and requested != state.mode
+    )
+    # The method in effect after the save: the environment's, if it sets one.
+    after = (env.method or method) if in_effect else None
+
+    if switching_method and requested == Mode.FORMS:
+        # Back to Boxarr's own sign-in: it needs both, or it would lock.
+        has_password = bool(
+            new_password or password_from_env or state.password_hash is not None
+        )
+        if username is None or not has_password:
+            raise ChangeRefused(
+                400,
+                FORMS_NEEDS_CREDENTIALS_MESSAGE,
+                "username" if username is None else "new_password",
+            )
+
+    external_proxies: Optional[TrustedProxies] = None
+    if after == Mode.EXTERNAL:
+        external_proxies = _external_proxies(env, stored, updates, fields)
+        if not external_proxies:
+            if set_by(env, "trusted_proxies"):
+                raise ChangeRefused(400, EXTERNAL_NEEDS_PROXIES_ENV_MESSAGE, "method")
+            raise ChangeRefused(
+                400,
+                EXTERNAL_NEEDS_PROXIES_MESSAGE,
+                "trusted_proxies" if "trusted_proxies" in fields else "method",
+            )
 
     for key in ("cookie_secure", "session_hours", "remember_days", "widgets"):
         if key in fields:
             updates[key] = fields[key]
 
     first = kind == Kind.FIRST_ENABLE
+    mint = first or (
+        after == Mode.FORMS
+        and not switching_off
+        and (credentials_changed or (switching_method and requested == Mode.FORMS))
+    )
     return SettingsPlan(
         kind=kind,
         method=method,
@@ -519,11 +613,77 @@ def plan_settings(
         env_password_proof=proof,
         credentials_changed=credentials_changed,
         switching_off=switching_off,
-        bump=first or credentials_changed or switching_off,
-        mint=first or (credentials_changed and in_effect and not switching_off),
+        switching_method=switching_method,
+        bump=first or credentials_changed or switching_off or switching_method,
+        mint=mint,
         generate_key=first and set_by(env, "api_key") is None,
         updates=updates,
         warnings=tuple(warnings),
+        external_proxies=external_proxies,
+        external_field=(
+            "trusted_proxies"
+            if "trusted_proxies" in fields and not switching_method
+            else "method"
+        ),
+    )
+
+
+def _external_proxies(
+    env: EnvAuthConfig,
+    stored: Optional[AuthFile],
+    updates: Mapping[str, Any],
+    fields: Mapping[str, Any],
+) -> TrustedProxies:
+    """The trusted proxies external lets in after a save: the environment's,
+    else the ones this save stores, else auth.json's."""
+    if env.trusted_proxies is not None:
+        return env.trusted_proxies
+    if "trusted_proxies" in fields:
+        entries = updates.get("trusted_proxies")
+    else:
+        entries = stored.trusted_proxies if stored is not None else None
+    if not entries:
+        return TrustedProxies()
+    trusted, _ = parse_trusted_proxies(list(entries))
+    return trusted
+
+
+def password_stored(state: AuthState) -> bool:
+    """Whether a password exists to confirm changes with: a stored hash, or
+    one from the environment. Under forms there always is one (else Boxarr
+    locks); under external there may be none, and then the proxy principal
+    alone may make changes (design §3.3.7)."""
+    return state.password_hash is not None or state.env_password is not None
+
+
+def external_lockout(
+    plan: SettingsPlan, scope: Scope, env: EnvAuthConfig
+) -> Optional[str]:
+    """Why a save would shut its own browser out, or None.
+
+    When external is in effect after the save, only connections from the
+    trusted proxies get in: a save made from any other address (sign-in
+    on, opened directly) would leave this browser looking at "Open Boxarr
+    through your proxy". The message names the address to trust - the
+    socket peer as Boxarr parsed it, never a header value.
+    """
+    if plan.external_proxies is None:
+        return None
+    if trusted_peer(scope, plan.external_proxies) is not None:
+        return None
+    peer = scope.get(PEER_SCOPE_KEY)
+    shown = _host(peer.host) if isinstance(peer, SocketPeer) else None
+    where = f"from {shown}" if shown else "from an address Boxarr cannot tell"
+    if set_by(env, "trusted_proxies"):
+        fix = f"add its address to {ENV_TRUSTED_PROXIES} and restart Boxarr"
+    else:
+        fix = "add its address to Trusted proxies"
+    return (
+        f"This request reached Boxarr {where}, which is not one of the trusted "
+        "proxies. Under External, Boxarr lets in only requests that come "
+        "through a trusted proxy, so this browser would be shut out. Open "
+        f"Boxarr through your proxy (or, if it is your proxy, {fix}) and save "
+        "again."
     )
 
 
@@ -576,6 +736,10 @@ def apply_plan(
         changes["api_key"] = api_key
     if "trusted_proxies" in updates:
         changes["trusted_proxies"] = updates.pop("trusted_proxies")
+    if plan.switching_off:
+        # What lets requests in under external: it does not outlive sign-in
+        # (see the module docstring).
+        changes["trusted_proxies"] = None
     changes.update(updates)
     return replace(current, **changes)
 
@@ -716,6 +880,33 @@ def request_diagnostic(
     }
 
 
+def external_view(
+    request: Mapping[str, Any], proxies_var: Optional[str]
+) -> Dict[str, Any]:
+    """Whether this request came through a trusted proxy, put as what it
+    means for External: a browser that did not would be shut out by it."""
+    trusted = bool(request.get("peer_trusted"))
+    peer = request.get("peer")
+    if trusted:
+        note = (
+            f"This request came through trusted proxy {request.get('proxy')}, "
+            "so this browser keeps working under External."
+        )
+    else:
+        where = f"from {peer}" if peer else "from an address Boxarr cannot tell"
+        add = (
+            f"add its address to {proxies_var}"
+            if proxies_var
+            else "add its address to Trusted proxies"
+        )
+        note = (
+            f"This request came {where}, not through a trusted proxy: under "
+            "External, Boxarr would refuse it. Open Boxarr through your proxy "
+            f"(if {peer or 'that'} is your proxy, {add}) before you switch."
+        )
+    return {"request_trusted": trusted, "note": note}
+
+
 def _setting(value: Any, variable: Optional[str], stored_value: Any) -> Dict[str, Any]:
     if variable:
         source = "env"
@@ -761,10 +952,10 @@ def security_view(runtime: AuthRuntime, scope: Scope) -> Dict[str, Any]:
     found = load_auth_file(runtime.paths.auth_file, copy_broken=False)
     stored = found.auth if found.state == FileState.VALID else None
     auth = scope.get("boxarr.auth") or {}
-    in_effect = state.mode == Mode.FORMS
+    in_effect = state.mode in (Mode.FORMS, Mode.EXTERNAL)
 
     if in_effect:
-        chosen = Mode.FORMS
+        chosen = state.mode
     elif env.method_none:
         chosen = stored.method if stored is not None else Mode.NONE
     elif state.mode == Mode.UNSET:
@@ -822,9 +1013,13 @@ def security_view(runtime: AuthRuntime, scope: Scope) -> Dict[str, Any]:
     )
     widgets = pick("widgets", env.widgets, stored.widgets if stored else None, "public")
 
+    # Sessions exist under forms only: under external the proxy signs in.
     sessions = (
-        runtime.sessions.count_valid(state.credential_generation) if in_effect else None
+        runtime.sessions.count_valid(state.credential_generation)
+        if state.mode == Mode.FORMS
+        else None
     )
+    request = request_diagnostic(scope, trusted, proxies_var is None)
     view: Dict[str, Any] = {
         "method": state.mode,
         "in_effect": in_effect,
@@ -838,7 +1033,9 @@ def security_view(runtime: AuthRuntime, scope: Scope) -> Dict[str, Any]:
         "banner": banner_for(state),
         "keep_open_allowed": state.mode == Mode.UNSET,
         "ignored_variables": list(state.ignored_variables),
-        "needs_current_password": in_effect,
+        # Whether a change here needs the current password: always under
+        # forms, under external only when one exists (else the proxy alone).
+        "needs_current_password": in_effect and password_stored(state),
         # S3: turning sign-in on with the password the environment holds
         # asks for that password.
         "enable_needs_env_password": (
@@ -873,11 +1070,15 @@ def security_view(runtime: AuthRuntime, scope: Scope) -> Dict[str, Any]:
             "session_hours": [SESSION_HOURS_MIN, SESSION_HOURS_MAX],
             "remember_days": [REMEMBER_DAYS_MIN, REMEMBER_DAYS_MAX],
         },
-        "request": request_diagnostic(scope, trusted, proxies_var is None),
+        "request": request,
     }
+    if in_effect or chosen == Mode.EXTERNAL:
+        # External is offered where it can be saved: to a signed-in owner,
+        # and under BOXARR_AUTH_METHOD=none when it is what auth.json holds.
+        view["external"] = external_view(request, proxies_var)
     if in_effect:
         # Only while sign-in is on: while it is off, anyone may read this.
-        signed_in = auth.get("kind") == "session"
+        signed_in = auth.get("kind") in ("session", "proxy")
         view["widget_embed"] = {
             "mode": state.widgets,
             "token_set": state.widget_token is not None,
