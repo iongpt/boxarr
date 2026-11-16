@@ -14,6 +14,12 @@ Group C (the widget token, design §3.6): widgets stay public while sign-in
 is off, whatever a URL carries and whatever is set - BOXARR_AUTH_WIDGETS
 and BOXARR_AUTH_WIDGET_TOKEN without a method, or a stored none that still
 holds a token mode and a token.
+
+Group C (External, design §3.2.1): a trusted-proxy list without a method,
+a stored none that still holds one, and BOXARR_AUTH_METHOD=none over a
+stored external change nothing either; requests from the address such a
+list names, carrying what a proxy (or someone posing as one) sends -
+X-Forwarded-For, Forwarded, Remote-User - answer as before.
 """
 
 import json
@@ -36,6 +42,7 @@ from tests.auth_support import (
 )
 
 WIDGET_TOKEN = "bxw_fakeWidgetTokenForTests0123"
+PROXY = "192.0.2.10"
 
 # (method, path, query, body) - a sample of every route class.
 SAMPLE: List[Tuple[str, str, bytes, bytes]] = [
@@ -77,6 +84,27 @@ SAMPLE: List[Tuple[str, str, bytes, bytes]] = [
     ("OPTIONS", "/api/config", b"", b""),
     ("GET", "/static/css/style.css", b"", b""),
     ("GET", "/static/%2e%2e/setup", b"", b""),
+]
+
+# The same app, asked from PROXY - the address the external states below
+# name as a trusted proxy - with the headers a proxy sends, and the ones
+# someone posing as a proxy or a signed-in user would.
+FROM_PROXY: List[Tuple[str, str, bytes, bytes]] = [
+    ("GET", "/setup", b"", b""),
+    ("GET", "/overview", b"", b""),
+    ("GET", "/api/config", b"", b""),
+    ("GET", "/api/health", b"", b""),
+    ("GET", "/api/widget/json", b"", b""),
+    ("POST", "/api/movies/ignore", b"", b"{}"),
+    ("GET", "/nope", b"", b""),
+]
+PROXY_HEADERS = [
+    (b"x-forwarded-for", b"198.51.100.4"),
+    (b"x-forwarded-proto", b"https"),
+    (b"x-real-ip", b"198.51.100.4"),
+    (b"forwarded", b"for=198.51.100.4;proto=https"),
+    (b"remote-user", b"owner"),
+    (b"x-forwarded-user", b"owner"),
 ]
 
 # Answers that are new by design (the off-state contract): routes that did
@@ -145,7 +173,21 @@ def _requests(root: str) -> List[Tuple[Dict[str, Any], bytes]]:
             headers=[(b"content-type", b"application/json")] if body else [],
         )
         requests.append((scope, body))
+    for method, path, query, body in FROM_PROXY:
+        content = [(b"content-type", b"application/json")] if body else []
+        scope = raw_scope(
+            method,
+            root + path,
+            query=query,
+            headers=[*PROXY_HEADERS, *content],
+            client=(PROXY, 40000),
+        )
+        requests.append((scope, body))
     return requests
+
+
+# What _requests() sends, in order.
+LABELS = SAMPLE + [(m, f"{p} (from the proxy)", q, b) for m, p, q, b in FROM_PROXY]
 
 
 def _comparable(answer: Answer) -> Tuple[Any, ...]:
@@ -160,6 +202,9 @@ OFF_STATES = [
     "s3",
     "widgets-token-env",
     "file-none-token",
+    "proxies-env",
+    "file-none-proxies",
+    "env-none-over-external",
 ]
 
 
@@ -206,6 +251,23 @@ def off_app(monkeypatch, tmp_path):
                     }
                 )
             )
+        elif state == "proxies-env":
+            # A trusted-proxy list, with no method: nothing to let in.
+            monkeypatch.setenv("BOXARR_AUTH_TRUSTED_PROXIES", PROXY)
+        elif state == "file-none-proxies":
+            # A stored none that still holds a list (hand-edited, or left
+            # by a version that kept it when sign-in was turned off).
+            (data / "auth.json").write_text(
+                json.dumps({"version": 1, "method": "none", "trusted_proxies": [PROXY]})
+            )
+        elif state == "env-none-over-external":
+            # The recovery switch over a working external setup.
+            (data / "auth.json").write_text(
+                json.dumps(
+                    {"version": 1, "method": "external", "trusted_proxies": [PROXY]}
+                )
+            )
+            monkeypatch.setenv("BOXARR_AUTH_METHOD", "none")
         root = use_url_base(monkeypatch, url_base)
         app = create_app()
         assert not app.state.auth_runtime.state.in_effect, state
@@ -223,7 +285,8 @@ def test_every_route_class_answers_as_before(off_app, state, url_base):
     now = call_all(app, _requests(root))
     then = call_all(legacy, _requests(root))
 
-    for (method, path, query, _), new, old in zip(SAMPLE, now, then):
+    assert len(now) == len(then) == len(LABELS)
+    for (method, path, query, _), new, old in zip(LABELS, now, then):
         assert _comparable(new) == _comparable(old), (method, path, query)
         assert new.header("set-cookie") is None
         assert new.header("x-boxarr-auth") is None
@@ -330,3 +393,41 @@ def test_nothing_shows_a_widget_token_while_off(off_app, state):
         assert answer.status == 200
         assert WIDGET_TOKEN.encode() not in answer.body
         assert b"securityWidgetEmbed" not in answer.body
+
+
+@pytest.mark.parametrize("state", OFF_STATES)
+def test_external_is_offered_while_off_only_where_it_is_stored(off_app, state):
+    """External is a switch a signed-in owner makes: while sign-in is off,
+    Settings neither offers it nor shows its note - except under
+    BOXARR_AUTH_METHOD=none over a stored external, where it is what
+    auth.json holds and stays selected. Saving it is refused everywhere
+    else, and nothing is written."""
+    app, _, _, data = off_app(state)
+    before = {p.name: p.read_bytes() for p in data.iterdir()}
+
+    status, setup, save = call_all(
+        app,
+        [
+            (raw_scope("GET", "/api/auth/status"), b""),
+            (raw_scope("GET", "/setup"), b""),
+            (
+                raw_scope(
+                    "POST",
+                    "/api/auth/settings",
+                    headers=[(b"content-type", b"application/json")],
+                ),
+                b'{"method": "external"}',
+            ),
+        ],
+    )
+
+    stored_external = state == "env-none-over-external"
+    assert ("external" in json.loads(status.body)) is stored_external
+    assert (b'value="external"' in setup.body) is stored_external
+    assert (b'id="securityExternal"' in setup.body) is stored_external
+    if stored_external:
+        assert save.status == 200, save.body
+    else:
+        assert save.status == 400
+        assert json.loads(save.body)["field"] == "method"
+        assert {p.name: p.read_bytes() for p in data.iterdir()} == before
