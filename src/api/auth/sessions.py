@@ -336,6 +336,15 @@ class SessionStore:
                 self._write()
             return len(gone)
 
+    def count_valid(self, generation: int) -> int:
+        """Return how many sessions hold now. Read only: nothing is pruned or
+        written, so a page can show the number."""
+        now = self._clock()
+        with self._lock:
+            return sum(
+                1 for s in self._sessions.values() if s.valid_at(now, generation)
+            )
+
     def __len__(self) -> int:
         """Return how many sessions are stored."""
         with self._lock:

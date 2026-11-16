@@ -20,7 +20,10 @@ it does not match the stored hash, its hash is stored with
 session is signed out. An install configured by environment alone gets its
 auth.json then, so its cookie name and sessions survive a restart.
 
-Async writes to auth.json are serialised by ``auth_write_lock()``.
+Async writes to auth.json are serialised by ``auth_write_lock()``. Settings
+→ Security changes it through ``update_auth_file()``, which decides under
+that lock against the file as it is then, refuses to write anything the
+loader would lock on, writes it 0600 and applies it at once.
 """
 
 import asyncio
@@ -35,9 +38,11 @@ import anyio
 import anyio.to_thread
 from pydantic import SecretStr
 
+from ...utils.atomic import atomic_write_private
 from ...utils.logger import get_logger
 from .cli import _generation_after_everything
 from .config import (
+    ENV_METHOD,
     AuthFile,
     AuthFileResult,
     AuthPaths,
@@ -48,9 +53,11 @@ from .config import (
     load_auth_file,
     log_findings,
     new_instance_id,
+    parse_auth_text,
     parse_env,
     resolve_state,
     save_auth_file,
+    serialize_auth_file,
     utc_now,
 )
 from .passwords import (
@@ -80,6 +87,21 @@ T = TypeVar("T")
 
 class HashBusy(Exception):
     """Every scrypt slot is taken and the queue is full."""
+
+
+class ChangeRefused(Exception):
+    """A change to the auth settings that was not made.
+
+    ``status`` is the HTTP status to answer with; ``message`` says why and
+    never quotes a value; ``field`` names the setting at fault, if one is.
+    """
+
+    def __init__(self, status: int, message: str, field: Optional[str] = None):
+        """Refuse with ``status`` and ``message``."""
+        super().__init__(message)
+        self.status = status
+        self.message = message
+        self.field = field
 
 
 # One lock per event loop: Boxarr runs one, so in production this is the one
@@ -277,6 +299,78 @@ class AuthRuntime:
         """Write pending ``last_seen`` changes (at shutdown)."""
         if self._sessions is not None:
             self._sessions.flush()
+
+    # ------------------------------------------------------------ writing
+
+    def fresh_generation(self) -> int:
+        """A credential generation past any a session can carry, for an
+        auth.json written where none was (see cli._generation_after_everything)."""
+        return _generation_after_everything(self.paths)
+
+    async def update_auth_file(
+        self, decide: Callable[[AuthFileResult, AuthState], AuthFile]
+    ) -> AuthState:
+        """Change auth.json and apply the change at once; return the new state.
+
+        Under the write lock, auth.json is read again and resolved, and
+        ``decide(found, current)`` builds the new contents from what is
+        there now - not from the state a request started with, which may
+        be stale by then - or raises ChangeRefused. Nothing is written that
+        the loader would refuse, or that would lock the instance (with an
+        explicit BOXARR_AUTH_METHOD=none, as it would be once the variable
+        is removed). The file is written 0600 (atomic_write_private).
+
+        Raises ChangeRefused: what ``decide`` raised, 400 for contents that
+        would lock, 500 when the file cannot be written (nothing changes).
+        """
+        async with auth_write_lock():
+            found = load_auth_file(self.paths.auth_file)
+            current = resolve_state(self.env, found)
+            candidate = decide(found, current)
+            text = serialize_auth_file(candidate)
+            self._check_candidate(text)
+            try:
+                atomic_write_private(self.paths.auth_file, text)
+            except OSError as exc:
+                logger.warning(
+                    "Authentication: could not write %s (%s); nothing was changed",
+                    self.paths.auth_file,
+                    type(exc).__name__,
+                )
+                raise ChangeRefused(
+                    500,
+                    f"Could not write {self.paths.auth_file} "
+                    f"({type(exc).__name__}); nothing was changed.",
+                ) from None
+            return self.reload()
+
+    def _check_candidate(self, text: str) -> None:
+        """Refuse auth.json contents the loader would lock on."""
+        checked = parse_auth_text(text)
+        if checked.state != FileState.VALID or checked.auth is None:
+            raise ChangeRefused(
+                500, "Boxarr would not be able to read that auth.json back."
+            )
+        env = self.env
+        if env.method_none:
+            # What the file will mean once BOXARR_AUTH_METHOD=none goes (the
+            # variables it overrides are judged then, by their own errors).
+            env = replace(env, method=None, errors=())
+        would = resolve_state(env, checked)
+        if would.mode == Mode.EXTERNAL:
+            raise ChangeRefused(
+                400,
+                "External sign-in is not available in this version of Boxarr.",
+                "method",
+            )
+        if would.mode == Mode.LOCKED:
+            raise ChangeRefused(
+                400,
+                "That would lock Boxarr: "
+                + "; ".join(would.reasons)
+                + f". Nothing was changed (to switch sign-in off, use {ENV_METHOD}"
+                "=none or Settings).",
+            )
 
     # ----------------------------------------------------------- hashing
 
