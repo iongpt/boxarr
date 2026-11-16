@@ -367,10 +367,12 @@ def test_while_off_nobody_can_set_the_widgets(boxarr, state, mode):
     assert {p.name: p.read_bytes() for p in data.iterdir()} == before
 
 
-def test_the_first_enable_drops_a_token_left_in_auth_json(boxarr):
+@pytest.mark.parametrize("widgets", ["token", None], ids=["to-token", "public"])
+def test_the_first_enable_drops_a_token_left_in_auth_json(boxarr, widgets):
     """A stored none that still holds a token (hand-edited, or from an
     older build): the first enable starts auth.json over (settled in group
-    B), so that token never opens the widgets, whatever the mode."""
+    B), so that token never opens the widgets, whatever the mode - not even
+    after a later switch to token, which keeps a token it finds."""
     app, client, data = boxarr()
     left = "bxw_fakeLeftBehindWidgetToken012"
     (data / "auth.json").write_text(
@@ -379,12 +381,24 @@ def test_the_first_enable_drops_a_token_left_in_auth_json(boxarr):
         )
     )
     app, client, data = boxarr("file-none")
+    assert _stored(data)["widget_token"] == left  # still there to drop
+    assert app.state.auth_runtime.state.widget_token.get_secret_value() == left
 
-    enabled = _enable(client, widgets="token")
+    extra = {"widgets": widgets} if widgets else {}
+    enabled = _enable(client, **extra)
 
     assert enabled.status_code == 200, enabled.text
+    if widgets is None:
+        assert (_stored(data)["widgets"], _stored(data)["widget_token"]) == (
+            "public",
+            None,
+        )
+        switched = _post(
+            client, "settings", {"widgets": "token", "current_password": PASSWORD}
+        )
+        assert switched.status_code == 200, switched.text
     token = _stored(data)["widget_token"]
-    assert token != left
+    assert TOKEN_SHAPE.fullmatch(token) and token != left
     assert _widget(app, "/api/widget", left) == 401
     assert _widget(app, "/api/widget", token) == 200
 
