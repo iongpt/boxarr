@@ -354,3 +354,52 @@ def test_external_is_not_offered_yet_and_fails_closed(forms_app):
     assert page.status == 503 and b"not available in this version" in page.body
     assert api.status == 503
     assert health.status == 200
+
+
+# Settings → Security (#151 PR 5): none of these is on the allowlist.
+SECURITY_ROUTES = [
+    ("GET", "/api/auth/status", "auth_status"),
+    ("GET", "/api/auth/settings", "auth_status"),
+    ("POST", "/api/auth/settings", "save_settings"),
+    ("POST", "/api/auth/api-key", "create_api_key"),
+    ("DELETE", "/api/auth/api-key", "revoke_api_key"),
+    ("POST", "/api/auth/sessions/revoke-all", "revoke_all_sessions"),
+    ("POST", "/api/auth/keep-open", "keep_open"),
+]
+
+
+@pytest.mark.parametrize("url_base", URL_BASES)
+def test_the_security_routes_take_a_session_and_nothing_else(forms_app, url_base):
+    """Anonymous: 401 before routing. An API key: 403 before routing (MF4:
+    a key never manages credentials). A session: the handler runs."""
+    from tests.auth_support import PASSWORD, USERNAME
+
+    app, root = forms_app(url_base)
+    json_type = (b"content-type", b"application/json")
+    login = call(
+        app,
+        raw_scope("POST", root + "/api/auth/login", headers=[json_type]),
+        json.dumps({"username": USERNAME, "password": PASSWORD}).encode(),
+    )
+    assert login.status == 200
+    cookie = login.header("set-cookie").split(";", 1)[0].encode("latin-1")
+
+    def requests(extra):
+        return [
+            (raw_scope(method, root + path, headers=[json_type, *extra]), b"{}")
+            for method, path, _ in SECURITY_ROUTES
+        ]
+
+    anonymous = call_all(app, requests([]))
+    with_key = call_all(app, requests([(b"x-api-key", API_KEY.encode("ascii"))]))
+    with_session = call_all(app, requests([(b"cookie", cookie)]))
+
+    for (method, path, handler), a, k, s in zip(
+        SECURITY_ROUTES, anonymous, with_key, with_session
+    ):
+        assert (a.status, a.endpoint) == (401, None), (method, path)
+        assert (k.status, k.endpoint) == (403, None), (method, path)
+        assert _endpoint_name(s) == handler, (method, path, s.status)
+        assert s.status not in (401, 302), (method, path, s.body[:200])
+        for answer in (a, k, s):
+            assert answer.header("cache-control") == "no-store", (method, path)

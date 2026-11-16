@@ -75,6 +75,16 @@ NEW_ROUTES = {
     ("POST", "/api/auth/login"): (409, None),
     ("POST", "/api/auth/logout"): (200, None),
     ("GET", "/api/auth/session"): (200, None),
+    # Settings → Security (#151 PR 5). The status is read-only; the changes
+    # below are refused (an unknown field, or sign-in is off), so nothing is
+    # written. Keep it open writes auth.json by design: tested in
+    # test_auth_settings.py.
+    ("GET", "/api/auth/status"): (200, None),
+    ("GET", "/api/auth/settings"): (200, None),
+    ("POST", "/api/auth/settings"): (400, None),
+    ("POST", "/api/auth/api-key"): (409, None),
+    ("DELETE", "/api/auth/api-key"): (409, None),
+    ("POST", "/api/auth/sessions/revoke-all"): (409, None),
 }
 
 

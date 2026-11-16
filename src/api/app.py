@@ -23,6 +23,7 @@ from .health import RadarrHealthCheck
 from .routes import (
     admin_router,
     auth_router,
+    auth_settings_router,
     boxoffice_router,
     config_router,
     movies_router,
@@ -263,6 +264,7 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
     app.include_router(movies_router)
     app.include_router(scheduler_router)
     app.include_router(auth_router)
+    app.include_router(auth_settings_router)
     app.include_router(web_router)
 
     # Store scheduler instance if provided
