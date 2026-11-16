@@ -65,7 +65,7 @@
                     <span id="testButtonSpinner" class="loading-spinner" style="display: none;"></span>
                 </button>
                 
-                <div id="testResults" class="test-results"></div>
+                <div id="testResults" class="test-results" role="status" aria-live="polite"></div>
             </div>
 
             <!-- Radarr Settings Section -->
@@ -716,7 +716,7 @@
 
 <script src="{{ request.scope.get('root_path', '') }}/static/js/theme-manager.js?v=1"></script>
 <script src="{{ request.scope.get('root_path', '') }}/static/js/update-result.js?v=1"></script>
-<script src="{{ request.scope.get('root_path', '') }}/static/js/app.js?v=11"></script>
+<script src="{{ request.scope.get('root_path', '') }}/static/js/app.js?v=12"></script>
 <script>
 // Sync theme select with current preference
 document.addEventListener('DOMContentLoaded', function() {

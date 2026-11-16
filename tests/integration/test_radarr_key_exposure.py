@@ -577,7 +577,7 @@ def test_setup_page_autotests_with_the_stored_key(
     assert page["defaultProfile"]["options"] == ["HD-1080p", "Ultra-HD"]
     assert page["upgradeProfile"]["options"] == ["HD-1080p", "Ultra-HD"]
     assert page["rootFolder"]["options"] == ["/movies"]
-    assert "Connected successfully" in page["testResults"]["innerHTML"]
+    assert page["testResults"]["texts"] == ["✓ Connected successfully!"]
     assert page["saveBtn"]["disabled"] is False
 
 

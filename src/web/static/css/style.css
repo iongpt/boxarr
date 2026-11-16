@@ -749,6 +749,23 @@ body {
   display: block;
 }
 
+/* The outcome is told by the border; the text keeps the body colour, which
+   reads in both themes where the pale status colours would not. */
+.test-results.success,
+.test-results.error {
+  border-left-width: 4px;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+}
+
+.test-results.success {
+  border-color: var(--success-color);
+}
+
+.test-results.error {
+  border-color: var(--error-color);
+}
+
 .test-results h4 {
   margin: 0 0 0.5rem 0;
   font-size: 0.875rem;
