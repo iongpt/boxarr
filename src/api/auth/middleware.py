@@ -33,6 +33,20 @@ seen as stale. Denied:
   ``X-Boxarr-Auth: invalid-token`` for a wrong token, still readable from
   any origin, never a redirect (it would loop inside an iframe).
 
+Under ``external`` (design §3.2.1, D2) a reverse proxy in front signs people
+in, and Boxarr trusts the connection, not what it says: a request whose
+socket peer (``scope["boxarr.peer"]``, recorded before any proxy header is
+read) is on the explicit trusted-proxy list passes as ``proxy``. No header
+makes a request come from the proxy - X-Forwarded-For, X-Real-IP, Forwarded,
+Remote-User, X-Forwarded-User - and no user name is read from one (§8).
+Sessions play no part. Any other peer gets the API key on API paths, the
+widgets per their mode, the health check and static files; everything else
+is answered 403 "Open Boxarr through your proxy" (JSON for the API, a plain
+page for a browser, ``X-Boxarr-Auth: proxy-required``) - never the login
+page, which external has none of. As under forms, a presented API key or
+widget token must be the right one, even through the proxy, and a key never
+manages authentication.
+
 When the instance is locked - or its auth state cannot be read at all -
 everything but the health check and static files answers 503: JSON for the
 API, a plain page naming the problem for a browser (amendment A7). A
@@ -54,16 +68,23 @@ from starlette.websockets import WebSocketClose
 
 from ...utils.logger import get_logger
 from ...utils.route_path import route_path
-from ..client_address import strict_client
-from .config import ENV_METHOD, AuthState, Mode, sha256_hex
+from ..client_address import (
+    PEER_SCOPE_KEY,
+    SocketPeer,
+    parse_ip,
+    strict_client,
+    trusted_peer,
+)
+from .config import ENV_METHOD, ENV_TRUSTED_PROXIES, AuthState, Mode, sha256_hex
 from .runtime import AuthRuntime
 from .throttle import CredentialKind
 
 logger = get_logger(__name__)
 
 # Where the decision is left for the routes: {"kind": "open" | "session" |
-# "apikey" | "widget" | "anonymous", "mode": <Mode>, "username": <str or
-# None>}.
+# "apikey" | "widget" | "proxy" | "anonymous", "mode": <Mode>, "username":
+# <str or None>}. A proxy principal has no username: none is read from a
+# header (design §8).
 AUTH_SCOPE_KEY = "boxarr.auth"
 
 # Requests that carry this header do not extend a session (pollers send it,
@@ -129,6 +150,15 @@ QUERY_KEY_MESSAGE = (
     "the X-Api-Key header."
 )
 APIKEY_FORBIDDEN_MESSAGE = "API keys cannot manage authentication."
+PROXY_REQUIRED_MESSAGE = (
+    "Open Boxarr through your proxy: a reverse proxy in front of Boxarr signs "
+    "people in (external), and this request did not come through it. A script "
+    "can send the API key in the X-Api-Key header instead."
+)
+PROXY_REQUIRED_QUERY_KEY_MESSAGE = (
+    "Open Boxarr through your proxy. An API key in the URL is ignored: send it "
+    "in the X-Api-Key header."
+)
 LOCKED_MESSAGE = (
     "Boxarr is locked: its authentication settings are not valid. "
     f"Fix what the log names, or set {ENV_METHOD}=none, and restart."
@@ -283,7 +313,11 @@ def login_url(scope: Scope) -> str:
 
 
 def _api_denial(
-    scope: Scope, *, invalid_key: bool = False, message: Optional[str] = None
+    scope: Scope,
+    *,
+    invalid_key: bool = False,
+    message: Optional[str] = None,
+    login: bool = True,
 ) -> Response:
     root = scope.get("root_path", "")
     if message is None:
@@ -293,13 +327,12 @@ def _api_denial(
             message = QUERY_KEY_MESSAGE
         else:
             message = LOGIN_REQUIRED_MESSAGE
+    content: Dict[str, Any] = {"success": False, "message": message, "detail": message}
+    if login:
+        # Not under external: there is no login page to point to.
+        content["login_url"] = f"{root}/login"
     return JSONResponse(
-        {
-            "success": False,
-            "message": message,
-            "detail": message,
-            "login_url": f"{root}/login",
-        },
+        content,
         status_code=401,
         headers={
             AUTH_HEADER: "invalid-key" if invalid_key else "login-required",
@@ -336,8 +369,13 @@ def deny(
     *,
     invalid_key: bool = False,
     invalid_token: bool = False,
+    external: bool = False,
 ) -> Response:
-    """The answer to a request that is not signed in (design §3.3.3)."""
+    """The answer to a request that is not signed in (design §3.3.3).
+
+    Under ``external`` a request with no credential is answered by
+    proxy_required() instead; what reaches here is a wrong key or token.
+    """
     kind = request_class(rp, method)
     if kind == PAGE:
         return Response(
@@ -346,7 +384,81 @@ def deny(
         )
     if kind == WIDGET:
         return _widget_denial(rp, invalid_key, invalid_token)
-    return _api_denial(scope, invalid_key=invalid_key)
+    return _api_denial(scope, invalid_key=invalid_key, login=not external)
+
+
+_PROXY_PAGE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
+<title>Open Boxarr through your proxy</title>
+<style>
+body {{ font-family: system-ui, -apple-system, sans-serif; margin: 0; padding: 1rem;
+       background: #f5f5f7; color: #1d1d1f; line-height: 1.5; }}
+main {{ max-width: 40rem; margin: 2rem auto; background: #fff; padding: 1.5rem;
+       border-radius: 12px; border: 1px solid #ddd; overflow-wrap: anywhere; }}
+h1 {{ font-size: 1.4rem; margin-top: 0; }}
+code {{ background: #eee; padding: 0 0.25em; border-radius: 4px; }}
+@media (prefers-color-scheme: dark) {{
+  body {{ background: #1c1c1e; color: #f2f2f7; }}
+  main {{ background: #2c2c2e; border-color: #3a3a3c; }}
+  code {{ background: #3a3a3c; }}
+}}
+</style>
+</head>
+<body>
+<main>
+<h1>Open Boxarr through your proxy</h1>
+<p>A reverse proxy in front of this Boxarr signs people in, and this request
+did not come through it: it reached Boxarr from <code>{peer}</code>, which is
+not one of its trusted proxies.</p>
+<p>Open Boxarr at the address your proxy serves. If <code>{peer}</code> is
+your reverse proxy, add it to <code>{variable}</code> and restart Boxarr.</p>
+</main>
+</body>
+</html>
+"""
+
+
+def _peer_text(scope: Scope) -> str:
+    """The socket peer's address as Boxarr parsed it, fit to show."""
+    peer = scope.get(PEER_SCOPE_KEY)
+    address = parse_ip(peer.host) if isinstance(peer, SocketPeer) else None
+    return str(address) if address is not None else "an unknown address"
+
+
+def proxy_required(scope: Scope, rp: str, method: str) -> Response:
+    """The answer, under external, to a peer that is not a trusted proxy and
+    sent no credential: 403 (design §3.2.1), JSON for the API, a plain page
+    naming the peer for a browser; a widget in token mode keeps its own 401.
+
+    Never ``login-required``, which would make app.js offer a sign-in page
+    that external does not have.
+    """
+    kind = request_class(rp, method)
+    if kind == WIDGET:
+        return _widget_denial(rp, False, False)
+    headers = {AUTH_HEADER: "proxy-required", "Cache-Control": _NO_STORE}
+    if kind == PAGE:
+        return HTMLResponse(
+            _PROXY_PAGE.format(
+                peer=html.escape(_peer_text(scope)), variable=ENV_TRUSTED_PROXIES
+            ),
+            status_code=403,
+            headers=headers,
+        )
+    message = (
+        PROXY_REQUIRED_QUERY_KEY_MESSAGE
+        if _query_holds_key(scope)
+        else PROXY_REQUIRED_MESSAGE
+    )
+    return JSONResponse(
+        {"success": False, "message": message, "detail": message},
+        status_code=403,
+        headers=headers,
+    )
 
 
 def _forbidden_key() -> Response:
@@ -546,22 +658,16 @@ class AuthMiddleware:
         method = scope["method"]
         route = public_route(rp, method)
 
-        if state.mode != Mode.FORMS:
-            # Locked - and external, which this version does not offer yet:
-            # fail closed, as a locked instance does.
+        if state.mode not in (Mode.FORMS, Mode.EXTERNAL):
+            # Locked (or a mode this version does not know): fail closed.
             if route is not None and route.when == ALWAYS:
                 return _pass("anonymous", state)
-            reasons = state.reasons
-            if state.mode == Mode.EXTERNAL:
-                reasons = (
-                    f"{ENV_METHOD}=external is not available in this version "
-                    "of Boxarr; use forms",
-                )
-            return _Decision(locked_answer(scope, rp, method, reasons))
+            return _Decision(locked_answer(scope, rp, method, state.reasons))
 
         if rp.startswith("/static/") and route is not None:
             return _pass("anonymous", state)
 
+        external = state.mode == Mode.EXTERNAL
         public = _is_public(route, state)
         kind = request_class(rp, method)
         headers = Headers(scope=scope)
@@ -588,13 +694,25 @@ class AuthMiddleware:
                 return _pass("apikey", state, private=True)
             self._log_bad_key(runtime, scope)
             if not exempt:
-                # Even with a valid cookie: a script with a stale key must
-                # learn it, not ride on someone's session (MF9).
-                return _Decision(deny(scope, rp, method, invalid_key=True))
+                # Even with a valid cookie, or through the trusted proxy: a
+                # script with a stale key must learn it, not ride on
+                # someone's session or on the proxy (MF9).
+                return _Decision(
+                    deny(scope, rp, method, invalid_key=True, external=external)
+                )
             # On a public path a stale key is ignored: health stays green.
 
-        # 2. A session cookie.
-        tokens = session_tokens(headers, runtime.instance_id)
+        # 2. External: the connection itself comes from a trusted proxy -
+        # its socket peer, never a header and never the client a header
+        # names. Sessions play no part, so a cookie left from forms opens
+        # nothing.
+        if external:
+            if trusted_peer(scope, state.trusted_proxies) is not None:
+                return _pass("proxy", state, private=True)
+            tokens: List[str] = []
+        else:
+            # A session cookie.
+            tokens = session_tokens(headers, runtime.instance_id)
         if tokens:
             store = runtime.sessions
             for token in tokens:
@@ -615,6 +733,9 @@ class AuthMiddleware:
             return _pass("widget", state, private=True)
         if public:
             return _pass("anonymous", state, private=True)
+        if external:
+            self._log_untrusted_peer(runtime, scope)
+            return _Decision(proxy_required(scope, rp, method))
         return _Decision(deny(scope, rp, method))
 
     @staticmethod
@@ -622,6 +743,21 @@ class AuthMiddleware:
         client = strict_client(scope, runtime.state.trusted_proxies).client
         if runtime.throttle.should_log_bad_key(client):
             logger.warning("Invalid API key from %s", client or "-")
+
+    @staticmethod
+    def _log_untrusted_peer(runtime: AuthRuntime, scope: Scope) -> None:
+        """Under external: name the address that was refused, at most once
+        per address every 10 minutes - if it is the owner's own proxy (a
+        Docker network that changed its address), this line says what to
+        add. Never counted toward the sign-in throttle."""
+        peer = _peer_text(scope)
+        if runtime.throttle.should_log_bad_key(peer, CredentialKind.UNTRUSTED_PEER):
+            logger.warning(
+                "Refused a request from %s: external sign-in lets in only "
+                "connections from the trusted proxies (%s)",
+                peer,
+                ENV_TRUSTED_PROXIES,
+            )
 
     @staticmethod
     def _log_bad_widget_token(runtime: AuthRuntime, scope: Scope) -> None:

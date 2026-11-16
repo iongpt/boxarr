@@ -123,37 +123,6 @@ def auth_write_lock() -> asyncio.Lock:
         return lock
 
 
-def _external_unavailable(
-    env: EnvAuthConfig, found: AuthFileResult, state: AuthState, paths: AuthPaths
-) -> AuthState:
-    """Lock, naming why, when the method is external (#151, part 3 adds it).
-
-    Until then a method of external locks whatever else it has or lacks: a
-    reason about its proxy list would send the owner off to set one, only
-    to be told next that external is not offered at all.
-    """
-    if env.method_none or env.errors or found.state == FileState.LOCKED:
-        return state
-    if env.method is not None:
-        if env.method != Mode.EXTERNAL:
-            return state
-        reason = (
-            f"{ENV_METHOD}=external is not available in this version of Boxarr: "
-            f"set {ENV_METHOD}=forms (or none) and restart"
-        )
-    elif found.state == FileState.VALID and found.auth is not None:
-        if found.auth.method != Mode.EXTERNAL:
-            return state
-        reason = (
-            f"{paths.auth_file} says method external, which is not available "
-            f"in this version of Boxarr: set {ENV_METHOD}=none, restart Boxarr "
-            "and choose in Settings → Security"
-        )
-    else:
-        return state
-    return AuthState(mode=Mode.LOCKED, reasons=(reason,))
-
-
 class AuthRuntime:
     """What requests are checked against; see the module docstring."""
 
@@ -191,12 +160,21 @@ class AuthRuntime:
         paths = paths or AuthPaths.from_env(environ)
         env = parse_env(environ)
         found = load_auth_file(paths.auth_file)
-        state = _external_unavailable(env, found, resolve_state(env, found), paths)
+        state = resolve_state(env, found, paths.auth_file)
         log_findings(env, found, state)
         runtime = cls(paths, env, state)
         runtime._apply_env_password(found)
         if runtime.state.mode == Mode.FORMS:
             logger.info("Authentication: sign-in required (forms)")
+        elif runtime.state.mode == Mode.EXTERNAL:
+            # The addresses are settings, not secrets: they say which
+            # connections pass, which is what an owner debugging a 403 needs.
+            logger.info(
+                "Authentication: external - requests whose connection comes from "
+                "a trusted proxy (%s) pass; any other address gets only the API "
+                "key, the widgets and the health check",
+                ", ".join(str(n) for n in runtime.state.trusted_proxies.networks),
+            )
         return runtime
 
     @classmethod
@@ -219,9 +197,7 @@ class AuthRuntime:
         The environment is not read again: it is fixed for the process.
         """
         found = load_auth_file(self.paths.auth_file)
-        state = _external_unavailable(
-            self.env, found, resolve_state(self.env, found), self.paths
-        )
+        state = resolve_state(self.env, found, self.paths.auth_file)
         if self._env_hash_override is not None and self.env.password is not None:
             state = replace(state, password_hash=self._env_hash_override)
         if state.mode == Mode.LOCKED:
@@ -358,7 +334,7 @@ class AuthRuntime:
         """
         async with auth_write_lock():
             found = load_auth_file(self.paths.auth_file)
-            current = resolve_state(self.env, found)
+            current = resolve_state(self.env, found, self.paths.auth_file)
             candidate = decide(found, current)
             text = serialize_auth_file(candidate)
             self._check_candidate(text)
@@ -389,13 +365,7 @@ class AuthRuntime:
             # What the file will mean once BOXARR_AUTH_METHOD=none goes (the
             # variables it overrides are judged then, by their own errors).
             env = replace(env, method=None, errors=())
-        would = resolve_state(env, checked)
-        if would.mode == Mode.EXTERNAL:
-            raise ChangeRefused(
-                400,
-                "External sign-in is not available in this version of Boxarr.",
-                "method",
-            )
+        would = resolve_state(env, checked, self.paths.auth_file)
         if would.mode == Mode.LOCKED:
             raise ChangeRefused(
                 400,

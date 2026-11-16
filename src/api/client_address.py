@@ -18,7 +18,8 @@ Two answers, kept apart (#151, amendment A1).
    from that peer with ``resolve_strict()``: ``X-Forwarded-For`` walked right
    to left, trusting only an explicit ``BOXARR_AUTH_TRUSTED_PROXIES`` (or
    auth.json) list, never ``*``, ``0.0.0.0/0`` or ``::/0``, and never
-   ``FORWARDED_ALLOW_IPS``. Nothing uses it yet.
+   ``FORWARDED_ALLOW_IPS``. The External method asks ``trusted_peer()``
+   whether the connection itself comes from one of those proxies.
 """
 
 import ipaddress
@@ -344,6 +345,26 @@ def resolve_strict(
             else:
                 scheme = proto
     return StrictClient(str(client_address), scheme, str(peer_address))
+
+
+def trusted_peer(scope: Scope, trusted: TrustedProxies) -> Optional[str]:
+    """Return the socket peer's address if it is on ``trusted``, else None.
+
+    For the External method (#151, design §3.2.1): only the connection's own
+    other end counts - ``scope["boxarr.peer"]``, recorded before any proxy
+    header is read. Never ``scope["client"]``, which uvicorn's proxy-header
+    layers rewrite from ``X-Forwarded-For`` (with ``FORWARDED_ALLOW_IPS=*``,
+    from whatever the client sent), and never any header: X-Forwarded-For,
+    X-Real-IP, Forwarded, Remote-User and their kin cannot make a request
+    come from a proxy. A peer that is not an IP address is never trusted.
+    """
+    peer = scope.get(PEER_SCOPE_KEY)
+    if not isinstance(peer, SocketPeer):
+        return None
+    address = parse_ip(peer.host)
+    if address is None or address not in trusted:
+        return None
+    return str(address)
 
 
 def strict_client(scope: Scope, trusted: TrustedProxies) -> StrictClient:

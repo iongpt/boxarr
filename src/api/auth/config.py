@@ -17,8 +17,6 @@ The files live in ``Path(os.getenv("BOXARR_DATA_DIRECTORY", "config"))``,
 resolved independently of any YAML (amendment A9), so a broken settings file
 cannot move them: ``/config`` in Docker, ``./config`` for a manual install
 without the variable.
-
-Nothing reads this module during a request yet.
 """
 
 import filecmp
@@ -919,7 +917,46 @@ def _pick(
     return default
 
 
-def resolve_state(env: EnvAuthConfig, file: AuthFileResult) -> AuthState:
+def _external_reason(sources: Mapping[str, str], auth_file: Optional[Path]) -> str:
+    """Why external locks: it has no trusted proxy to let requests in through.
+
+    Names where the method came from and the variable that fixes it (A7),
+    never a value. FORWARDED_ALLOW_IPS is not read for authentication, so
+    the message says it does not count.
+    """
+    if sources.get("method") == "env":
+        lead = f"{ENV_METHOD}=external needs {ENV_TRUSTED_PROXIES}"
+        other = f"or set {ENV_METHOD}=forms (or none)"
+    else:
+        lead = (
+            f"{auth_file or AUTH_FILE_NAME} says method external, which needs "
+            f"{ENV_TRUSTED_PROXIES}"
+        )
+        other = "or run python -m src.main --auth-reset"
+    if sources.get("trusted_proxies") == "default":
+        problem = (
+            ": set it to your reverse proxy's address and restart Boxarr "
+            "(FORWARDED_ALLOW_IPS does not count)"
+        )
+    else:
+        # Set, but nothing in it can be trusted (*, /0, a network broader
+        # than /8 or /16 - each logged as refused - or an empty list).
+        where = (
+            ENV_TRUSTED_PROXIES
+            if sources.get("trusted_proxies") == "env"
+            else f"trusted_proxies in {auth_file or AUTH_FILE_NAME}"
+        )
+        problem = (
+            f": {where} names no address Boxarr will trust (never *, /0 or a "
+            "network broader than /8 or /16); set it to your reverse proxy's "
+            "address and restart Boxarr"
+        )
+    return f"{lead}{problem}, {other}"
+
+
+def resolve_state(
+    env: EnvAuthConfig, file: AuthFileResult, auth_file: Optional[Path] = None
+) -> AuthState:
     """Combine the environment and auth.json into the effective state.
 
     1. An explicit BOXARR_AUTH_METHOD=none: open, whatever else is wrong.
@@ -932,7 +969,9 @@ def resolve_state(env: EnvAuthConfig, file: AuthFileResult) -> AuthState:
        open, and the credential variables it overrides are named in
        ``ignored_variables``, which log_findings() reports as an error.
     5. forms needs a username and a password; external needs an explicit
-       trusted-proxy list. Without them: locked.
+       trusted-proxy list (BOXARR_AUTH_TRUSTED_PROXIES or auth.json's, never
+       FORWARDED_ALLOW_IPS) that trusts at least one address. Without them:
+       locked, never open. ``auth_file`` names auth.json in that reason.
     """
     if env.method_none:
         return AuthState(mode=Mode.NONE, sources={"method": "env"})
@@ -1068,7 +1107,7 @@ def resolve_state(env: EnvAuthConfig, file: AuthFileResult) -> AuthState:
                 f"forms needs a password: set {ENV_PASSWORD_FILE}, {via_settings}"
             )
     elif method == Mode.EXTERNAL and not (explicit and trusted):
-        reasons.append(f"external needs the proxy's address in {ENV_TRUSTED_PROXIES}")
+        reasons.append(_external_reason(sources, auth_file))
     if reasons:
         return replace(state, mode=Mode.LOCKED, reasons=tuple(reasons))
     return state
@@ -1123,6 +1162,6 @@ def load_state(
     paths = paths or auth_paths()
     env = parse_env(environ)
     file = load_auth_file(paths.auth_file)
-    state = resolve_state(env, file)
+    state = resolve_state(env, file, paths.auth_file)
     log_findings(env, file, state)
     return state
