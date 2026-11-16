@@ -57,6 +57,15 @@ def test_the_required_vectors_are_present():
         "/%7F",
         "/%zz",
         "/" + "a" * 2048,
+        # A browser strips a trailing space before it resolves the URL.
+        "/login ",
+        "/api ",
+        "/.. ",
+        # Both forms must pass: here only the raw form fails.
+        "/x%3F/../login",
+        "/a%23/../api/config",
+        "/x%3F/./setup",
     ):
         assert nexts[required] == FALLBACK, required
-    assert nexts["/" + "a" * 2047] == "/" + "a" * 2047
+    for accepted in ("/" + "a" * 2047, "/x/..%20", "/overview?q=a%20b"):
+        assert nexts[accepted] == accepted, accepted

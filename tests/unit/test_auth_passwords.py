@@ -8,6 +8,9 @@ hash can neither crash Boxarr nor make it allocate unbounded memory.
 
 import base64
 import hashlib
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
@@ -40,7 +43,15 @@ def _b64(data: bytes) -> str:
 def _cheap_hash(password: str, log2n: int = 12, r: int = 8, p: int = 1) -> str:
     """A valid hash with cheap parameters, made without the module."""
     salt = b"s" * 16
-    key = hashlib.scrypt(password.encode(), salt=salt, n=1 << log2n, r=r, p=p, dklen=32)
+    key = hashlib.scrypt(
+        password.encode(),
+        salt=salt,
+        n=1 << log2n,
+        r=r,
+        p=p,
+        maxmem=128 * 1024 * 1024,
+        dklen=32,
+    )
     return f"scrypt:{log2n}:{r}:{p}:{_b64(salt)}:{_b64(key)}"
 
 
@@ -115,33 +126,113 @@ def test_an_oversized_password_is_refused_before_hashing(monkeypatch):
     assert calls == []
 
 
-def test_the_dummy_hash_is_lazy_and_always_fails(monkeypatch):
-    monkeypatch.setattr(passwords, "_dummy", None)
-    made = []
-    real = passwords.hash_password
-    monkeypatch.setattr(
-        passwords, "hash_password", lambda pw: made.append(1) or real(pw)
+def _count_scrypt(monkeypatch):
+    """Record the (n, r, p, maxmem, dklen) of every hashlib.scrypt call."""
+    runs = []
+    real = hashlib.scrypt
+
+    def spy(password, *, salt, n, r, p, maxmem=0, dklen=64):
+        runs.append((n, r, p, maxmem, dklen))
+        return real(password, salt=salt, n=n, r=r, p=p, maxmem=maxmem, dklen=dklen)
+
+    monkeypatch.setattr(passwords.hashlib, "scrypt", spy)
+    return runs
+
+
+def test_the_dummy_hash_costs_nothing_to_make_and_always_fails(monkeypatch):
+    monkeypatch.setattr(passwords, "_dummies", {})
+    runs = _count_scrypt(monkeypatch)
+
+    made = dummy_hash()
+
+    assert runs == []  # a random salt and key: no scrypt to make it
+    assert isinstance(made, ScryptHash)
+    assert (made.log2n, made.r, made.p) == (DEFAULT_LOG2N, DEFAULT_R, DEFAULT_P)
+    assert (len(made.salt), len(made.key)) == (16, 32)
+    assert dummy_hash() is made  # kept
+    assert verify_dummy(PASSWORD) is False
+    assert len(runs) == 1
+
+
+def test_nothing_is_made_at_import():
+    code = (
+        "import hashlib\n"
+        "calls = []\n"
+        "real = hashlib.scrypt\n"
+        "hashlib.scrypt = lambda *a, **k: calls.append(1) or real(*a, **k)\n"
+        "import src.api.auth.passwords as p\n"
+        "assert p._dummies == {} and calls == [], (p._dummies, calls)\n"
+    )
+    done = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        cwd=Path(__file__).parents[2],
     )
 
-    assert made == []  # nothing at import
-    assert verify_dummy(PASSWORD) is False
-    assert verify_dummy(PASSWORD) is False
-    assert made == [1]  # made once, on first use
-    assert isinstance(dummy_hash(), ScryptHash)
+    assert done.returncode == 0, done.stderr
 
 
 def test_the_dummy_check_does_the_same_work(monkeypatch):
-    runs = []
-    real = passwords._derive
-    monkeypatch.setattr(
-        passwords, "_derive", lambda *a: runs.append(a[1][:3]) or real(*a)
-    )
-    dummy_hash()
-    runs.clear()
+    runs = _count_scrypt(monkeypatch)
 
     verify_dummy(PASSWORD)
 
-    assert runs == [(DEFAULT_LOG2N, DEFAULT_R, DEFAULT_P)]
+    assert [run[:3] for run in runs] == [(1 << DEFAULT_LOG2N, DEFAULT_R, DEFAULT_P)]
+
+
+@pytest.mark.parametrize(
+    "stored",
+    [
+        _cheap_hash(PASSWORD, log2n=12, r=8, p=1),
+        _cheap_hash(PASSWORD, log2n=13, r=4, p=3),
+        _cheap_hash(PASSWORD, log2n=12, r=8, p=5),
+    ],
+)
+def test_an_unknown_username_costs_what_the_configured_hash_costs(monkeypatch, stored):
+    """MF8: the dummy check uses the configured hash's parameters, not the
+    defaults, so the time does not tell whether the username exists."""
+    runs = _count_scrypt(monkeypatch)
+
+    assert verify_password(PASSWORD, stored) is True
+    verify_dummy("a wrong guess", like=stored)
+    verify_dummy("a wrong guess", like=parse_hash(stored))
+
+    assert len(runs) == 3 and runs[0] == runs[1] == runs[2]
+    assert dummy_hash(parse_hash(stored)) is dummy_hash(parse_hash(stored))
+    assert dummy_hash(parse_hash(stored)).key != parse_hash(stored).key
+
+
+def test_a_dummy_keeps_the_salt_and_key_sizes():
+    salt, key = b"s" * 24, b"k" * 48
+    like = ScryptHash(12, 8, 1, salt, key)
+
+    dummy = dummy_hash(like)
+
+    assert (len(dummy.salt), len(dummy.key)) == (24, 48)
+    assert dummy.salt != salt and dummy.key != key
+
+
+def test_a_malformed_configured_hash_raises_like_a_real_check():
+    with pytest.raises(HashFormatError):
+        verify_dummy(PASSWORD, like="scrypt:99:8:1:x:y")
+
+
+def test_verify_compares_in_constant_time(monkeypatch):
+    calls = []
+    real = passwords.hmac.compare_digest
+    monkeypatch.setattr(
+        passwords.hmac,
+        "compare_digest",
+        lambda a, b: calls.append((len(a), len(b))) or real(a, b),
+    )
+    stored = _cheap_hash(PASSWORD)
+
+    assert verify_password(PASSWORD, stored) is True
+    assert verify_password("wrong password!", stored) is False
+
+    assert calls == [(32, 32), (32, 32)]
 
 
 # --------------------------------------------------------------------------
@@ -178,6 +269,16 @@ def test_out_of_bounds_parameters_are_refused(encoded):
 def test_the_largest_hash_in_bounds_is_accepted():
     assert parse_hash(f"scrypt:17:4:16:{SALT}:{KEY}").log2n == 17
     assert parse_hash(f"scrypt:12:16:16:{SALT}:{KEY}").r == 16
+
+
+def test_a_64_mib_hash_verifies():
+    """128 * r * N = 64 MiB, past OpenSSL's default 32 MiB maxmem: the check
+    must raise the limit, or every such hash the parser accepts would raise
+    at login instead of verifying."""
+    stored = _cheap_hash(PASSWORD, log2n=17, r=4, p=1)
+
+    assert verify_password(PASSWORD, stored) is True
+    assert verify_password("not the password", stored) is False
 
 
 @pytest.mark.parametrize(

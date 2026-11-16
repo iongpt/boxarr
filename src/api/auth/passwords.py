@@ -29,7 +29,7 @@ import re
 import secrets
 import threading
 import unicodedata
-from typing import NamedTuple, Optional, Union
+from typing import Dict, NamedTuple, Optional, Tuple, Union
 
 SCHEME = "scrypt"
 
@@ -224,25 +224,55 @@ def needs_rehash(stored: Union[str, ScryptHash], password_source: str) -> bool:
     ) != (DEFAULT_LOG2N, DEFAULT_R, DEFAULT_P, SALT_BYTES, KEY_BYTES)
 
 
-# The hash an unknown username is checked against, so that a login takes the
-# same time whether the username exists or not. Made on first use: computing
-# it at import would slow every start and every test.
+# The hashes an unknown username is checked against, so that a login takes
+# the same time whether the username exists or not (MF8). One per parameter
+# set: an unknown username must cost what the configured hash costs, which
+# may not use the current defaults (an env hash is never rehashed, a UI hash
+# only at its next login). A dummy is a random salt and a random key: making
+# one runs no scrypt, and no password derives to its key.
 _dummy_lock = threading.Lock()
-_dummy: Optional[ScryptHash] = None
+_dummies: Dict[Tuple[int, int, int, int, int], ScryptHash] = {}
 
 
-def dummy_hash() -> ScryptHash:
-    """Return the dummy hash, making it on first use."""
-    global _dummy
+def _shape(params: ScryptHash) -> Tuple[int, int, int, int, int]:
+    return (params.log2n, params.r, params.p, len(params.salt), len(params.key))
+
+
+def dummy_hash(like: Optional[ScryptHash] = None) -> ScryptHash:
+    """Return a dummy hash with ``like``'s parameters and salt and key sizes
+    (the current defaults when None), made on first use."""
+    if like is None:
+        shape = (DEFAULT_LOG2N, DEFAULT_R, DEFAULT_P, SALT_BYTES, KEY_BYTES)
+    else:
+        shape = _shape(like)
     with _dummy_lock:
-        if _dummy is None:
-            _dummy = parse_hash(hash_password(secrets.token_urlsafe(32)))
-        return _dummy
+        dummy = _dummies.get(shape)
+        if dummy is None:
+            log2n, r, p, salt_bytes, key_bytes = shape
+            dummy = ScryptHash(
+                log2n,
+                r,
+                p,
+                secrets.token_bytes(salt_bytes),
+                secrets.token_bytes(key_bytes),
+            )
+            _dummies[shape] = dummy
+        return dummy
 
 
-def verify_dummy(password: object) -> bool:
-    """Do the work of a real check for an unknown username; always False."""
-    verify_password(password, dummy_hash())
+def verify_dummy(password: object, like: Union[str, ScryptHash, None] = None) -> bool:
+    """Do the work of a real check for an unknown username; always False.
+
+    ``like`` is the configured hash: the check then costs exactly what a
+    known username's does. A malformed ``like`` raises HashFormatError, as
+    verify_password() would.
+    """
+    params = (
+        None
+        if like is None
+        else like if isinstance(like, ScryptHash) else (parse_hash(like))
+    )
+    verify_password(password, dummy_hash(params))
     return False
 
 

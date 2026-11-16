@@ -18,7 +18,13 @@ A target is accepted only if all of these hold, else it becomes ``/``:
 - it has no ``:`` before the first ``/``, ``?`` or ``#``;
 - its path is not ``/login`` or under it, not ``/api`` or under it, and has
   no ``.`` or ``..`` segment (stricter than the design: a browser resolves
-  ``/x/../login`` to ``/login``).
+  ``/x/../login`` to ``/login``);
+- the raw form has no space (stricter than the design). A browser strips
+  trailing spaces from a URL before it resolves it, so ``/login `` would
+  land on /login and ``/.. `` would climb out of the url_base; a value read
+  with URLSearchParams turns ``%20`` into such a space. The decoded form may
+  keep one: what the browser is sent is the raw form, where ``%20`` stays an
+  ordinary character (``/x/..%20`` is not a dot segment).
 
 The server then redirects to ``root_path + next``.
 """
@@ -57,6 +63,8 @@ def _acceptable(target: str) -> bool:
 def validate_next(value: object) -> str:
     """Return ``value`` if it is a safe same-site path to go to, else ``/``."""
     if not isinstance(value, str) or len(value) > MAX_LENGTH:
+        return FALLBACK
+    if " " in value:
         return FALLBACK
     if _BAD_ESCAPE.search(value):
         return FALLBACK
