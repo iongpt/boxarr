@@ -273,8 +273,9 @@ def cli():
     auth_tools.add_argument(
         "--auth-reset",
         action="store_true",
-        help="Turn authentication off in auth.json, sign out every session "
-        "and exit; restart Boxarr to apply it",
+        help="Turn authentication off and clear its username, password, API "
+        "key and settings in auth.json, sign out every session and exit; "
+        "restart Boxarr to apply it",
     )
 
     args = parser.parse_args()

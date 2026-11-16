@@ -15,6 +15,7 @@ import time
 from pathlib import Path
 
 import pytest
+from pydantic import SecretStr
 
 from src.api.auth.cli import auth_reset_command, hash_password_command
 from src.api.auth.config import (
@@ -27,6 +28,7 @@ from src.api.auth.config import (
 )
 from src.api.auth.passwords import parse_hash, verify_password
 from src.api.auth.sessions import SessionStore
+from tests.auth_support import cheap_hash
 
 REPO = Path(__file__).parents[2]
 FAKE_PASSWORD = "fake-password-for-tests"  # an obviously fake test value
@@ -129,14 +131,22 @@ def test_reset_without_a_file_writes_method_none(tmp_path):
     assert not (tmp_path / "auth-sessions.json").exists()
 
 
-def test_reset_keeps_credentials_bumps_the_generation_and_signs_out(tmp_path):
+def test_reset_clears_credentials_bumps_the_generation_and_signs_out(tmp_path):
+    """Recovery from someone else's setup: nothing of it survives the reset,
+    their API key least of all."""
     stored = AuthFile(
         method="forms",
         instance_id="0123abcd",
         username="admin",
-        password_hash=None,
+        password_hash=SecretStr(cheap_hash("fake-password-of-someone")),
         credential_generation=4,
         api_key=ApiKeyRecord(sha256_hex(FAKE_KEY), "bxk_ab"),
+        widgets="token",
+        widget_token=SecretStr("bxw_fake-widget-token"),
+        trusted_proxies=("127.0.0.1",),
+        cookie_secure="never",
+        session_hours=168,
+        remember_days=7,
     )
     save_auth_file(tmp_path / "auth.json", stored)
     clock = Clock()
@@ -154,9 +164,22 @@ def test_reset_keeps_credentials_bumps_the_generation_and_signs_out(tmp_path):
     assert _mode(tmp_path / "auth-sessions.json") == 0o600
     auth = load_auth_file(tmp_path / "auth.json").auth
     assert auth.method == "none"
-    assert auth.username == "admin" and auth.api_key == stored.api_key
     assert auth.credential_generation == 5
     assert auth.instance_id == "0123abcd"
+    empty = AuthFile(method="none")
+    for name in (
+        "username",
+        "password_hash",
+        "api_key",
+        "widgets",
+        "widget_token",
+        "trusted_proxies",
+        "cookie_secure",
+        "session_hours",
+        "remember_days",
+    ):
+        assert getattr(auth, name) == getattr(empty, name), name
+    assert "API key" in out.getvalue()
     on_disk = json.loads((tmp_path / "auth-sessions.json").read_text())
     assert on_disk == {"version": 1, "sessions": {}}
     reloaded = SessionStore.load(tmp_path / "auth-sessions.json", clock=clock)
