@@ -1445,6 +1445,26 @@ function reloadScheduler() {
         return !!field && field.dataset.keyStored === 'true';
     }
 
+    // Show the connection test's outcome under the Test Connection button.
+    // The box stays hidden until it has the `show` class, and each outcome
+    // replaces the previous one, classes included. The text goes in as
+    // textContent: a message from the server is shown, never parsed as HTML.
+    function showTestResult(ok, text) {
+        const box = document.getElementById('testResults');
+        if (!box) return;
+        const message = document.createElement('div');
+        message.className = ok ? 'success-message' : 'error-message';
+        message.textContent = text;
+        box.replaceChildren(message);
+        box.classList.remove('success', 'error');
+        box.classList.add(ok ? 'success' : 'error', 'show');
+    }
+
+    // Bumped by every test and by every edit of the URL or key: an answer
+    // to anything but the newest test of the current values is ignored, so
+    // a slow success cannot show "Connected" for values it never tested.
+    let connectionTestSeq = 0;
+
     window.testConnection = function() {
         const url = document.getElementById('radarrUrl').value;
         const apiKey = document.getElementById('radarrApiKey').value;
@@ -1456,18 +1476,25 @@ function reloadScheduler() {
         
         const testButton = document.getElementById('testButtonText');
         const testSpinner = document.getElementById('testButtonSpinner');
-        const testResults = document.getElementById('testResults');
         
         if (testButton) testButton.textContent = 'Testing...';
         if (testSpinner) testSpinner.style.display = 'inline-block';
         
+        const seq = ++connectionTestSeq;
         fetch(apiUrl('/config/test'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ url, api_key: apiKey })
         })
-        .then(response => response.json())
+        // An HTTP error is a failed test too. A JSON body (the 400 for a
+        // blank key, FastAPI's 422) still gives the reason; a body that is
+        // not JSON, such as a proxy's error page, leaves only the status.
+        .then(response => response.json().then(
+            data => (response.ok ? data : Object.assign({}, data, { success: false })),
+            () => ({ success: false, message: `Unexpected answer from Boxarr (HTTP ${response.status})` })
+        ))
         .then(data => {
+            if (seq !== connectionTestSeq) return;
             if (testButton) testButton.textContent = 'Test Connection';
             if (testSpinner) testSpinner.style.display = 'none';
             
@@ -1476,10 +1503,7 @@ function reloadScheduler() {
                 const saveBtn = document.getElementById('saveBtn');
                 if (saveBtn) saveBtn.disabled = false;
                 
-                if (testResults) {
-                    testResults.innerHTML = '<div class="success-message">✓ Connected successfully!</div>';
-                    testResults.classList.add('success');
-                }
+                showTestResult(true, '✓ Connected successfully!');
                 
                 // Populate dropdowns
                 if (data.root_folders) {
@@ -1539,25 +1563,18 @@ function reloadScheduler() {
                 const saveBtn = document.getElementById('saveBtn');
                 if (saveBtn) saveBtn.disabled = true;
                 
-                if (testResults) {
-                    const errorDiv = document.createElement('div');
-                    errorDiv.className = 'error-message';
-                    errorDiv.textContent = `✗ ${data.error || data.message || 'Connection failed'}`;
-                    testResults.replaceChildren(errorDiv);
-                    testResults.classList.add('error');
-                }
+                showTestResult(false, `✗ ${describeFailure(data, 'Connection failed')}`);
             }
         })
         .catch(error => {
+            if (seq !== connectionTestSeq) return;
             if (testButton) testButton.textContent = 'Test Connection';
             if (testSpinner) testSpinner.style.display = 'none';
-            if (testResults) {
-                const errorDiv = document.createElement('div');
-                errorDiv.className = 'error-message';
-                errorDiv.textContent = `✗ Connection error: ${error.message}`;
-                testResults.replaceChildren(errorDiv);
-                testResults.classList.add('error');
-            }
+            // A failed test, as in the branch above: Save waits for a new one.
+            connectionTested = false;
+            const saveBtn = document.getElementById('saveBtn');
+            if (saveBtn) saveBtn.disabled = true;
+            showTestResult(false, `✗ Connection error: ${error.message}`);
         });
     };
 
@@ -1745,7 +1762,7 @@ function reloadScheduler() {
                     window.location.href = makeUrl('/dashboard');
                 }, 1500);
             } else {
-                showMessage('Failed to save: ' + describeSaveFailure(data), 'error');
+                showMessage('Failed to save: ' + describeFailure(data), 'error');
             }
         })
         .catch(error => {
@@ -1776,11 +1793,11 @@ function reloadScheduler() {
         showMessage('Please correct the invalid field before saving', 'error');
     }
 
-    // The save endpoint reports a refusal in `message` and FastAPI reports a
-    // rejected payload in `detail`; neither is `error`, so every failure used
-    // to reach the user as the unhelpful "Unknown error".
-    function describeSaveFailure(data) {
-        if (!data) return 'Unknown error';
+    // The save and test endpoints report a refusal in `message` and FastAPI
+    // reports a rejected payload in `detail`; neither is `error`, so every
+    // failure used to reach the user as the unhelpful "Unknown error".
+    function describeFailure(data, fallback = 'Unknown error') {
+        if (!data) return fallback;
         if (data.error) return data.error;
         if (data.message) return data.message;
         if (typeof data.detail === 'string') return data.detail;
@@ -1789,10 +1806,16 @@ function reloadScheduler() {
                 .map(d => `${(d.loc || []).slice(-1)[0] || 'field'}: ${d.msg}`)
                 .join('; ');
         }
-        return 'Unknown error';
+        return fallback;
     }
 
     function resetConnectionTest() {
+        // A test still in flight tested the old values: drop its answer.
+        connectionTestSeq++;
+        const testButton = document.getElementById('testButtonText');
+        if (testButton) testButton.textContent = 'Test Connection';
+        const testSpinner = document.getElementById('testButtonSpinner');
+        if (testSpinner) testSpinner.style.display = 'none';
         connectionTested = false;
         const saveBtn = document.getElementById('saveBtn');
         if (saveBtn) saveBtn.disabled = true;
