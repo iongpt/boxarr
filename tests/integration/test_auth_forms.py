@@ -932,3 +932,20 @@ def test_an_api_key_cannot_sign_in_or_out(forms):
     # The browser's own session was not touched by either.
     assert len(app.state.auth_runtime.sessions) == 1
     assert client.get("/api/config").status_code == 200
+
+
+def test_a_sign_in_never_rewrites_an_env_hash_so_restarts_keep_sessions(
+    forms, tmp_path
+):
+    """The env hash (cheap parameters, below the defaults) is not rehashed
+    at sign-in: a rewrite would differ from the env at the next start, which
+    would re-apply it, bump the generation and sign everyone out."""
+    app, client = forms()
+    before = (tmp_path / "auth.json").read_text()
+    assert _login(client).status_code == 200
+    assert (tmp_path / "auth.json").read_text() == before
+
+    restarted = TestClient(create_app(), cookies=client.cookies)
+
+    assert (tmp_path / "auth.json").read_text() == before
+    assert restarted.get("/api/config").status_code == 200

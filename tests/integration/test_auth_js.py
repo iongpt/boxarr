@@ -664,3 +664,25 @@ def test_a_refused_sign_in_shows_a_message_and_stays(login_pages, login, message
     assert result["buttonDisabled"] is False
     assert result["banner"] is None
     assert result["errors"] == []
+
+
+def test_the_real_401_from_the_session_check_explains_the_cookie(login_pages):
+    """What the server really answers when the cookie did not come back:
+    /api/auth/session is not public, so 401 with login-required. The page
+    explains the cookie and shows no session-expired banner."""
+    real = {
+        "status": 401,
+        "headers": {"X-Boxarr-Auth": "login-required"},
+        "body": {
+            "success": False,
+            "message": "Authentication required. Sign in again.",
+            "login_url": "/login",
+        },
+    }
+
+    result = _login_run(login_pages, session=real)
+
+    assert result["navigations"] == []
+    assert "did not send the sign-in cookie back" in result["error"]
+    assert result["banner"] is None
+    assert result["errors"] == []
