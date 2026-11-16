@@ -80,8 +80,23 @@ def get_template_context(request: Request, **kwargs) -> dict:
         # Footer copyright year, read per request so it rolls over on 1 January.
         "current_year": _today().year,
     }
+    context.update(_auth_context(request))
     context.update(kwargs)
     return context
+
+
+def _auth_context(request: Request) -> dict:
+    """What the pages show about sign-in: the method in effect, who this
+    request is (``open``, ``session``, ``apikey`` or ``anonymous``) and, for
+    a session, the username. The logout control shows for a session only."""
+    scope = getattr(request, "scope", None)
+    auth = (scope.get("boxarr.auth") if isinstance(scope, dict) else None) or {}
+    principal = auth.get("kind")
+    return {
+        "auth_method": auth.get("mode"),
+        "auth_principal": principal,
+        "auth_username": auth.get("username") if principal == "session" else None,
+    }
 
 
 class WeekInfo(BaseModel):

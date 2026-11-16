@@ -1,6 +1,7 @@
 """API route modules for Boxarr."""
 
 from .admin import router as admin_router
+from .auth import router as auth_router
 from .boxoffice import router as boxoffice_router
 from .config import router as config_router
 from .movies import router as movies_router
@@ -9,6 +10,7 @@ from .web import router as web_router
 
 __all__ = [
     "admin_router",
+    "auth_router",
     "boxoffice_router",
     "config_router",
     "movies_router",

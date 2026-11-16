@@ -27,6 +27,11 @@
     </script>
     <div class="setup-container">
         <div class="setup-header">
+            {%- if auth_principal == 'session' %}
+            <div style="display: flex; justify-content: flex-end; margin-bottom: 0.5rem;">
+                <button type="button" class="btn btn-secondary" id="logoutButton" onclick="boxarrSignOut()" title="Sign out{% if auth_username %} ({{ auth_username }}){% endif %}" aria-label="Sign out" style="padding: 0.375rem 0.75rem;">⏻ Sign out</button>
+            </div>
+            {%- endif %}
             <img src="{{ request.scope.get('root_path', '') }}/static/boxar-logo.png" alt="Boxarr Logo" style="height: 64px; width: auto; margin-bottom: 1rem; display: block; margin-left: auto; margin-right: auto;">
             <h1 class="setup-title">Welcome to Boxarr!</h1>
             <p class="setup-subtitle">Let's get you set up with your Radarr connection.</p>
