@@ -38,6 +38,7 @@ from tests.auth_support import (
     clear_auth_env,
     freeze_throttle,
     raw_scope,
+    send_at_once,
     use_url_base,
 )
 
@@ -486,6 +487,45 @@ def test_wrong_current_passwords_are_throttled(boxarr):
     assert throttled.status_code == 429
     assert int(throttled.headers["retry-after"]) >= 1
     assert throttled.json()["retry_after"] >= 1
+
+
+def test_a_burst_of_wrong_current_passwords_gets_one_check(boxarr, monkeypatch):
+    """As at login: requests that arrive while a current password is being
+    checked already count it, so a stolen cookie gets one guess per backoff
+    window."""
+    import threading
+
+    address = ("198.51.100.20", 50000)
+    app, client, _ = boxarr()
+    clock = freeze_throttle(app)
+    _enable(client)
+    for _ in range(5):
+        wrong = _post(client, "sessions/revoke-all", {"current_password": "x" * 12})
+        assert wrong.status_code == 403
+    clock.advance(2)
+    gate = threading.Event()
+    checked = []
+
+    def slow_verify(*args):
+        checked.append(True)
+        gate.wait(10)
+        return False
+
+    monkeypatch.setattr(auth_settings, "verify_password", slow_verify)
+    name = f"boxarr_{app.state.auth_runtime.instance_id}"
+    headers = {**SAME_ORIGIN, "Cookie": f"{name}={client.cookies.get(name)}"}
+    body = {"current_password": WRONG_PASSWORD}
+
+    statuses = send_at_once(
+        app,
+        address,
+        [("POST", "/api/auth/sessions/revoke-all", body, headers)] * 8,
+        gate,
+        answered_first=7,
+    )
+
+    assert len(checked) == 1
+    assert sorted(statuses) == [403] + [429] * 7
 
 
 def test_the_current_password_throttle_keys_on_the_strict_client(boxarr):

@@ -35,6 +35,7 @@ from tests.auth_support import (
     cheap_hash,
     clear_auth_env,
     freeze_throttle,
+    send_at_once,
     use_url_base,
 )
 
@@ -295,6 +296,81 @@ def test_a_throttled_client_with_invalid_json_gets_429_not_400(forms):
     )
 
     assert response.status_code == 429
+
+
+def test_requests_waiting_on_a_password_check_already_count_it(forms, monkeypatch):
+    """Once the free failures are spent, a burst of wrong passwords gets one
+    check per backoff window, not one per request that arrived while the
+    previous check was still running."""
+    address = ("198.51.100.14", 4000)
+    app, client = forms(client_address=address)
+    clock = freeze_throttle(app)
+    for _ in range(5):
+        assert _login(client, password="wrong-password-123").status_code == 401
+    clock.advance(2)  # past the backoff: the next attempt may go ahead
+    gate = threading.Event()
+    checked = []
+
+    def slow_check(*args):
+        checked.append(True)
+        gate.wait(10)
+        return False
+
+    monkeypatch.setattr(auth_routes, "check_credentials", slow_check)
+    body = {"username": USERNAME, "password": "wrong-password-123"}
+
+    statuses = send_at_once(
+        app,
+        address,
+        [("POST", "/api/auth/login", body, SAME_ORIGIN)] * 8,
+        gate,
+        answered_first=7,
+    )
+
+    assert len(checked) == 1
+    assert sorted(statuses) == [401] + [429] * 7
+
+
+def test_a_busy_or_failed_check_is_not_counted_as_a_wrong_password(forms, monkeypatch):
+    app, client = forms(client_address=("198.51.100.15", 4000))
+    freeze_throttle(app)
+
+    def busy(*args, **kwargs):
+        raise runtime_module.HashBusy()
+
+    monkeypatch.setattr(app.state.auth_runtime, "run_hash", _raising(busy))
+    for _ in range(10):
+        assert _login(client).status_code == 429
+
+    assert app.state.auth_runtime.throttle.sizes() == (0, 0)
+
+
+def _raising(function):
+    async def run_hash(*args, **kwargs):
+        return function(*args, **kwargs)
+
+    return run_hash
+
+
+def test_a_client_over_its_ceiling_is_told_the_whole_wait(forms):
+    """The ceiling is checked before the body is parsed; the 429 still gives
+    the longer (client, username) wait when the body names the username, so
+    the login page does not send the owner back too early."""
+    address = ("198.51.100.16", 4000)
+    app, client = forms(client_address=address)
+    freeze_throttle(app)
+    throttle = app.state.auth_runtime.throttle
+    for _ in range(11):  # this username: past the 30 s cap
+        throttle.record_failure(address[0], USERNAME)
+    for n in range(10):  # 21 from this client: the ceiling's 2 s
+        throttle.record_failure(address[0], f"user{n}")
+    assert throttle.retry_after(address[0], None) == 2
+
+    response = _login(client)
+
+    assert response.status_code == 429
+    assert response.headers["retry-after"] == "30"
+    assert response.json()["retry_after"] == 30
 
 
 def test_ipv6_clients_share_a_slash_64(forms):
