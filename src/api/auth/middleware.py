@@ -38,7 +38,7 @@ import hmac
 import html
 import time
 from typing import Any, Dict, FrozenSet, Iterable, List, NamedTuple, Optional, Tuple
-from urllib.parse import parse_qsl, quote
+from urllib.parse import parse_qsl, quote, unquote_plus
 
 from starlette.datastructures import Headers
 from starlette.requests import cookie_parser
@@ -121,6 +121,9 @@ LOCKED_MESSAGE = (
 )
 
 _QUERY_KEY_NAMES = frozenset({"apikey", "api_key"})
+# Never carried into the login page's next (the names the access log
+# redacts too).
+_NEXT_DROPPED_NAMES = _QUERY_KEY_NAMES | {"token", "password"}
 _NO_STORE = "no-store"
 _FAILURE_LOG_INTERVAL = 60.0
 
@@ -216,11 +219,24 @@ def _query_holds_key(scope: Scope) -> bool:
     return any(name.strip().lower() in _QUERY_KEY_NAMES for name in names)
 
 
+def _without_secrets(query: str) -> str:
+    """The query without its key, token and password parameters, the rest
+    byte for byte: a secret sent in a page's URL must not travel on into
+    the login page's URL, the browser's history and the way back."""
+    kept = [
+        part
+        for part in query.split("&")
+        if unquote_plus(part.partition("=")[0]).strip().lower()
+        not in _NEXT_DROPPED_NAMES
+    ]
+    return "&".join(kept)
+
+
 def login_url(scope: Scope) -> str:
     """Where a denied page goes: the login page, back here afterwards."""
     root = scope.get("root_path", "")
     target = route_path(scope)
-    query = scope.get("query_string", b"").decode("latin-1")
+    query = _without_secrets(scope.get("query_string", b"").decode("latin-1"))
     if query:
         target += "?" + query
     return f"{root}/login?next={quote(target, safe='/')}"
