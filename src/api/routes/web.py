@@ -77,6 +77,8 @@ def get_template_context(request: Request, **kwargs) -> dict:
         # Instance-wide "hide ignored movies" preference. Injected here so every
         # page (weekly, overview, setup) reads the same value from one place.
         "hide_ignored": settings.boxarr_ui_hide_ignored,
+        # Footer copyright year, read per request so it rolls over on 1 January.
+        "current_year": _today().year,
     }
     context.update(kwargs)
     return context
