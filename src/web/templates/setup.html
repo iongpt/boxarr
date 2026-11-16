@@ -888,7 +888,9 @@
         <section class="form-section security-section" id="security" aria-labelledby="securityTitle">
             <h2 class="section-title" id="securityTitle">Security</h2>
             <p class="security-status" id="securityStatus">
-                {%- if sec.in_effect %}
+                {%- if sec.method == 'external' %}
+                Sign-in is handled by your reverse proxy (External): Boxarr lets in the requests that come through a trusted proxy, and refuses every other one but the API key, the widgets and the health check.
+                {%- elif sec.in_effect %}
                 Sign-in is on{% if sec.signed_in_as %}: you are signed in as <strong>{{ sec.signed_in_as }}</strong>{% endif %}.
                 {%- elif sec.method == 'unset' %}
                 Sign-in is not set up yet: anyone who can reach Boxarr can use it and change Radarr. Turn it on below, or choose Off to keep Boxarr open.
@@ -923,14 +925,26 @@
                     <label for="securityMethod" class="form-label">Sign-in</label>
                     <select id="securityMethod" class="form-select" onchange="boxarrSecurityMethodChanged()"{% if st.method.locked %} disabled{% endif %}>
                         <option value="forms"{% if sec.chosen == 'forms' %} selected{% endif %}>On: sign in with a username and password</option>
+                        {%- if sec.external %}
+                        <option value="external"{% if sec.chosen == 'external' %} selected{% endif %}>External: your reverse proxy signs people in</option>
+                        {%- endif %}
                         <option value="none"{% if sec.chosen == 'none' %} selected{% endif %}>Off: anyone who can reach Boxarr can use it</option>
                     </select>
                     {%- if st.method.locked %}
                     <small class="security-locked" id="securityMethodLocked">🔒 Set by <code>{{ st.method.variable }}</code></small>
                     {%- endif %}
                 </div>
+                {%- if sec.external %}
+                <div class="security-alert{% if not sec.external.request_trusted %} security-alert-warning{% endif %}" id="securityExternal" data-request-trusted="{{ 'true' if sec.external.request_trusted else 'false' }}"{% if sec.chosen != 'external' %} hidden{% endif %}>
+                    Choose External only when a reverse proxy in front of Boxarr signs people in itself (Authelia, Authentik, oauth2-proxy). Boxarr then lets in every request whose connection comes from a trusted proxy (Trusted proxies, under the reverse proxy settings below) and refuses every other one, except the API key, the widgets and the health check. It reads no user name from the proxy. Trust only an address that nothing but your proxy uses: where Docker publishes Boxarr's port, every client can arrive from the gateway's address.
+                    <span class="security-locked" id="securityExternalRequest">{% if sec.external.request_trusted %}{{ sec.external.note }}{% else %}<strong>{{ sec.external.note }}</strong>{% endif %}</span>
+                </div>
+                {%- endif %}
 
-                <div id="securityCredentials"{% if sec.chosen != 'forms' %} hidden{% endif %}>
+                <div id="securityCredentials"{% if sec.chosen not in ('forms', 'external') %} hidden{% endif %}>
+                    {%- if sec.external %}
+                    <p class="text-muted" id="securityExternalCredentials"{% if sec.chosen != 'external' %} hidden{% endif %}>Under External the username and password do not sign anyone in: the password confirms changes here, and both sign you in if you switch back to Boxarr's own sign-in.</p>
+                    {%- endif %}
                     <div class="form-group">
                         <label for="securityUsername" class="form-label">Username</label>
                         <input type="text" id="securityUsername" class="form-input" value="{{ st.username.value or '' }}"
@@ -955,7 +969,7 @@
                             <label for="securityNewPassword" class="form-label">{% if sec.in_effect %}New password{% else %}Password{% endif %}</label>
                             <input type="password" id="securityNewPassword" class="form-input"
                                    autocomplete="new-password" autocapitalize="none" autocorrect="off" spellcheck="false">
-                            <small class="text-muted">At least {{ sec.limits.password_min_chars }} characters{% if sec.in_effect %}. Leave blank to keep the current one{% endif %}.</small>
+                            <small class="text-muted">At least {{ sec.limits.password_min_chars }} characters{% if sec.in_effect and st.password.set %}. Leave blank to keep the current one{% endif %}.</small>
                         </div>
                         <div class="form-group">
                             <label for="securityConfirmPassword" class="form-label">Repeat the {% if sec.in_effect %}new {% endif %}password</label>
@@ -964,7 +978,7 @@
                         </div>
                     </div>
                     {%- endif %}
-                    {%- if sec.in_effect %}
+                    {%- if sec.method == 'forms' %}
                     <small class="text-muted">A new username or password signs out every other browser and device.</small>
                     {%- endif %}
                     <div class="form-group">
@@ -1026,7 +1040,7 @@
                     </div>
                 </details>
 
-                {%- if sec.in_effect %}
+                {%- if sec.needs_current_password %}
                 <div class="form-group" id="securityCurrentPasswordGroup">
                     <label for="securityCurrentPassword" class="form-label">Current password</label>
                     <input type="password" id="securityCurrentPassword" class="form-input"
@@ -1094,6 +1108,8 @@
                 {%- endif %}
             </div>
 
+            {%- if sec.method == 'forms' %}
+
             <div class="security-subsection" id="securitySessions">
                 <h3 class="security-subtitle">Sessions</h3>
                 <p id="securitySessionCount">{{ sec.sessions }} active sign-in{{ '' if sec.sessions == 1 else 's' }}.</p>
@@ -1102,6 +1118,7 @@
                 </div>
                 <small class="text-muted">Ends every sign-in, on every browser and device. This one stays signed in.</small>
             </div>
+            {%- endif %}
             {%- endif %}
 
             <div class="security-key-once" id="securityKeyOnce" role="alert" hidden>
