@@ -57,15 +57,17 @@ class MatchResult:
 class MovieMatcher:
     """Service for matching box office titles with Radarr movies."""
 
-    # Common subtitle patterns to remove for matching. A hyphen or an en dash
-    # that joins words ("Spider-Man", "X-Men", "Spider–Man", "1914–1918") is
-    # part of the title, never a subtitle separator: either one cuts only with
-    # whitespace on both sides ("Spider-Man - No Way Home", "Avatar – Aufbruch
-    # nach Pandora"). Two hyphens or an em dash cut, spaced or not.
+    # Common subtitle patterns to remove for matching. A hyphen that joins
+    # words ("Spider-Man", "X-Men", "1914-1918") is part of the title, never
+    # a subtitle separator: a hyphen cuts only with whitespace on both sides
+    # ("Spider-Man - No Way Home"), and two hyphens cut, spaced or not. En and
+    # em dashes do not cut, as before: cutting there linked films of one
+    # franchise when the chart entry has no IMDb id ("Chainsaw Man" and
+    # "Chainsaw Man – The Movie: Reze Arc").
     SUBTITLE_PATTERNS = [
         r"\s*:\s*.*$",  # Remove everything after colon
-        r"\s+(?:-+|–)\s+.*$",  # Remove everything after a spaced hyphen/en dash
-        r"\s*(?:--+|—).*$",  # Remove everything after "--" or an em dash
+        r"\s+-+\s+.*$",  # Remove everything after a spaced hyphen
+        r"\s*--+.*$",  # Remove everything after two or more hyphens
         r"\s*\(.*?\)",  # Remove parenthetical content
         r"\s*\[.*?\]",  # Remove bracketed content
     ]

@@ -5,11 +5,12 @@
 left over was then dropped as a Roman numeral). The base title is a key of the
 library index and a fuzzy score, so hyphenated films matched unrelated ones:
 Cronenberg's "Spider" was linked to "Spider-Man", "X" (2022) to "X-Men", and
-"Ant-Man and the Wasp" to "Ant-Man". Now a hyphen or an en dash separates a
-subtitle only with whitespace on both sides ("Spider-Man - No Way Home",
-"Avatar – Aufbruch nach Pandora"); two hyphens or an em dash cut, spaced or
-not. A hyphen or en dash inside a word ("Spider–Man", "1914–1918") or with
-whitespace on one side only ("Pre- and Post-War") is part of the title.
+"Ant-Man and the Wasp" to "Ant-Man". Now a hyphen separates a subtitle only
+with whitespace on both sides ("Spider-Man - No Way Home"), and two hyphens
+cut, spaced or not. A hyphen inside a word ("Spider-Man", "1914-1918") or with
+whitespace on one side only ("Pre- and Post-War") is part of the title. En
+and em dashes never cut, as before: a cut there linked films of one franchise
+("Chainsaw Man" and "Chainsaw Man – The Movie: Reze Arc").
 
 The chart entries below carry no IMDb id (weeks stored before v2.2.0, Mojo
 rows without a release link), so title matching is all the matcher has.
@@ -74,7 +75,7 @@ class TestBaseTitle:
         ],
     )
     def test_en_dash_inside_a_word_is_kept_whole(self, title):
-        """An en dash joins words and ranges like a hyphen does."""
+        """An en dash never cuts, inside a word or not."""
         assert MovieMatcher().get_base_title(title) == title
 
     @pytest.mark.parametrize(
@@ -128,18 +129,35 @@ class TestBaseTitle:
             # The colon special case looks this form up: a spaced hyphen.
             ("Mission Impossible - The Final Reckoning", "Mission Impossible"),
             ("Spider-Man - No Way Home", "Spider-Man"),
-            # Avatar's German title, with an en dash.
-            ("Avatar – Aufbruch nach Pandora", "Avatar"),
-            ("Mission Impossible – The Final Reckoning", "Mission Impossible"),
-            # An em dash, spaced or not.
-            ("Mission Impossible—The Final Reckoning", "Mission Impossible"),
-            ("Mission Impossible — The Final Reckoning", "Mission Impossible"),
             # Two hyphens stand for a dash.
             ("Mission Impossible--The Final Reckoning", "Mission Impossible"),
             ("Mission Impossible -- The Final Reckoning", "Mission Impossible"),
         ],
     )
     def test_subtitle_separator_cuts(self, title, base):
+        assert MovieMatcher().get_base_title(title) == base
+
+    @pytest.mark.parametrize(
+        "title, base",
+        [
+            ("Avatar – Aufbruch nach Pandora", "Avatar – Aufbruch nach Pandora"),
+            (
+                "Mission Impossible – The Final Reckoning",
+                "Mission Impossible – The Final Reckoning",
+            ),
+            (
+                "Mission Impossible—The Final Reckoning",
+                "Mission Impossible—The Final Reckoning",
+            ),
+            (
+                "Mission Impossible — The Final Reckoning",
+                "Mission Impossible — The Final Reckoning",
+            ),
+            # The colon still cuts; the en dash before it does not.
+            ("Chainsaw Man – The Movie: Reze Arc", "Chainsaw Man – The Movie"),
+        ],
+    )
+    def test_en_and_em_dash_do_not_cut(self, title, base):
         assert MovieMatcher().get_base_title(title) == base
 
 
@@ -173,8 +191,8 @@ UNRELATED_BY_HYPHEN_CUT = [
     ),
 ]
 
-# The same with an en dash. Main never cut at an en dash, so these never
-# matched; a dash pattern that cut at any en dash made them match.
+# The same with an en or em dash. Main never cut at either, so these never
+# matched; a dash pattern that cut there made them match.
 UNRELATED_BY_EN_DASH_CUT = [
     pytest.param("Spider–Man", ("Spider", 2002), id="en-dash-spider-man-vs-spider"),
     pytest.param("Spider", ("Spider–Man", 2002), id="spider-vs-en-dash-spider-man"),
@@ -197,6 +215,21 @@ UNRELATED_BY_EN_DASH_CUT = [
     pytest.param("Paris–Manhattan", ("Paris", 2008), id="paris-manhattan-vs-paris"),
     pytest.param(
         "Rock", ("Rock–Paper–Scissors", 2012), id="rock-vs-rock-paper-scissors"
+    ),
+    pytest.param(
+        "Chainsaw Man",
+        ("Chainsaw Man – The Movie: Reze Arc", 2025),
+        id="chainsaw-man-vs-en-dash-subtitle",
+    ),
+    pytest.param(
+        "Chainsaw Man – The Movie: Reze Arc",
+        ("Chainsaw Man", 2022),
+        id="en-dash-subtitle-vs-chainsaw-man",
+    ),
+    pytest.param(
+        "Mission Impossible",
+        ("Mission Impossible — The Final Reckoning", 2025),
+        id="title-vs-em-dash-subtitle",
     ),
 ]
 
@@ -238,14 +271,16 @@ class TestHyphenatedTitlesDoNotCollide:
 
 class TestDashSeparatesASubtitle:
     @ENTRY_POINTS
-    def test_en_dash_subtitle_is_cut_on_the_library_side(self, match):
-        """A library titled in German ("Avatar – Aufbruch nach Pandora") is
-        found by the film's English title, as with a spaced hyphen."""
+    def test_en_dash_subtitle_is_not_cut_on_the_library_side(self, match):
+        """An en dash is not a separator, as on main: a library film titled
+        "Avatar – Aufbruch nach Pandora" without an IMDb id is not found by
+        the title "Avatar" alone. With the chart's IMDb id on the library
+        film, the id finds it whatever its title."""
         library = _lib(("Avatar – Aufbruch nach Pandora", 2009))
 
         result = match("Avatar", library)
 
-        assert result.radarr_movie is library[0]
+        assert not result.is_matched
 
     @ENTRY_POINTS
     def test_spaced_hyphen_subtitle_is_cut_on_the_library_side(self, match):
