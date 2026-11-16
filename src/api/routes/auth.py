@@ -227,33 +227,44 @@ async def login(request: Request) -> JSONResponse:
 
     client = strict_client(request.scope, state.trusted_proxies).client
     throttle = runtime.throttle
-    # Before the body is read: a client over its ceiling costs nothing more.
+    # Before the body is parsed: a client over its ceiling costs no hash.
     wait = throttle.retry_after(client, None)
     if wait:
+        # The body (at most 4 KiB) still says whose backoff applies, so the
+        # wait given is the real one, not just the ceiling's.
+        fields = _parse_login(await _read_body(request))
+        if fields is not None:
+            wait = max(wait, throttle.retry_after(client, fields["username"]) or 0)
         return _too_many(wait)
     fields = _parse_login(await _read_body(request))
     if fields is None:
         return _json(400, {"success": False, "message": BAD_REQUEST_MESSAGE})
     username, password = fields["username"], fields["password"]
-    wait = throttle.retry_after(client, username)
-    if wait:
-        return _too_many(wait)
+    # Checked and reserved in one step: requests that arrive while this
+    # password is being checked already count it (one check per window).
+    wait, attempt = throttle.begin(client, username)
+    if attempt is None:
+        return _too_many(wait or 1)
 
     try:
         ok = await runtime.run_hash(check_credentials, username, password, state)
     except HashBusy:
+        throttle.cancel(attempt)
         return _json(
             429,
             {"success": False, "message": BUSY_MESSAGE, "retry_after": 1},
             **{"Retry-After": "1"},
         )
+    except BaseException:
+        throttle.cancel(attempt)
+        raise
     if not ok:
-        throttle.record_failure(client, username)
+        throttle.failed(attempt)
         # Stable for fail2ban; never the username or the password.
         logger.warning("Failed sign-in from %s", client or "-")
         return _json(401, {"success": False, "message": FAILED_MESSAGE})
 
-    throttle.record_success(client, username)
+    throttle.succeeded(attempt)
     store = runtime.sessions
     # Session fixation: whatever session the browser came with is over.
     for presented in session_tokens(request.headers, runtime.instance_id):

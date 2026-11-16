@@ -8,6 +8,7 @@ an auth.json anywhere else. Every credential here is an obviously fake value.
 import asyncio
 import hashlib
 import os
+import threading
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from src.api.auth.passwords import ScryptHash
@@ -94,6 +95,46 @@ def freeze_throttle(app) -> FrozenClock:
     clock = FrozenClock()
     app.state.auth_runtime.throttle._clock = clock
     return clock
+
+
+def send_at_once(
+    app,
+    client: Tuple[str, int],
+    requests: Sequence[Tuple[str, str, Any, Dict[str, str]]],
+    gate: threading.Event,
+    answered_first: int,
+) -> List[int]:
+    """Send ``requests`` (method, path, JSON body, headers) to ``app`` all at
+    once, from ``client``. Once ``answered_first`` of them have answered (or
+    after 10 s), set ``gate``, which the test's stand-in password check waits
+    on; return every status, in order."""
+    import httpx
+
+    async def run() -> List[int]:
+        transport = httpx.ASGITransport(app=app, client=client)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://testserver"
+        ) as http:
+            tasks = [
+                asyncio.ensure_future(
+                    http.request(method, path, json=body, headers=headers)
+                )
+                for method, path, body, headers in requests
+            ]
+            pending = set(tasks)
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + 10
+            while len(tasks) - len(pending) < answered_first and pending:
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    break
+                _, pending = await asyncio.wait(
+                    pending, timeout=remaining, return_when=asyncio.FIRST_COMPLETED
+                )
+            gate.set()
+            return [(await task).status_code for task in tasks]
+
+    return asyncio.run(run())
 
 
 def use_url_base(monkeypatch, url_base: str) -> str:

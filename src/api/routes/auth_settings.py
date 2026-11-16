@@ -185,6 +185,11 @@ async def _check_password(
         raise _Throttled(wait)
     if not isinstance(password, str) or not password:
         raise ChangeRefused(400, NEED_PASSWORD_MESSAGE, "current_password")
+    # Checked and reserved in one step, as at login: requests that arrive
+    # while this password is being checked already count it.
+    wait, attempt = throttle.begin(client, username)
+    if attempt is None:
+        raise _Throttled(wait or 1)
     try:
         if stored_hash is not None:
             ok = await runtime.run_hash(
@@ -195,18 +200,22 @@ async def _check_password(
         else:
             ok = False
     except HashBusy:
+        throttle.cancel(attempt)
         raise _Throttled(1, BUSY_MESSAGE) from None
     except HashFormatError:  # pragma: no cover - the loader locks on one
         ok = False
+    except BaseException:
+        throttle.cancel(attempt)
+        raise
     if not ok:
-        throttle.record_failure(client, username)
+        throttle.failed(attempt)
         # The login's stable line (fail2ban), and what failed.
         logger.warning(
             "Failed sign-in from %s (wrong current password in Settings → Security)",
             client or "-",
         )
         raise ChangeRefused(403, WRONG_PASSWORD_MESSAGE, "current_password")
-    throttle.record_success(client, username)
+    throttle.succeeded(attempt)
 
 
 async def _hash(runtime: AuthRuntime, password: str) -> str:
