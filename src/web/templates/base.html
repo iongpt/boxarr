@@ -211,6 +211,19 @@
             line-height: 1;
             padding: 0.375rem 0.5rem;
         }
+        /* On a phone the navbar is wider than the screen; let it wrap so
+           Sign out stays on screen (A6). Signed-in pages only: pages without
+           authentication stay exactly as they were. */
+        @media (max-width: 640px) {
+            .navbar-container {
+                flex-wrap: wrap;
+                gap: 0.75rem;
+            }
+            .navbar-menu {
+                flex-wrap: wrap;
+                gap: 0.5rem;
+            }
+        }
     </style>
     {%- endif %}
     {% block styles %}{% endblock %}
