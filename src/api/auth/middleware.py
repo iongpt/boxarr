@@ -425,7 +425,8 @@ code {{ background: #eee; padding: 0 0.25em; border-radius: 4px; }}
 did not come through it: it reached Boxarr from <code>{peer}</code>, which is
 not one of its trusted proxies.</p>
 <p>Open Boxarr at the address your proxy serves. If <code>{peer}</code> is
-your reverse proxy, add it to <code>{variable}</code> and restart Boxarr.</p>
+your reverse proxy, add it to <code>{variable}</code> and restart Boxarr. List
+every proxy there: the variable replaces the list saved in Settings.</p>
 </main>
 </body>
 </html>
