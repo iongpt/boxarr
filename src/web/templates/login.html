@@ -123,35 +123,6 @@
         errorBox.hidden = true;
     }
 
-    // The sign-in worked but the cookie did not come back: say why (A4).
-    function cookieProblem(cookie) {
-        cookie = cookie || {};
-        if (cookie.secure && window.location.protocol !== 'https:') {
-            return 'Signed in, but the browser dropped the sign-in cookie: it is marked Secure '
-                + 'and this page is plain http. Open Boxarr over https, or set '
-                + 'BOXARR_AUTH_COOKIE_SECURE to auto.';
-        }
-        let framed = false;
-        try {
-            framed = window.top !== window.self;
-        } catch (e) {
-            framed = true;
-        }
-        if (framed) {
-            return 'Signed in, but the browser blocked the sign-in cookie in this frame. '
-                + 'A dashboard on another site (Organizr, Homarr) cannot keep Boxarr signed in: '
-                + 'open Boxarr in its own tab, or serve both from the same site.';
-        }
-        if (cookie.path && window.location.pathname.indexOf(cookie.path) !== 0) {
-            return 'Signed in, but the sign-in cookie is for ' + cookie.path
-                + ' and this page is at ' + window.location.pathname
-                + '. A reverse proxy may be rewriting the URL base: set BOXARR_URL_BASE '
-                + 'to the path the browser sees.';
-        }
-        return 'Signed in, but the browser did not send the sign-in cookie back. '
-            + 'Allow cookies for this site and try again.';
-    }
-
     async function signIn(event) {
         event.preventDefault();
         clearError();
@@ -187,7 +158,18 @@
                 return;
             }
             if (!response.ok || !data.success) {
-                showError(data.message || 'Invalid username or password');
+                // Only Boxarr's own 401 means the password was wrong: a
+                // proxy's 502 while Boxarr restarts must not send the owner
+                // off to reset it.
+                if (typeof data.message === 'string' && data.message) {
+                    showError(data.message);
+                } else if (response.status === 401) {
+                    showError('Invalid username or password');
+                } else {
+                    showError('Boxarr did not answer the sign-in (HTTP ' + response.status
+                        + '). Check that it is running and that the reverse proxy reaches it, '
+                        + 'then try again.');
+                }
                 return;
             }
             // Only navigate once the cookie has come back: otherwise the next
@@ -205,7 +187,8 @@
                 session = {};
             }
             if (!session.authenticated) {
-                showError(cookieProblem(data.cookie));
+                // The sign-in worked but the cookie did not come back (A4).
+                showError(boxarrCookieProblem(data.cookie, 'Signed in'));
                 return;
             }
             window.location.assign(boxarrSafeRedirect(data.redirect));
