@@ -1,5 +1,7 @@
 # Core dependencies
-fastapi>=0.104.0
+# 0.115.3 brings Starlette 0.40, whose get_route_path src/utils/route_path.py
+# copies: routing and request classification must agree.
+fastapi>=0.115.3
 uvicorn[standard]>=0.24.0
 httpx>=0.25.0
 beautifulsoup4>=4.12.0

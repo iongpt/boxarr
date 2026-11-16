@@ -14,7 +14,8 @@ from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from .. import __version__
 from ..core.scheduler import BoxarrScheduler
 from ..utils.config import settings
-from ..utils.logger import get_logger
+from ..utils.logger import get_logger, set_access_log_root_path
+from ..utils.route_path import route_path
 from .health import RadarrHealthCheck
 from .routes import (
     admin_router,
@@ -56,6 +57,15 @@ _SWAGGER_REQUEST_INTERCEPTOR = f"""
         }},"""
 
 
+# Routes whose request bodies hold credentials: a 422 never echoes their input.
+_SECRET_INPUT_PREFIX = "/api/auth/"
+
+
+def _echo_is_secret(request: Request) -> bool:
+    """Return whether a validation error must not echo the request's input."""
+    return route_path(request.scope).startswith(_SECRET_INPUT_PREFIX)
+
+
 def _swagger_ui_html(openapi_url: str, title: str) -> HTMLResponse:
     """Return FastAPI's Swagger UI page, its requests marked as Boxarr's own."""
     page = get_swagger_ui_html(openapi_url=openapi_url, title=title)
@@ -82,6 +92,9 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
     # Prepare root_path from settings
     base = settings.boxarr_url_base
     root_path = f"/{base}" if base else ""
+    # uvicorn logs /<url_base>/api/health; the access-log health filter
+    # strips the root path the way the router does.
+    set_access_log_root_path(root_path)
 
     app = FastAPI(
         title="Boxarr",
@@ -127,12 +140,21 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
         back in the error - but Starlette renders responses with
         allow_nan=False, so serializing that echo raised and the rejection
         came back as a 500. Only the echoed value changes shape here.
+
+        Under /api/auth/ the echo is dropped altogether: what those routes
+        are sent is a password, a key or a token.
         """
+        errors = exc.errors()
+        if _echo_is_secret(request):
+            errors = [
+                {key: value for key, value in error.items() if key != "input"}
+                for error in errors
+            ]
         return JSONResponse(
             status_code=422,
             content={
                 "detail": jsonable_encoder(
-                    exc.errors(), custom_encoder={float: _json_safe_float}
+                    errors, custom_encoder={float: _json_safe_float}
                 )
             },
         )

@@ -2,7 +2,6 @@
 
 import asyncio
 import os
-import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
@@ -20,6 +19,7 @@ from ...core.languages import (
     suggested_languages,
 )
 from ...core.radarr import RadarrService
+from ...utils.atomic import atomic_write_private
 from ...utils.config import (
     DOMESTIC_REGION,
     MIN_GROSS_MAX,
@@ -802,22 +802,13 @@ async def save_configuration(config: SaveConfigRequest):
 
         # Save to local.yaml atomically (temp file + os.replace) so an
         # interrupted write cannot truncate local.yaml and brick startup.
-        # mkstemp creates the file 0600, which keeps the Radarr API key private.
-        config_path.parent.mkdir(parents=True, exist_ok=True)
-        tmp_fd, tmp_path = tempfile.mkstemp(dir=config_path.parent, suffix=".tmp")
-        try:
-            with open(tmp_fd, "w") as f:
-                # safe_dump: whatever it writes, the safe_load at startup can
-                # read back. sort_keys=False keeps the file's own key order.
-                yaml.safe_dump(
-                    merged_config, f, default_flow_style=False, sort_keys=False
-                )
-                f.flush()
-                os.fsync(f.fileno())
-            os.replace(tmp_path, config_path)
-        except Exception:
-            Path(tmp_path).unlink(missing_ok=True)
-            raise
+        # The file is written 0600, which keeps the Radarr API key private.
+        # safe_dump: whatever it writes, the safe_load at startup can read
+        # back. sort_keys=False keeps the file's own key order.
+        atomic_write_private(
+            config_path,
+            yaml.safe_dump(merged_config, default_flow_style=False, sort_keys=False),
+        )
 
         logger.info("Configuration saved successfully")
 
