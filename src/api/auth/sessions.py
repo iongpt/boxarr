@@ -140,12 +140,21 @@ class SessionStore:
         store = cls(path, **kwargs)
         try:
             with open(path, "rb") as handle:
+                mode = os.fstat(handle.fileno()).st_mode
                 raw = handle.read(_FILE_MAX_BYTES + 1)
         except FileNotFoundError:
             return store
         except OSError:
             store._discard_file("could not be read")
             return store
+        if mode & 0o077:
+            try:
+                os.chmod(path, 0o600)
+                logger.warning("%s was readable by other users; it is now 0600", path)
+            except OSError:
+                logger.warning(
+                    "%s is readable by other users and could not be made 0600", path
+                )
         sessions = None
         if len(raw) <= _FILE_MAX_BYTES:
             try:

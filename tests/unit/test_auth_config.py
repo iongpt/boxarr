@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import stat
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -559,6 +560,39 @@ def test_an_identical_broken_copy_is_reused_and_a_new_one_is_stamped(tmp_path):
     assert other.broken_copy.name.startswith("auth.json.broken.")
     assert other.broken_copy.read_text() == "still not json"
     assert first.broken_copy.read_text() == "not json"
+
+
+def test_reloading_the_same_broken_file_adds_no_copies(tmp_path, monkeypatch):
+    class Later:
+        """Each call is a second later, as across restarts."""
+
+        tick = 0
+
+        @classmethod
+        def now(cls, tz=None):
+            cls.tick += 1
+            return datetime(2026, 11, 16, 12, 0, cls.tick)
+
+    monkeypatch.setattr(auth_config, "datetime", Later)
+    path = _write(tmp_path / "auth.json", "first broken content")
+    load_auth_file(path)
+    _write(path, "second broken content")
+
+    copies = {load_auth_file(path).broken_copy for _ in range(3)}
+
+    assert len(copies) == 1
+    names = sorted(p.name for p in tmp_path.iterdir())
+    assert len(names) == 3  # auth.json, .broken, one stamped copy
+    assert all(stat.S_IMODE(os.stat(tmp_path / n).st_mode) == 0o600 for n in names)
+
+
+def test_a_broken_copy_is_0600_even_from_a_world_readable_file(tmp_path):
+    path = _write(tmp_path / "auth.json", "not json", mode=0o666)
+
+    result = load_auth_file(path)
+
+    assert stat.S_IMODE(os.stat(result.broken_copy).st_mode) == 0o600
+    assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
 
 
 def test_a_directory_in_its_place_locks(tmp_path):

@@ -371,6 +371,18 @@ def test_malformed_entries_are_dropped_and_the_rest_kept(path, clock, caplog):
     assert path.exists()
 
 
+def test_a_group_readable_sessions_file_is_tightened(path, clock, caplog):
+    token, _ = _create(SessionStore.load(path, clock=clock))
+    os.chmod(path, 0o644)
+
+    with caplog.at_level(logging.WARNING, logger="src.api.auth.sessions"):
+        store = SessionStore.load(path, clock=clock)
+
+    assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+    assert "now 0600" in caplog.text
+    assert store.lookup(token, 0) is not None
+
+
 def test_expired_sessions_are_not_loaded(path, clock):
     store = SessionStore.load(path, clock=clock)
     _create(store, hours=1)

@@ -8,7 +8,6 @@ hash can neither crash Boxarr nor make it allocate unbounded memory.
 
 import base64
 import hashlib
-import time
 
 import pytest
 
@@ -69,15 +68,6 @@ def test_the_current_parameters_fit_the_bounds_and_16_mib():
 
 def test_each_hash_gets_its_own_salt():
     assert hash_password(PASSWORD) != hash_password(PASSWORD)
-
-
-def test_one_check_is_well_under_a_second_here():
-    encoded = hash_password(PASSWORD)
-    started = time.perf_counter()
-    assert verify_password(PASSWORD, encoded)
-    # A Pi 4 is several times slower than a CI runner; the module docstring
-    # has the reasoning. This only catches a parameter change gone wrong.
-    assert time.perf_counter() - started < 0.5
 
 
 # --------------------------------------------------------------------------

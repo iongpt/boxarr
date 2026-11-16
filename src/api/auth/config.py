@@ -21,6 +21,8 @@ without the variable.
 Nothing reads this module during a request yet.
 """
 
+import filecmp
+import glob
 import hashlib
 import json
 import os
@@ -641,23 +643,35 @@ def _parse_auth_data(data: Any, refusals: List[str], warnings: List[str]) -> Aut
 
 
 def _copy_broken(path: Path) -> Optional[Path]:
-    """Copy a refused auth file aside, 0600; reuse an identical copy."""
-    backup = path.with_name(path.name + ".broken")
+    """Copy a refused auth file aside at 0600 and return where.
+
+    An identical earlier copy (``auth.json.broken`` or a stamped one) is
+    reused, so a restart loop does not pile up copies. The copy is created
+    0600 from the start, never at the source's mode.
+    """
     try:
-        content = path.read_bytes()
+        for candidate in sorted(path.parent.glob(glob.escape(path.name) + ".broken*")):
+            if candidate.is_file() and filecmp.cmp(path, candidate, shallow=False):
+                return candidate
+        stamp = datetime.now().strftime("%Y%m%d%H%M%S")
+        names = [f"{path.name}.broken", f"{path.name}.broken.{stamp}"]
+        names.extend(f"{path.name}.broken.{stamp}-{n}" for n in range(1, 10))
+        for name in names:
+            backup = path.with_name(name)
+            try:
+                fd = os.open(backup, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            except FileExistsError:
+                continue
+            try:
+                with os.fdopen(fd, "wb") as target, open(path, "rb") as source:
+                    shutil.copyfileobj(source, target)
+            except OSError:
+                backup.unlink(missing_ok=True)
+                return None
+            return backup
     except OSError:
         return None
-    try:
-        if backup.exists():
-            if backup.read_bytes() == content:
-                return backup
-            stamp = datetime.now().strftime("%Y%m%d%H%M%S")
-            backup = path.with_name(f"{path.name}.broken.{stamp}")
-        shutil.copy2(path, backup)
-        os.chmod(backup, 0o600)
-    except OSError:
-        return None
-    return backup
+    return None
 
 
 def _tighten(path: Path, mode: int, warnings: List[str]) -> None:

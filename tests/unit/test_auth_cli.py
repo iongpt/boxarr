@@ -170,12 +170,13 @@ def test_reset_reports_an_unwritable_directory(tmp_path):
 # --------------------------------------------------------------------------
 
 
-def _run(tmp_path, *args, stdin=""):
+def _run(tmp_path, *args, stdin="", **extra_env):
     env = {
         "PATH": os.environ.get("PATH", ""),
         "PYTHONPATH": str(REPO),
         "BOXARR_DATA_DIRECTORY": str(tmp_path / "data"),
         "HOME": str(tmp_path),
+        **extra_env,
     }
     return subprocess.run(  # nosec B603 - fixed arguments
         [sys.executable, "-m", "src.main", *args],
@@ -198,6 +199,26 @@ def test_the_hash_password_flag(tmp_path):
     assert verify_password(FAKE_PASSWORD, result.stdout.strip())
     assert result.stdout.count("\n") == 1
     assert FAKE_PASSWORD not in result.stdout
+
+
+def test_the_hash_is_the_only_stdout_line_even_with_noisy_settings(tmp_path):
+    # Console logging goes to stdout, so $(docker exec ... --hash-password)
+    # depends on nothing being logged before the hash.
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "local.yaml").write_text("radarr: [unclosed\n")
+
+    result = _run(
+        tmp_path,
+        "--hash-password",
+        stdin=f"{FAKE_PASSWORD}\n{FAKE_PASSWORD}\n",
+        BOXARR_LOG_LEVEL="DEBUG",
+        BOXARR_AUTH_METHOD="bogus",
+        FORWARDED_ALLOW_IPS="*",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert len(result.stdout.splitlines()) == 1
+    assert verify_password(FAKE_PASSWORD, result.stdout.strip())
 
 
 def test_the_auth_reset_flag_runs_with_a_broken_local_yaml(tmp_path):
