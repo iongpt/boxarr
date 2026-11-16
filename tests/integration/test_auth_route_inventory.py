@@ -344,7 +344,8 @@ def test_widgets_in_token_mode_are_denied_in_their_own_format(forms_app):
 
 def test_external_is_not_offered_yet_and_fails_closed(forms_app):
     app, _ = forms_app("", method="external", TRUSTED_PROXIES="192.0.2.10")
-    assert app.state.auth_runtime.state.mode == "external"
+    # Locked, with that reason: the trusted peer does not pass as a proxy.
+    assert app.state.auth_runtime.state.mode == "locked"
 
     page, api, health = call_all(
         app,
