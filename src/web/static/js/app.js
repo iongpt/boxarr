@@ -343,8 +343,32 @@ function boxarrSecurityRequest(path, method, body) {
     });
 }
 
+// What a save says (what changed, what was cleared) survives the reload that
+// follows it: kept for this tab, shown once by boxarrInitSecurity.
+const BOXARR_SECURITY_NOTICE = 'boxarrSecurityNotice';
+
 function boxarrSecurityReloadSoon() {
+    const box = document.getElementById('securityMessage');
+    if (box && !box.hidden && box.textContent) {
+        const kind = (/security-message-([a-z]+)/.exec(box.className) || [])[1] || '';
+        try {
+            window.sessionStorage.setItem(BOXARR_SECURITY_NOTICE,
+                JSON.stringify({ text: box.textContent, kind: kind }));
+        } catch (e) { /* no storage: the message goes with the page */ }
+    }
     setTimeout(function() { window.location.reload(); }, 1200);
+}
+
+function boxarrSecurityShowNotice() {
+    let notice = null;
+    try {
+        const saved = window.sessionStorage.getItem(BOXARR_SECURITY_NOTICE);
+        window.sessionStorage.removeItem(BOXARR_SECURITY_NOTICE);
+        notice = saved ? JSON.parse(saved) : null;
+    } catch (e) { return; }
+    if (!notice || typeof notice.text !== 'string' || !notice.text) return;
+    const kind = /^[a-z]+$/.test(notice.kind || '') ? notice.kind : '';
+    boxarrSecurityMessage(notice.text, kind);
 }
 
 function boxarrInitSecurity() {
@@ -360,6 +384,7 @@ function boxarrInitSecurity() {
     form.addEventListener('submit', boxarrSaveSecurity);
     boxarrSecurityMethodChanged(true);
     boxarrShowEmbedUrls(null);
+    boxarrSecurityShowNotice();
     // "Set up login" (the banner) lands here: start with the username.
     if (window.location.hash === '#security' && form.getAttribute('data-state') === 'unset') {
         const username = boxarrSecurityField('securityUsername');
