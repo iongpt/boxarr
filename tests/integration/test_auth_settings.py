@@ -1309,7 +1309,7 @@ def test_a_key_and_settings_left_by_someone_else_do_not_survive_the_first_enable
     their_key = planted.json()["api_key"]
     off = _post(stranger, "settings", {"method": "none", "current_password": PASSWORD})
     assert off.status_code == 200, off.text
-    assert _stored(data)["api_key"]["sha256"] == sha256_hex(their_key)
+    assert _stored(data)["api_key"] is None  # turning sign-in off started over
 
     owner = TestClient(app, client=("198.51.100.20", 50000))
     enabled = _enable(owner)
@@ -1325,6 +1325,38 @@ def test_a_key_and_settings_left_by_someone_else_do_not_survive_the_first_enable
         401
     )
     assert script.get("/api/config", headers={"X-Api-Key": my_key}).status_code == 200
+
+
+def test_turning_sign_in_off_leaves_nothing_for_sign_in_by_environment(
+    boxarr, monkeypatch
+):
+    """Someone turns sign-in on while Boxarr is open, with their own
+    username, password and trusted proxy, gets an API key and turns sign-in
+    off again. The owner then turns sign-in on by environment, naming only
+    the method and a username: their password, key and proxy are gone, so
+    Boxarr locks (no password) rather than letting the stranger in."""
+    app, _, data = boxarr()
+    stranger = TestClient(app, client=("127.0.0.1", 50000))
+    planted = _enable(stranger, trusted_proxies="127.0.0.1", remember_days=7)
+    their_key = planted.json()["api_key"]
+    off = _post(stranger, "settings", {"method": "none", "current_password": PASSWORD})
+    assert off.status_code == 200, off.text
+    stored = _stored(data)
+    for name in ("username", "password_hash", "api_key", "widget_token"):
+        assert stored.get(name) is None, name
+    assert {key: stored.get(key) for key in PLANTED} == DEFAULTS
+
+    # BOXARR_AUTH_METHOD and BOXARR_AUTH_USERNAME only: no password, no key.
+    restarted, _, _ = boxarr("unset", method="forms", username=USERNAME)
+    client = TestClient(restarted)
+
+    assert restarted.state.auth_runtime.state.mode == Mode.LOCKED
+    assert client.get("/api/config", headers={"X-Api-Key": their_key}).status_code in (
+        401,
+        503,
+    )
+    assert client.get("/api/config").status_code == 503
+    assert _login(client).status_code != 200
 
 
 def test_nothing_planted_survives_into_sign_in_by_environment(boxarr, monkeypatch):
