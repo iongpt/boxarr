@@ -91,6 +91,7 @@ class Clone:
         monkeypatch.setattr(cfg_routes, "RadarrService", _FakeRadarrService)
         monkeypatch.setattr(cfg_utils, "_settings", None)
         monkeypatch.setattr(cfg_utils, "_config_file_override", None, raising=False)
+        monkeypatch.setattr(cfg_utils, "_first_save_seed", None, raising=False)
 
         original = cfg_utils.Settings.load_from_yaml
 
@@ -145,6 +146,52 @@ def _mode(path: Path) -> int:
     return stat.S_IMODE(os.stat(path).st_mode)
 
 
+# Settings the setup page does not show, as a user writes them in a file of
+# their own: (where in the file, value, the Settings field, its value there).
+HAND_WRITTEN = [
+    (("boxarr", "url_base"), "boxarr", "boxarr_url_base", "boxarr"),
+    (("boxarr", "port"), 9999, "boxarr_port", 9999),
+    (
+        ("boxarr", "scheduler", "timezone"),
+        "Europe/Paris",
+        "boxarr_scheduler_timezone",
+        "Europe/Paris",
+    ),
+    (
+        ("boxarr", "data", "history_retention_days"),
+        30,
+        "boxarr_data_history_retention_days",
+        30,
+    ),
+    (("radarr", "search_for_movie"), False, "radarr_search_for_movie", False),
+    (("log_level",), "DEBUG", "log_level", "DEBUG"),
+]
+
+
+def _users_file(clone: "Clone", name: str, **radarr: Any) -> Path:
+    """config/<name>: the bundled defaults (naming the volume), as
+    default.yaml's header says to copy them, plus settings of the user's."""
+    data = yaml.safe_load((clone.cwd / "config" / "default.yaml").read_text())
+    for path, value, _, _ in HAND_WRITTEN:
+        node = data
+        for key in path[:-1]:
+            node = node.setdefault(key, {})
+        node[path[-1]] = value
+    data["radarr"].update(radarr)
+    users_file = clone.cwd / "config" / name
+    users_file.write_text(yaml.safe_dump(data, sort_keys=False))
+    return users_file
+
+
+def _messages(caplog) -> List[str]:
+    return [r.getMessage() for r in caplog.records]
+
+
+def _assert_hand_written(settings: cfg_utils.Settings) -> None:
+    for _, _, field, value in HAND_WRITTEN:
+        assert getattr(settings, field) == value, field
+
+
 # ---------------------------------------------------------------------------
 # A clone started without BOXARR_DATA_DIRECTORY (the bug)
 # ---------------------------------------------------------------------------
@@ -155,7 +202,7 @@ def clone(tmp_path, monkeypatch) -> Clone:
     return Clone(tmp_path, monkeypatch, env_dir=None)
 
 
-def test_without_the_variable_a_save_is_read_by_the_next_start(clone):
+def test_without_the_variable_a_save_is_read_by_the_next_start(clone, caplog):
     defaults = clone.cwd / "config" / "default.yaml"
     settings, reads = clone.start()
     assert reads == [defaults]
@@ -165,9 +212,17 @@ def test_without_the_variable_a_save_is_read_by_the_next_start(clone):
 
     local_yaml = clone.volume / "local.yaml"
     assert _mode(local_yaml) == 0o600
-    settings, reads = clone.start()
+    # The bundled defaults are not copied into it, as in Docker: the save
+    # starts from nothing, and a default changed by an upgrade still applies.
+    local = yaml.safe_load(local_yaml.read_text())
+    assert "cards_per_row" not in local["boxarr"].get("ui", {})
+    with caplog.at_level(logging.INFO, logger="src.utils.config"):
+        settings, reads = clone.start()
     assert reads == [defaults, local_yaml]
     _assert_saved(settings)
+    assert settings.boxarr_ui_cards_per_row_desktop == 5  # the field default
+    # Setting the bundled defaults aside is the normal case, not a warning.
+    assert not [r for r in caplog.records if "is not read" in r.getMessage()]
     # The data directory is still the volume, although local.yaml does not
     # name it: the next save goes to the same file.
     assert settings.boxarr_data_directory == clone.volume
@@ -263,6 +318,95 @@ def test_a_users_file_naming_the_volume_is_reported_as_not_read(clone, caplog):
         r.getMessage().startswith("config/config.yaml is not read")
         for r in caplog.records
     )
+
+
+@pytest.mark.parametrize("name", ["config.yaml", "local.yaml"])
+def test_a_users_file_naming_the_volume_seeds_the_first_save(clone, caplog, name):
+    """./config/config.yaml (or local.yaml) naming the volume is read until
+    the volume has a settings file. The first save starts from it, as from
+    the volume's own config.yaml (#166), so the settings it holds that the
+    page does not show still apply after the save."""
+    users_file = _users_file(
+        clone, name, api_key="hand-key", quality_profile_upgrade="4K-Custom"
+    )
+    original = users_file.read_bytes()
+    settings, reads = clone.start()
+    assert reads == [users_file]
+    _assert_hand_written(settings)
+
+    clone.save()  # posts no upgrade profile, which clears it
+
+    local_yaml = clone.volume / "local.yaml"
+    assert _mode(local_yaml) == 0o600
+    assert users_file.read_bytes() == original
+    # In this process, reloaded by the save, and at the next start.
+    _assert_hand_written(cfg_utils.get_settings())
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="src.utils.config"):
+        settings, reads = clone.start()
+    assert reads == [users_file, local_yaml]
+    _assert_hand_written(settings)
+    _assert_saved(settings)  # the posted values win
+    assert settings.boxarr_data_directory == clone.volume
+    # local.yaml replaces the user's file rather than being read over it: a
+    # setting the save cleared does not come back from that file.
+    assert settings.radarr_quality_profile_upgrade == "Ultra-HD"
+    (warning,) = [m for m in _messages(caplog) if "is not read" in m]
+    assert warning.startswith(f"config/{name} is not read: {local_yaml}")
+    assert warning.endswith("to their defaults: radarr_quality_profile_upgrade.")
+
+
+def test_a_volume_local_yaml_left_by_an_earlier_save_is_read(clone, caplog):
+    """An upgrade: saves made before this fix went to the volume's local.yaml
+    and were never read, while ./config/config.yaml was. That local.yaml is
+    the file the setup page saves to, so it is read now. A warning names the
+    settings of the user's file it does not hold, never their values."""
+    users_file = _users_file(
+        clone, "config.yaml", url="http://new-host.lan:7878", api_key="new-key"
+    )
+    (clone.volume / "local.yaml").write_text(
+        yaml.safe_dump(
+            {"radarr": {"url": "http://old-host.lan:7878", "api_key": "old-key"}}
+        )
+    )
+
+    with caplog.at_level(logging.WARNING, logger="src.utils.config"):
+        settings, reads = clone.start()
+
+    assert reads == [users_file, clone.volume / "local.yaml"]
+    assert settings.boxarr_data_directory == clone.volume
+    assert _url(settings) == "http://old-host.lan:7878"
+    assert settings.boxarr_url_base == ""
+    (warning,) = [m for m in _messages(caplog) if "is not read" in m]
+    lost = warning.split("to their defaults: ")[1].rstrip(".").split(", ")
+    # The user's settings (and bundled ones copied with them that differ
+    # from their defaults), but not those the volume's file sets, nor the
+    # data directory, which does not change.
+    assert set(lost) >= {field for _, _, field, _ in HAND_WRITTEN}
+    assert set(lost) <= set(cfg_utils.Settings.model_fields)
+    assert not {"radarr_url", "radarr_api_key", "boxarr_data_directory"} & set(lost)
+    # Nor one the user's file sets to its default (host: "0.0.0.0"), which
+    # does not change.
+    assert "boxarr_host" not in lost
+    for value in ("new-key", "old-key", "new-host", "9999", "Europe/Paris"):
+        assert value not in warning
+
+
+def test_config_yaml_next_to_the_users_local_yaml_is_still_reported(clone, caplog):
+    """./config/local.yaml naming the volume, which has no settings file yet,
+    is the file read; the config.yaml next to it is not, as #166 warns."""
+    users_file = _users_file(clone, "local.yaml")
+    (clone.cwd / "config" / "config.yaml").write_text("log_level: WARNING\n")
+
+    with caplog.at_level(logging.WARNING, logger="src.utils.config"):
+        settings, reads = clone.start()
+
+    assert reads == [users_file]
+    assert settings.boxarr_data_directory == clone.volume
+    assert [r.getMessage() for r in caplog.records] == [
+        "config/config.yaml is not read: config/local.yaml, which the setup "
+        "page saves to, takes its place. Make changes in config/local.yaml."
+    ]
 
 
 def test_the_data_directory_under_another_spelling_is_read_once(clone, caplog):

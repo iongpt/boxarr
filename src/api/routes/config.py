@@ -27,6 +27,7 @@ from ...utils.config import (
     RootFolderMapping,
     Settings,
     configured_box_office_regions,
+    first_save_seed,
     parse_box_office_regions,
     settings,
     validate_box_office_regions,
@@ -422,11 +423,19 @@ def _merge_base_path(config_path: Path) -> Path:
     is ever read. The save then starts from ``config.yaml``, so the new
     ``local.yaml`` keeps every setting written there instead of replacing
     them all with defaults. ``config.yaml`` itself is never written.
+
+    A manual install whose own settings file (``./config/config.yaml``)
+    names the data directory reads that file until the data directory has
+    one, so with neither file there the save starts from it in the same way
+    (see ``first_save_seed``).
     """
     if config_path.exists():
         return config_path
     hand_written = config_path.with_name("config.yaml")
-    return hand_written if hand_written.is_file() else config_path
+    if hand_written.is_file():
+        return hand_written
+    seed = first_save_seed(config_path.parent)
+    return seed if seed is not None and seed.is_file() else config_path
 
 
 def _merge_config(existing: Dict[Any, Any], managed: Dict[Any, Any]) -> Dict[Any, Any]:
@@ -587,8 +596,8 @@ async def save_configuration(config: SaveConfigRequest):
         existing_config = _read_existing_config(merge_base)
         current_file_settings = Settings(boxarr_data_directory=data_directory)
         if existing_config is None and merge_base != config_path:
-            # An unreadable config.yaml was backed up when it was loaded, and
-            # its settings never applied. It is left as it is.
+            # An unreadable config.yaml (or seed file) was backed up when it
+            # was loaded, and its settings never applied. It is left as it is.
             existing_config = {}
         elif existing_config is None:
             # Unparseable: keep a copy before overwriting it, as before the

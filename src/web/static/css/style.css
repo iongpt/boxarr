@@ -743,6 +743,8 @@ body {
   border-radius: 6px;
   border: 1px solid var(--border-color);
   display: none;
+  /* A message can hold a long URL: wrap it inside the box at phone width. */
+  overflow-wrap: anywhere;
 }
 
 .test-results.show {

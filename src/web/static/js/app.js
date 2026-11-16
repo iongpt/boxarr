@@ -1460,6 +1460,11 @@ function reloadScheduler() {
         box.classList.add(ok ? 'success' : 'error', 'show');
     }
 
+    // Bumped by every test and by every edit of the URL or key: an answer
+    // to anything but the newest test of the current values is ignored, so
+    // a slow success cannot show "Connected" for values it never tested.
+    let connectionTestSeq = 0;
+
     window.testConnection = function() {
         const url = document.getElementById('radarrUrl').value;
         const apiKey = document.getElementById('radarrApiKey').value;
@@ -1475,6 +1480,7 @@ function reloadScheduler() {
         if (testButton) testButton.textContent = 'Testing...';
         if (testSpinner) testSpinner.style.display = 'inline-block';
         
+        const seq = ++connectionTestSeq;
         fetch(apiUrl('/config/test'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1488,6 +1494,7 @@ function reloadScheduler() {
             () => ({ success: false, message: `Unexpected answer from Boxarr (HTTP ${response.status})` })
         ))
         .then(data => {
+            if (seq !== connectionTestSeq) return;
             if (testButton) testButton.textContent = 'Test Connection';
             if (testSpinner) testSpinner.style.display = 'none';
             
@@ -1560,8 +1567,13 @@ function reloadScheduler() {
             }
         })
         .catch(error => {
+            if (seq !== connectionTestSeq) return;
             if (testButton) testButton.textContent = 'Test Connection';
             if (testSpinner) testSpinner.style.display = 'none';
+            // A failed test, as in the branch above: Save waits for a new one.
+            connectionTested = false;
+            const saveBtn = document.getElementById('saveBtn');
+            if (saveBtn) saveBtn.disabled = true;
             showTestResult(false, `✗ Connection error: ${error.message}`);
         });
     };
@@ -1798,6 +1810,12 @@ function reloadScheduler() {
     }
 
     function resetConnectionTest() {
+        // A test still in flight tested the old values: drop its answer.
+        connectionTestSeq++;
+        const testButton = document.getElementById('testButtonText');
+        if (testButton) testButton.textContent = 'Test Connection';
+        const testSpinner = document.getElementById('testButtonSpinner');
+        if (testSpinner) testSpinner.style.display = 'none';
         connectionTested = false;
         const saveBtn = document.getElementById('saveBtn');
         if (saveBtn) saveBtn.disabled = true;
