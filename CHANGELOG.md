@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.0] - 2026-11-16
+
+### Added
+- **Auto-add skips films on Radarr's exclusion list**: a film you deleted in Radarr with "Add exclusion" ticked was added back by the next auto-add run. Auto-add now skips it, as Radarr's own import lists do. A skipped film uses no auto-add slot and is logged as "on Radarr's exclusion list". It stays on the weekly page as "Not in Radarr", and **Add to Radarr** still adds it if you press it. This needs Radarr 5.9 or later, whose movie lookup reports the exclusion; with an older Radarr, auto-add works as before. On by default. To turn it off, set `auto_add_skip_radarr_exclusions: false` under `boxarr:` → `features:` in `/config/local.yaml`, or `BOXARR_FEATURES_AUTO_ADD_SKIP_RADARR_EXCLUSIONS=false`. The setup page has no field for it, and a save keeps the value (discussion #55, #175).
+
+### Fixed
+- **The page footer shows the current year**: it said "© 2026" whatever the date. The year now comes from the server's date, so it changes on 1 January with no restart (#174).
+
 ## [2.2.1] - 2026-11-16
 
 ### Fixed
