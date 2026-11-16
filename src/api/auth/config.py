@@ -763,6 +763,30 @@ def load_auth_file(path: Path, *, copy_broken: bool = True) -> AuthFileResult:
     )
 
 
+def parse_auth_text(text: str) -> AuthFileResult:
+    """Read auth.json text as load_auth_file() reads the file, without one.
+
+    For a write that must never leave a file the loader would refuse: the
+    text is checked before it replaces auth.json. No message quotes a value.
+    """
+    refusals: List[str] = []
+    warnings: List[str] = []
+    try:
+        data = json.loads(
+            text,
+            object_pairs_hook=_reject_duplicates,
+            parse_constant=_reject_constant,
+        )
+        auth = _parse_auth_data(data, refusals, warnings)
+    except _Invalid as exc:
+        return AuthFileResult(FileState.LOCKED, problem=f"it would not be valid: {exc}")
+    except (ValueError, RecursionError):
+        return AuthFileResult(FileState.LOCKED, problem="it would not be valid JSON")
+    return AuthFileResult(
+        FileState.VALID, auth=auth, refusals=tuple(refusals), warnings=tuple(warnings)
+    )
+
+
 def new_instance_id() -> str:
     """Return a fresh instance id: 8 random hex digits."""
     return secrets.token_hex(4)
