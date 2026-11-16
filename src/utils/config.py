@@ -896,6 +896,29 @@ class Settings(BaseSettings):
                 self._backup_broken_config(config_path)
                 return
 
+            # Authentication never comes from here: this loader falls back to
+            # defaults on anything invalid, which for auth would mean open
+            # (#151). It lives in auth.json and the BOXARR_AUTH_* variables.
+            ignored_auth_keys = [
+                key
+                for key, present in (
+                    ("auth", "auth" in config_data),
+                    (
+                        "boxarr.auth",
+                        isinstance(config_data.get("boxarr"), dict)
+                        and "auth" in config_data["boxarr"],
+                    ),
+                )
+                if present
+            ]
+            if ignored_auth_keys:
+                logger.warning(
+                    "Ignoring %s in %s: authentication settings in local.yaml "
+                    "are ignored; use Settings → Security or BOXARR_AUTH_*",
+                    " and ".join(ignored_auth_keys),
+                    config_path,
+                )
+
             # Process configuration sections. A change to the key-to-field
             # mapping below has to be mirrored in yaml_paths_for_field().
             for section, values in config_data.items():
