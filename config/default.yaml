@@ -39,6 +39,11 @@ boxarr:
     auto_add: true
     quality_upgrade: true
     notifications: false
+    # Auto-add skips films on Radarr's exclusion list (needs Radarr 5.9 or
+    # later). On by default; set to false to add them anyway. Settings file
+    # or BOXARR_FEATURES_AUTO_ADD_SKIP_RADARR_EXCLUSIONS only: the setup page
+    # has no field for it, and its save keeps this value.
+    # auto_add_skip_radarr_exclusions: true
     # Box Office Mojo region 'area' code (e.g. "NL", "DE", "GB").
     # Empty means US & Canada domestic (no ?area parameter).
     # Up to 5 regions can be listed, and their order is kept; "domestic"

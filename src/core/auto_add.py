@@ -203,7 +203,9 @@ def auto_add_missing_movies(  # noqa: C901
     (#1 domestic, #1 Romania, #2 domestic, ...). For one region that is
     simply the rank. The auto-add limit is one cap for the whole run on the
     films actually added (#139): a film a filter drops, an ignored film, one
-    not found on TMDB and one Radarr rejects do not use a slot, and the pass
+    on Radarr's exclusion list (unless
+    ``boxarr_features_auto_add_skip_radarr_exclusions`` is off), one not
+    found on TMDB and one Radarr rejects do not use a slot, and the pass
     stops once the limit is reached. It also stops after
     ``MAX_RADARR_FAILURES_IN_A_ROW`` failures in a row that mean Radarr is
     not answering (a timeout, a refused connection, a 5xx). A film whose
@@ -371,6 +373,26 @@ def auto_add_missing_movies(  # noqa: C901
                 logger.info(
                     f"Skipping '{result.box_office_movie.title}' ({position}) - "
                     f"movie is on the ignore list"
+                )
+                continue
+
+            # Skip films on Radarr's exclusion list, as Radarr's own import
+            # lists do (discussion #55): a film deleted with "Add exclusion"
+            # ticked must not come back. POST /api/v3/movie does not check
+            # the list, so Boxarr has to. The pick is the raw lookup result:
+            # Radarr 5.9+ sets isExcluded in its term search
+            # (GET /api/v3/movie/lookup, which also serves the "imdb:" and
+            # "tmdb:" terms) and leaves it out when false. Its /lookup/imdb
+            # and /lookup/tmdb endpoints never set it; Boxarr does not use
+            # them. An older Radarr never sends the flag, so every film is
+            # tried as before. Like the ignore list, this uses no slot.
+            if (
+                settings.boxarr_features_auto_add_skip_radarr_exclusions
+                and movie_info.get("isExcluded") is True
+            ):
+                logger.info(
+                    f"Skipping '{result.box_office_movie.title}' ({position}) - "
+                    f"on Radarr's exclusion list"
                 )
                 continue
 
