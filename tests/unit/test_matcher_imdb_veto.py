@@ -6,7 +6,9 @@ fallbacks (base title cut at ':' or '-', title-only exact index) used to link
 the chart entry to the OLDER film already in the library, so the card showed
 "Downloaded" and auto-add skipped the new film. When both sides carry an IMDb
 id and the ids differ they are different films, and the title match must be
-rejected. Title matching still applies when either id is missing.
+rejected. Title matching still applies when either id is missing, but a
+chart entry with an id only matches a library film without one by its whole
+title (test_matcher_imdb_whole_title.py).
 
 Titles, years and IMDb ids below are the real ones.
 """
@@ -184,7 +186,7 @@ class TestDifferentImdbIdVetoesTitleMatch:
 
 
 class TestTitleMatchingWhenAnIdIsMissing:
-    """Controls: without two ids to compare, title matching is unchanged."""
+    """Controls: without two ids to compare, title matching still applies."""
 
     @ENTRY_POINTS
     def test_chart_entry_without_imdb_id_still_title_matches(self, match):
@@ -417,12 +419,15 @@ class TestNoLossyMatchPastTheSkippedFilm:
         assert result == MatchResult(box_office_movie=result.box_office_movie)
 
     @ENTRY_POINTS
-    def test_subtitled_title_still_matches_a_film_without_an_id(self, match):
-        """Nothing in the library conflicts with the title match: the lossy
-        fallbacks apply as before, other films with ids notwithstanding."""
-        f1 = _lib("F1", 2025, None)
-        library = [_lib("Heat", 1995, "tt0113277"), f1]
+    def test_subtitled_title_does_not_match_a_film_without_an_id(self, match):
+        """Nothing in the library conflicts with the title match, but the
+        chart entry has an IMDb id, so it is matched only by that id or by
+        its whole title: the base title no longer links "F1: The Movie" to
+        an "F1" without an id (see test_matcher_imdb_whole_title.py). With
+        no chart id, or with the id on "F1", it still matches (controls in
+        TestTitleMatchingWhenAnIdIsMissing and TestEqualImdbIds)."""
+        library = [_lib("Heat", 1995, "tt0113277"), _lib("F1", 2025, None)]
 
         result = match(MovieMatcher(), _chart("F1: The Movie", "tt16311594"), library)
 
-        assert result.radarr_movie is f1
+        assert result == MatchResult(box_office_movie=result.box_office_movie)

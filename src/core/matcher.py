@@ -1,6 +1,7 @@
 """Movie matching algorithms for finding Radarr movies from box office titles."""
 
 import re
+import unicodedata
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from typing import Dict, List, Optional, Set, Tuple
@@ -10,6 +11,21 @@ from .boxoffice import BoxOfficeMovie
 from .radarr import RadarrMovie
 
 logger = get_logger(__name__)
+
+# Combining accents of Latin, Greek and Cyrillic letters after NFKD. Marks of
+# other scripts (Japanese dakuten, Devanagari virama) change the word: kept.
+_LATIN_ACCENTS = re.compile("[̀-ͯ]")
+# Hyphen, the Unicode hyphens and dashes.
+_HYPHENS_AND_DASHES = re.compile("[-‐-―]")
+
+
+def _same_words(title: str) -> str:
+    """``title`` spelled loosely for a whole-title comparison: accents
+    dropped from Latin letters, "&" read as "and", a hyphen or dash read as
+    a space between words."""
+    loose = _LATIN_ACCENTS.sub("", unicodedata.normalize("NFKD", title))
+    loose = re.sub(r"\s*&\s*", " and ", loose)
+    return _HYPHENS_AND_DASHES.sub(" ", loose)
 
 
 def _imdb_key(imdb_id: Optional[str]) -> str:
@@ -619,8 +635,24 @@ class MovieMatcher:
         Radarr lists before TMDB has its id. The lossy fallbacks are not run
         again over the rest of the library, where they would only find
         another film of the franchise ("Avatar: Fire and Ash" -> "Avatar:
-        The Way of Water"). Without a chart id, or when the title match does
-        not conflict, the result is the plain title match, as before.
+        The Way of Water").
+
+        A chart entry with an IMDb id is matched only by that id or by its
+        whole title. A library film with the id is found by the id, so the
+        title match can only add a film without one, and the lossy fallbacks
+        (base title, the special cases, numeral spellings, fuzzy) must not
+        pick it: when the original film is not in the library they link
+        "Avatar: Fire and Ash" to an "Avatar" or "Avatar 4" without an id.
+        The title match stands when its film has the chart's id, spelled
+        differently, or has no id and the chart's whole title: the same
+        words, give or take the leading article, case, punctuation, accents,
+        "&" for "and" and a hyphen for a space (``_full_title_keys``), so a
+        lossy step that found the same film spelled differently is kept with
+        its method and confidence. Otherwise the whole-title replacement
+        above is tried, so a lossy pick does not hide a film of the entry's
+        whole title elsewhere in the library: for the entry "The Smurfs",
+        the base title of "The Smurfs 2" is found before "Smurfs". Without a
+        chart id the result is the plain title match, as before.
 
         The shared index (a scheduler reuses one matcher) is never changed.
         """
@@ -628,13 +660,23 @@ class MovieMatcher:
         result.box_office_movie = box_movie
         candidate = result.radarr_movie
         chart_id = _imdb_key(box_movie.imdb_id)
-        if candidate is None or not _imdb_conflict(chart_id, candidate.imdbId):
+        if candidate is None or not chart_id:
             return result
-
-        logger.info(
-            f"Not matching '{box_movie.title}' ({box_movie.imdb_id}) to "
-            f"'{candidate.title}' ({candidate.imdbId}): different IMDb ids"
-        )
+        if _imdb_conflict(chart_id, candidate.imdbId):
+            logger.info(
+                f"Not matching '{box_movie.title}' ({box_movie.imdb_id}) to "
+                f"'{candidate.title}' ({candidate.imdbId}): different IMDb ids"
+            )
+        elif _imdb_key(candidate.imdbId) == chart_id or self._is_whole_title(
+            box_movie.title, candidate.title
+        ):
+            return result
+        else:
+            logger.info(
+                f"Not matching '{box_movie.title}' ({box_movie.imdb_id}) to "
+                f"'{candidate.title}', which has no IMDb id: an entry with an "
+                "IMDb id is matched only by it or by its whole title"
+            )
         return self._same_title_match(box_movie, radarr_movies)
 
     def _same_title_match(
@@ -644,9 +686,9 @@ class MovieMatcher:
         Match a library film of the chart entry's full title, if one is allowed.
 
         Only films whose IMDb id does not differ from the chart entry's are
-        considered, and only by their whole title - exactly, or after the
-        normalization and article removal of the title index - never by a
-        base title, a subtitle or fuzzily.
+        considered, and only by their whole title - exactly, or with the same
+        words as ``_full_title_keys`` compares them - never by a base title,
+        a subtitle or fuzzily.
         """
         chart_id = _imdb_key(box_movie.imdb_id)
         title = box_movie.title
@@ -660,12 +702,31 @@ class MovieMatcher:
                 return MatchResult(box_movie, movie, 0.95, "normalized")
         return MatchResult(box_office_movie=box_movie)
 
+    def _is_whole_title(self, title: str, movie_title: str) -> bool:
+        """Whether ``movie_title`` is ``title`` as ``_same_title_match``
+        compares them: the same words, give or take the leading article.
+        Titles equal but for case share their normalized key."""
+        return bool(self._full_title_keys(title) & self._full_title_keys(movie_title))
+
     def _full_title_keys(self, title: str) -> Set[str]:
-        """A title's whole-title forms: normalized, and without its article."""
-        return {
-            self.normalize_title(title),
-            self.normalize_title(self.remove_articles(title)),
-        }
+        """
+        A title's whole-title forms: normalized, and without its article.
+
+        Each form is also keyed with its words spelled loosely: accents
+        dropped from Latin letters, "&" read as "and", and a hyphen or dash
+        read as a space. normalize_title deletes a hyphen and so glues the
+        words it joins ("Half-Blood" -> "halfblood"), which the same title
+        written with a space never equals. Two titles sharing a key have the
+        same words in the same order ("Harry Potter and the Half-Blood
+        Prince" / "Harry Potter and the Half Blood Prince", "De Gaulle:
+        Résistance" / "De Gaulle: Resistance", "Dungeons & Dragons" /
+        "Dungeons and Dragons"); no word is added, dropped or renumbered.
+        """
+        keys = set()
+        for form in (title, self.remove_articles(title)):
+            keys.add(self.normalize_title(form))
+            keys.add(self.normalize_title(_same_words(form)))
+        return keys
 
     def match_batch(
         self, box_office_movies: List[BoxOfficeMovie], radarr_movies: List[RadarrMovie]
