@@ -15,6 +15,9 @@ const BASE_PATH = window.BOXARR_BASE_PATH || '';
 // page, inline template scripts included, since every page loads this file
 // before its own scripts (tests/unit/test_state_changing_requests_marked.py).
 // So send requests with fetch(), never XMLHttpRequest, sendBeacon or a form.
+//
+// The wrapper also watches every answer from Boxarr for a sign-in that has
+// run out (#151): see boxarrHandleAuthResponse below.
 const BOXARR_REQUEST_HEADER = 'X-Boxarr-Request';
 
 (function() {
@@ -30,11 +33,18 @@ const BOXARR_REQUEST_HEADER = 'X-Boxarr-Request';
         }
     }
 
+    function onAuthResponse(response) {
+        return boxarrHandleAuthResponse(response);
+    }
+
     window.fetch = function(input, init) {
         const request = typeof Request !== 'undefined' && input instanceof Request ? input : null;
         const method = String((init && init.method) || (request ? request.method : 'GET')).toUpperCase();
-        if (SAFE_METHODS.includes(method) || !isBoxarrUrl(request ? request.url : String(input))) {
+        if (!isBoxarrUrl(request ? request.url : String(input))) {
             return nativeFetch.call(window, input, init);
+        }
+        if (SAFE_METHODS.includes(method)) {
+            return nativeFetch.call(window, input, init).then(onAuthResponse);
         }
         let headers = (init && init.headers) || (request ? request.headers : {});
         if (typeof Headers !== 'undefined' && headers instanceof Headers) {
@@ -45,9 +55,132 @@ const BOXARR_REQUEST_HEADER = 'X-Boxarr-Request';
         } else {
             headers = Object.assign({}, headers, { [BOXARR_REQUEST_HEADER]: '1' });
         }
-        return nativeFetch.call(window, input, Object.assign({}, init, { headers: headers }));
+        return nativeFetch.call(window, input, Object.assign({}, init, { headers: headers }))
+            .then(onAuthResponse);
     };
 })();
+
+// ==========================================
+// Sign-in (#151)
+// ==========================================
+
+// Requests that carry this header do not count as activity: pollers send it,
+// so a tab left open still signs out when its session runs out.
+const BOXARR_BACKGROUND_HEADER = 'X-Boxarr-Background';
+
+function boxarrIsLoginPage() {
+    const body = document.body;
+    return !!(body && typeof body.getAttribute === 'function'
+        && body.getAttribute('data-page') === 'login');
+}
+
+let boxarrSessionExpiredShown = false;
+
+// A 401 that asks for a sign-in (X-Boxarr-Auth: login-required) shows one
+// banner linking to the login page, and stops the page's pollers. It never
+// navigates by itself, so unsaved input (the long Settings form) survives,
+// and the caller still gets the response to show its own message.
+function boxarrHandleAuthResponse(response) {
+    if (!response || response.status !== 401) return response;
+    const headers = response.headers;
+    if (!headers || typeof headers.get !== 'function') return response;
+    if (headers.get('X-Boxarr-Auth') !== 'login-required') return response;
+    if (boxarrSessionExpiredShown || boxarrIsLoginPage()) return response;
+    boxarrSessionExpiredShown = true;
+    try {
+        boxarrShowSessionExpired();
+    } catch (e) {
+        // The banner is a courtesy: the caller still shows its own error.
+    }
+    try {
+        if (typeof CustomEvent === 'function' && typeof document.dispatchEvent === 'function') {
+            document.dispatchEvent(new CustomEvent('boxarr:session-expired'));
+        }
+    } catch (e) {
+        // Pollers keep running; each answer is still a 401.
+    }
+    return response;
+}
+
+// The login page, and back to this page (path and query) afterwards.
+function boxarrLoginUrl() {
+    const here = getPathWithoutBase() + (window.location.search || '');
+    return makeUrl('/login') + '?next=' + encodeURIComponent(here);
+}
+
+function boxarrShowSessionExpired() {
+    if (!document.body || document.getElementById('sessionExpiredBanner')) return;
+    const banner = document.createElement('div');
+    banner.id = 'sessionExpiredBanner';
+    banner.setAttribute('role', 'alert');
+    banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:10000;'
+        + 'padding:0.75rem 1rem;background:#f56565;color:#fff;text-align:center;'
+        + 'font-weight:500;overflow-wrap:anywhere;';
+    banner.appendChild(document.createTextNode('Your session has expired. '));
+    const link = document.createElement('a');
+    link.href = boxarrLoginUrl();
+    link.textContent = 'Sign in again';
+    link.style.cssText = 'color:#fff;text-decoration:underline;';
+    banner.appendChild(link);
+    document.body.insertBefore(banner, document.body.firstChild);
+}
+
+// Where to go after signing in: the server's answer, if it stays inside this
+// Boxarr (BASE_PATH) and passes the same check as the server's. Else home.
+function boxarrSafeRedirect(redirect) {
+    const home = BASE_PATH + '/';
+    if (typeof redirect !== 'string' || redirect.indexOf(home) !== 0) return home;
+    const rest = redirect.slice(BASE_PATH.length);
+    return boxarrValidateNext(rest) === rest ? redirect : home;
+}
+
+// The JavaScript twin of src/api/auth/redirects.py validate_next(): both run
+// tests/fixtures/auth/redirect_vectors.json. Returns the target, or '/'.
+const BOXARR_NEXT_FALLBACK = '/';
+const BOXARR_NEXT_MAX_LENGTH = 2048;
+
+function boxarrNextAcceptable(target) {
+    if (target.charAt(0) !== '/' || target.slice(0, 2) === '//') return false;
+    if (target.indexOf('\\') !== -1) return false;
+    for (let i = 0; i < target.length; i++) {
+        const code = target.charCodeAt(i);
+        if (code < 0x20 || code >= 0x7f) return false;
+    }
+    const delimiters = ['/', '?', '#']
+        .map(function(c) { return target.indexOf(c); })
+        .filter(function(i) { return i >= 0; });
+    const colon = target.indexOf(':');
+    if (colon >= 0 && colon < Math.min.apply(null, delimiters)) return false;
+    const path = target.split(/[?#]/, 1)[0];
+    if (path === '/login' || path.indexOf('/login/') === 0) return false;
+    if (path === '/api' || path.indexOf('/api/') === 0) return false;
+    if (path.split('/').some(function(s) { return s === '.' || s === '..'; })) return false;
+    return true;
+}
+
+function boxarrValidateNext(value) {
+    if (typeof value !== 'string' || value.length > BOXARR_NEXT_MAX_LENGTH) return BOXARR_NEXT_FALLBACK;
+    // A browser strips a trailing space before it resolves a URL.
+    if (value.indexOf(' ') !== -1) return BOXARR_NEXT_FALLBACK;
+    if (/%(?![0-9A-Fa-f]{2})/.test(value)) return BOXARR_NEXT_FALLBACK;
+    let decoded;
+    try {
+        decoded = decodeURIComponent(value);
+    } catch (e) {
+        return BOXARR_NEXT_FALLBACK;  // not UTF-8
+    }
+    return boxarrNextAcceptable(value) && boxarrNextAcceptable(decoded) ? value : BOXARR_NEXT_FALLBACK;
+}
+
+// The logout control (navbar and Settings header): POST, never a link, so
+// another site cannot sign anyone out with a GET.
+function boxarrSignOut() {
+    fetch(apiUrl('/auth/logout'), { method: 'POST' })
+        .catch(function() { return null; })
+        .then(function() {
+            window.location.assign(makeUrl('/login'));
+        });
+}
 
 // URL helper functions
 function makeUrl(path) {
@@ -851,7 +984,7 @@ function reloadScheduler() {
         // Skip if elements don't exist (e.g., on setup page)
         if (!statusDot || !statusText) return;
         
-        fetch(apiUrl('/health'))
+        fetch(apiUrl('/health'), { headers: { [BOXARR_BACKGROUND_HEADER]: '1' } })
             .then(response => {
                 if (response.ok) {
                     statusDot.classList.add('connected');
@@ -1018,7 +1151,8 @@ function reloadScheduler() {
 
         fetch(apiUrl('/movies/status'), {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            // A poll: it must not keep an unattended tab signed in.
+            headers: { 'Content-Type': 'application/json', [BOXARR_BACKGROUND_HEADER]: '1' },
             body: JSON.stringify({ movie_ids: movieIds })
         })
         .then(response => response.json())
@@ -1830,9 +1964,19 @@ function reloadScheduler() {
     // ==========================================
 
     document.addEventListener('DOMContentLoaded', function() {
+        // The login page polls nothing and asks nothing that needs a sign-in
+        // (a check-update request there would only answer 401).
+        if (boxarrIsLoginPage()) return;
+
         // Check connection status
         checkConnection();
-        setInterval(checkConnection, 30000);
+        const connectionInterval = setInterval(checkConnection, 30000);
+
+        // A sign-in that ran out stops the pollers (the banner says why).
+        document.addEventListener('boxarr:session-expired', function() {
+            clearInterval(connectionInterval);
+            if (statusCheckInterval) clearInterval(statusCheckInterval);
+        });
         
         // Check for updates (only once on page load)
         checkForUpdates();
@@ -2062,6 +2206,7 @@ function reloadScheduler() {
         const stopPolling = () => {
             if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
         };
+        document.addEventListener('boxarr:session-expired', stopPolling);
 
         try {
             const res = await fetch(apiUrl('/movies/refresh-stored-status'), { method: 'POST' });
@@ -2079,7 +2224,9 @@ function reloadScheduler() {
                 }
 
                 try {
-                    const pr = await fetch(apiUrl('/movies/refresh-stored-status/progress'));
+                    const pr = await fetch(apiUrl('/movies/refresh-stored-status/progress'), {
+                        headers: { [BOXARR_BACKGROUND_HEADER]: '1' }
+                    });
                     if (!pr.ok) {
                         if (++pollFailures >= MAX_POLL_FAILURES) {
                             stopPolling();
