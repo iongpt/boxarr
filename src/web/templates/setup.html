@@ -912,6 +912,9 @@
             {%- if sec.stored_problem %}
             <div class="security-alert security-alert-warning" id="securityStoredProblem">{{ sec.stored_problem }}. Saving here replaces it.</div>
             {%- endif %}
+            {%- if sec.stored_method == 'external' %}
+            <div class="security-alert security-alert-warning" id="securityEnvNoneExternal">auth.json says External, which cannot be kept while <code>BOXARR_AUTH_METHOD=none</code> keeps sign-in off. Choose On, with a username and a password, or Off. Once sign-in is on and you are signed in, you can switch to External again.</div>
+            {%- endif %}
             {%- endif %}
             <div class="security-request" id="securityRequest">
                 <div id="securityRequestSummary">{{ sec.request.summary }}</div>
