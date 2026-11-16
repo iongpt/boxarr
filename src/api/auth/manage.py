@@ -31,8 +31,15 @@ shape (known fields, their types; no message quotes a value), then
   password, and the caller is signed in. Either switch ends every session;
 - **off**: ``method: none`` is stored while sign-in stays off;
 - **env none** (BOXARR_AUTH_METHOD=none, the recovery switch, design §5.2):
-  the method, username and password may be stored without a password, the
-  instance being open; they apply once the variable is removed.
+  the method (forms or none), username and password may be stored without
+  a password, the instance being open; they apply once the variable is
+  removed. A save that stores new credentials there - a new username or
+  password, or forms over a stored none or external - is how an owner
+  takes Boxarr back from whoever turned sign-in on first (design §5.2,
+  MF17), so it starts auth.json over as the first enable does: only the
+  instance id, a bumped generation and the credentials it leaves carry
+  over, and the API key, the widget token, the trusted proxies and the
+  other settings stored before are dropped.
 
 While sign-in is off (the last two), anyone who can reach Boxarr may save,
 so the settings that would weaken sign-in once the owner turns it on -
@@ -41,20 +48,22 @@ mode - are refused: they are saved with the first enable, or later by
 someone signed in. So is ``external``: the first enable is forms (design
 §3.3.7), and an external chosen by whoever reaches an open Boxarr would let
 in everyone behind a trusted proxy once sign-in is on. Under
-BOXARR_AUTH_METHOD=none an ``external`` already stored may be kept.
+BOXARR_AUTH_METHOD=none a stored ``external`` cannot be kept either: its
+trusted proxies cannot be changed there, and they may be whoever turned it
+on's; the owner chooses forms (or off) and External again once signed in.
 
-Turning sign-in off also drops the stored trusted proxies, as it drops the
-widget token: under external that list is what lets requests in, and a
-list left by whoever had sign-in on must not open Boxarr again when the
-owner later turns external on by environment (no first enable runs then
-to start auth.json over).
+Every save that stores sign-in as off - the switch-off while it is on, and
+an Off saved while it is unset, under a stored none or under
+BOXARR_AUTH_METHOD=none - drops the stored trusted proxies and the widget
+token: under external that list is what lets requests in, and the token
+opens the widgets, and neither may outlive sign-in into a later one turned
+on by environment (no first enable runs then to start auth.json over).
 
 The widget token (design §3.6) is never taken from a request: Boxarr makes
 it, when the widgets switch to ``token`` with sign-in on (the first enable
-included) or on Regenerate, which needs the current password. Turning
-sign-in off drops it, so a token made by whoever had sign-in on cannot
-outlive that into a later sign-in by environment either; the first enable
-starts auth.json over anyway (SEC1, see ``finish_widget_token()``).
+included) or on Regenerate, which needs the current password. Saving sign-in
+as off drops it (above), and the first enable starts auth.json over anyway
+(SEC1, see ``finish_widget_token()``).
 
 A field the environment sets is refused, naming the variable. The page and
 ``GET /api/auth/status`` show the same view (``security_view()``), which
@@ -189,9 +198,10 @@ EXTERNAL_WHILE_OFF_MESSAGE = (
     "signed in, you can switch to External."
 )
 EXTERNAL_UNDER_ENV_NONE_MESSAGE = (
-    "External can be chosen only once sign-in is on and you are signed in: "
-    f"while {ENV_METHOD}=none keeps it off, anyone who can reach Boxarr could "
-    "choose it."
+    f"External cannot be saved while {ENV_METHOD}=none keeps sign-in off: "
+    "anyone who can reach Boxarr could save it, and its trusted proxies "
+    "cannot be checked here. Choose On (a username and a password) or Off; "
+    "once sign-in is on and you are signed in, you can switch to External."
 )
 EXTERNAL_NEEDS_PROXIES_MESSAGE = (
     "External needs your reverse proxy's address in Trusted proxies: Boxarr "
@@ -388,6 +398,11 @@ class SettingsPlan:
     env_password_proof: bool = False  # current_password must be the env one
     credentials_changed: bool = False
     switching_off: bool = False
+    # auth.json starts over: the first enable, and new credentials stored
+    # under BOXARR_AUTH_METHOD=none (see the module docstring).
+    starts_over: bool = False
+    # Sign-in is stored as off: the trusted proxies and the widget token go.
+    drops_access: bool = False
     # forms -> external, or external -> forms (in effect, by a signed-in
     # owner): the sessions of before end either way.
     switching_method: bool = False
@@ -463,13 +478,12 @@ def plan_settings(
         raise ChangeRefused(400, "Choose whether sign-in is on or off.", "method")
     if method == Mode.EXTERNAL and not in_effect:
         # The first enable is forms; external is a switch a signed-in owner
-        # makes. Under BOXARR_AUTH_METHOD=none, an external already stored
-        # (what the owner recovers from) may stay.
+        # makes. Under BOXARR_AUTH_METHOD=none not even a stored external
+        # may stay: its trusted proxies cannot be changed there (SEC1), and
+        # may be whoever turned it on's - the owner recovering from them.
         if kind == Kind.ENV_NONE:
-            if requested is not None and stored_method != Mode.EXTERNAL:
-                raise ChangeRefused(400, EXTERNAL_UNDER_ENV_NONE_MESSAGE, "method")
-        else:
-            raise ChangeRefused(400, EXTERNAL_WHILE_OFF_MESSAGE, "method")
+            raise ChangeRefused(400, EXTERNAL_UNDER_ENV_NONE_MESSAGE, "method")
+        raise ChangeRefused(400, EXTERNAL_WHILE_OFF_MESSAGE, "method")
     if kind in (Kind.OFF, Kind.ENV_NONE):
         # While sign-in is off, anyone who can reach Boxarr may save here.
         # What would weaken sign-in later, once the owner turns it on (a
@@ -569,6 +583,15 @@ def plan_settings(
     )
     # The method in effect after the save: the environment's, if it sets one.
     after = (env.method or method) if in_effect else None
+    # New credentials stored while BOXARR_AUTH_METHOD=none keeps sign-in off:
+    # anyone may make that save, and the owner makes it to take Boxarr back,
+    # so nothing stored before them carries over (as at the first enable).
+    starts_over = kind == Kind.FIRST_ENABLE or (
+        kind == Kind.ENV_NONE
+        and method == Mode.FORMS
+        and stored is not None
+        and (credentials_changed or stored_method != Mode.FORMS)
+    )
 
     if switching_method and requested == Mode.FORMS:
         # Back to Boxarr's own sign-in: it needs both, or it would lock.
@@ -588,11 +611,9 @@ def plan_settings(
         if not external_proxies:
             if set_by(env, "trusted_proxies"):
                 raise ChangeRefused(400, EXTERNAL_NEEDS_PROXIES_ENV_MESSAGE, "method")
-            raise ChangeRefused(
-                400,
-                EXTERNAL_NEEDS_PROXIES_MESSAGE,
-                "trusted_proxies" if "trusted_proxies" in fields else "method",
-            )
+            # The field to fill in: the page opens it and puts the cursor
+            # there, next to the message.
+            raise ChangeRefused(400, EXTERNAL_NEEDS_PROXIES_MESSAGE, "trusted_proxies")
 
     for key in ("cookie_secure", "session_hours", "remember_days", "widgets"):
         if key in fields:
@@ -613,8 +634,11 @@ def plan_settings(
         env_password_proof=proof,
         credentials_changed=credentials_changed,
         switching_off=switching_off,
+        starts_over=starts_over,
+        drops_access=switching_off
+        or (kind in (Kind.OFF, Kind.ENV_NONE) and method == Mode.NONE),
         switching_method=switching_method,
-        bump=first or credentials_changed or switching_off or switching_method,
+        bump=(starts_over or credentials_changed or switching_off or switching_method),
         mint=mint,
         generate_key=first and set_by(env, "api_key") is None,
         updates=updates,
@@ -710,12 +734,23 @@ def apply_plan(
         # file could name, bump or not.
         current = AuthFile(method=plan.method)
         generation = fresh_generation
-    elif plan.kind == Kind.FIRST_ENABLE:
+    elif plan.starts_over:
         # The first enable starts over: the stored file may hold a key and
         # settings from anyone who reached Boxarr while it was open. Only the
         # instance id (the cookie's name) and the generation, bumped past
-        # every session made before, carry over.
-        current = AuthFile(method=plan.method, instance_id=base.instance_id)
+        # every session made before, carry over. New credentials stored under
+        # BOXARR_AUTH_METHOD=none start over too, keeping the username and
+        # password hash the save leaves (new, or stored and not replaced).
+        if plan.kind == Kind.FIRST_ENABLE:
+            current = AuthFile(method=plan.method, instance_id=base.instance_id)
+        else:
+            current = AuthFile(
+                method=plan.method,
+                instance_id=base.instance_id,
+                username=base.username,
+                password_hash=base.password_hash,
+                password_source=base.password_source,
+            )
         generation = base.credential_generation + 1
     else:
         current = base
@@ -736,7 +771,7 @@ def apply_plan(
         changes["api_key"] = api_key
     if "trusted_proxies" in updates:
         changes["trusted_proxies"] = updates.pop("trusted_proxies")
-    if plan.switching_off:
+    if plan.drops_access:
         # What lets requests in under external: it does not outlive sign-in
         # (see the module docstring).
         changes["trusted_proxies"] = None
@@ -756,18 +791,20 @@ def finish_widget_token(
     """auth.json as a save leaves it, with its widget token settled; and
     whether ``token`` (a fresh one) went in.
 
-    - Turning sign-in off drops the stored token. While sign-in is off,
-      anyone may save and read Settings → Security; a token that someone
-      with sign-in on had made, then left behind by turning it off, would
-      otherwise open the widgets again once the owner turns sign-in on by
-      environment (no first enable runs then to start over).
+    - Saving sign-in as off drops the stored token: the switch-off while
+      it is on, and an Off saved while it is off (BOXARR_AUTH_METHOD=none
+      included). While sign-in is off, anyone may save and read Settings →
+      Security; a token that someone with sign-in on had made, then left
+      behind by turning it off, would otherwise open the widgets again once
+      the owner turns sign-in on by environment (no first enable runs then
+      to start over).
     - With sign-in on (the first enable included, which has just started
       over without one), widgets that need a token and have none, from the
       file or the environment, get ``token``.
     - Anything else keeps what it has: a token kept while the widgets are
       public makes the same embed URL work again once they need it.
     """
-    if plan.switching_off:
+    if plan.drops_access:
         return replace(auth, widget_token=None), False
     if plan.kind not in (Kind.FIRST_ENABLE, Kind.IN_EFFECT):
         return auth, False

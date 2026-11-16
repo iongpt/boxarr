@@ -192,6 +192,9 @@ class ProxyListProblems(NamedTuple):
     broad: List[str]  # IPv4 shorter than /24, IPv6 shorter than /64: warn
 
 
+_IPV4_MAPPED = ipaddress.IPv6Network("::ffff:0:0/96")
+
+
 def _parse_network(entry: str) -> Optional[IPNetwork]:
     if entry.startswith("[") and entry.endswith("]"):
         entry = entry[1:-1]
@@ -205,6 +208,13 @@ def _parse_network(entry: str) -> Optional[IPNetwork]:
             network = ipaddress.ip_network(address)
     except ValueError:
         return None
+    if isinstance(network, ipaddress.IPv6Network) and network.subnet_of(_IPV4_MAPPED):
+        # Every peer is unmapped to IPv4 (parse_ip), so an IPv4-mapped
+        # network could never match one: it means its IPv4 network, and the
+        # floors below judge it as one (::ffff:0:0/96 is 0.0.0.0/0).
+        mapped = network.network_address.ipv4_mapped
+        if mapped is not None:  # always, inside ::ffff:0:0/96
+            return ipaddress.IPv4Network(f"{mapped}/{network.prefixlen - 96}")
     return network
 
 

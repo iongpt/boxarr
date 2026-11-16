@@ -104,7 +104,7 @@ CHOICE_MADE_MESSAGE = (
 SESSION_NEEDED_MESSAGE = "Sign in to change the security settings."
 PROXY_NEEDED_MESSAGE = "Open Boxarr through your proxy to change the security settings."
 NO_SESSIONS_MESSAGE = (
-    "Your reverse proxy signs people in (external): Boxarr keeps no sign-ins "
+    "Your reverse proxy signs people in (External): Boxarr keeps no sign-ins "
     "of its own to end. Sign out in your proxy instead."
 )
 SECURE_OVER_HTTP_MESSAGE = (
@@ -358,8 +358,8 @@ def _settings_message(plan: SettingsPlan, runtime: AuthRuntime) -> str:
         return (
             "Your reverse proxy now signs people in (External): Boxarr lets in "
             "the requests that come through a trusted proxy and refuses every "
-            "other one, except the API key and the widgets. Every Boxarr "
-            "sign-in was ended."
+            "other one, except the API key, the widgets and the health check. "
+            "Every Boxarr sign-in was ended."
         )
     if plan.switching_method:
         return "Boxarr's own sign-in is back on, and this browser is signed in."
@@ -369,9 +369,17 @@ def _settings_message(plan: SettingsPlan, runtime: AuthRuntime) -> str:
             "it on again starts over, with a new API key."
         )
     if plan.kind == Kind.ENV_NONE:
+        started_over = (
+            " It starts over with these credentials: the API key, the widget "
+            "token, the trusted proxies and the other security settings saved "
+            "before were removed (make a new API key once you are signed in)."
+            if plan.starts_over
+            else ""
+        )
         return (
-            f"Saved to {runtime.paths.auth_file}. BOXARR_AUTH_METHOD=none keeps "
-            "sign-in off until you remove it and restart Boxarr."
+            f"Saved to {runtime.paths.auth_file}.{started_over} "
+            "BOXARR_AUTH_METHOD=none keeps sign-in off until you remove it and "
+            "restart Boxarr."
         )
     if plan.kind == Kind.OFF:
         return "Saved. Sign-in stays off."
@@ -400,6 +408,11 @@ def _log_settings(plan: SettingsPlan, token_made: bool = False) -> None:
         logger.info(
             "Authentication: sign-in turned off in Settings → Security; every "
             "session was signed out"
+        )
+    elif plan.starts_over:
+        logger.info(
+            "Authentication: new credentials saved under BOXARR_AUTH_METHOD=none; "
+            "auth.json started over (no API key, widget token or trusted proxies)"
         )
     elif plan.credentials_changed:
         logger.info(

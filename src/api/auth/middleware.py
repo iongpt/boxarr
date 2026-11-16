@@ -143,8 +143,17 @@ WIDGET = "widget"
 
 LOGIN_REQUIRED_MESSAGE = "Authentication required. Sign in again."
 INVALID_KEY_MESSAGE = "Invalid API key."
-WIDGET_LOGIN_REQUIRED = "Authentication required"
-WIDGET_INVALID_TOKEN = "Invalid widget token"
+# What an embed shows (inside a dashboard's frame, where no one can sign
+# in): what it needs, and where its owner gets a URL that works.
+WIDGET_LOGIN_REQUIRED = (
+    "This widget needs its token: copy its embed URL from Settings → Security "
+    "in Boxarr."
+)
+WIDGET_INVALID_TOKEN = (
+    "This widget token does not work (it may have been regenerated): copy the "
+    "current embed URL from Settings → Security in Boxarr."
+)
+WIDGET_INVALID_KEY = "Authentication required"
 QUERY_KEY_MESSAGE = (
     "Authentication required. An API key in the URL is ignored: send it in "
     "the X-Api-Key header."
@@ -152,7 +161,7 @@ QUERY_KEY_MESSAGE = (
 APIKEY_FORBIDDEN_MESSAGE = "API keys cannot manage authentication."
 PROXY_REQUIRED_MESSAGE = (
     "Open Boxarr through your proxy: a reverse proxy in front of Boxarr signs "
-    "people in (external), and this request did not come through it. A script "
+    "people in (External), and this request did not come through it. A script "
     "can send the API key in the X-Api-Key header instead."
 )
 PROXY_REQUIRED_QUERY_KEY_MESSAGE = (
@@ -345,9 +354,10 @@ def _api_denial(
 def _widget_denial(rp: str, invalid_key: bool, invalid_token: bool) -> Response:
     if invalid_token:
         reason, message = "invalid-token", WIDGET_INVALID_TOKEN
+    elif invalid_key:
+        reason, message = "invalid-key", WIDGET_INVALID_KEY
     else:
-        reason = "invalid-key" if invalid_key else "login-required"
-        message = WIDGET_LOGIN_REQUIRED
+        reason, message = "login-required", WIDGET_LOGIN_REQUIRED
     headers = {
         "Access-Control-Allow-Origin": "*",
         "Cache-Control": _NO_STORE,

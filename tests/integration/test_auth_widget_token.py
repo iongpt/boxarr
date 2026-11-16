@@ -19,6 +19,11 @@ from typing import List, Tuple
 import pytest
 
 from src.api.app import create_app
+from src.api.auth.middleware import (
+    WIDGET_INVALID_KEY,
+    WIDGET_INVALID_TOKEN,
+    WIDGET_LOGIN_REQUIRED,
+)
 from tests.auth_support import (
     API_KEY,
     OTHER_KEY,
@@ -82,11 +87,11 @@ def _assert_widget_401(answer: Answer, path: str, reason: str) -> None:
     assert answer.header("access-control-allow-origin") == "*"
     assert answer.header("cache-control") == "no-store"
     assert answer.header("x-boxarr-auth") == reason
-    message = (
-        "Invalid widget token"
-        if reason == "invalid-token"
-        else "Authentication required"
-    )
+    message = {
+        "invalid-token": WIDGET_INVALID_TOKEN,
+        "invalid-key": WIDGET_INVALID_KEY,
+        "login-required": WIDGET_LOGIN_REQUIRED,
+    }[reason]
     if path.endswith("/json"):
         assert answer.header("content-type") == "application/json"
         assert json.loads(answer.body) == {"detail": message}
@@ -387,3 +392,78 @@ def test_a_good_token_logs_nothing(token_app, caplog):
 
     assert TOKEN not in caplog.text
     assert "widget token" not in caplog.text
+
+
+def test_the_401_an_embed_shows_says_where_a_working_url_is():
+    """Review (flows): inside a dashboard's frame no one can sign in, so the
+    answer says what the embed lacks and where its owner gets a URL that
+    works. A stale API key keeps the generic answer."""
+    assert "needs its token" in WIDGET_LOGIN_REQUIRED
+    assert "regenerated" in WIDGET_INVALID_TOKEN
+    for message in (WIDGET_LOGIN_REQUIRED, WIDGET_INVALID_TOKEN):
+        assert "Settings → Security" in message
+    assert WIDGET_INVALID_KEY == "Authentication required"
+
+
+@pytest.fixture
+def compare_digest_calls(monkeypatch):
+    """Every hmac.compare_digest call the middleware makes (the module is
+    the global hmac: the calls are filtered by what they compare)."""
+    from src.api.auth import middleware
+
+    calls: List[Tuple[str, str]] = []
+    real = middleware.hmac.compare_digest
+
+    def spy(a, b):
+        calls.append((a, b))
+        return real(a, b)
+
+    monkeypatch.setattr(middleware.hmac, "compare_digest", spy)
+    return calls
+
+
+def test_the_widget_token_is_compared_in_constant_time(token_app, compare_digest_calls):
+    """Review (security, tests: mutant M02): ``==`` passed every behavioural
+    test. The token is compared as a SHA-256 digest, with compare_digest,
+    and never as itself (design §3.8.4)."""
+    from src.api.auth.config import sha256_hex
+
+    app, _ = token_app(widgets="token", widget_token=TOKEN)
+
+    good = call(
+        app, raw_scope("GET", "/api/widget/json", query=f"token={TOKEN}".encode())
+    )
+    bad = call(
+        app, raw_scope("GET", "/api/widget/json", query=f"token={WRONG_TOKEN}".encode())
+    )
+
+    assert (good.status, bad.status) == (200, 401)
+    ours = [c for c in compare_digest_calls if sha256_hex(TOKEN) in c]
+    assert ours == [
+        (sha256_hex(TOKEN), sha256_hex(TOKEN)),
+        (sha256_hex(WRONG_TOKEN), sha256_hex(TOKEN)),
+    ]
+    assert not [c for c in compare_digest_calls if TOKEN in c or WRONG_TOKEN in c]
+
+
+def test_the_api_key_is_compared_in_constant_time(token_app, compare_digest_calls):
+    """The same for the API key (design §3.2.7): its digest, never the key."""
+    from src.api.auth.config import sha256_hex
+
+    app, _ = token_app()
+
+    good = call(
+        app, raw_scope("GET", "/api/config", headers=[(b"x-api-key", API_KEY.encode())])
+    )
+    bad = call(
+        app,
+        raw_scope("GET", "/api/config", headers=[(b"x-api-key", OTHER_KEY.encode())]),
+    )
+
+    assert (good.status, bad.status) == (200, 401)
+    ours = [c for c in compare_digest_calls if sha256_hex(API_KEY) in c]
+    assert ours == [
+        (sha256_hex(API_KEY), sha256_hex(API_KEY)),
+        (sha256_hex(OTHER_KEY), sha256_hex(API_KEY)),
+    ]
+    assert not [c for c in compare_digest_calls if API_KEY in c or OTHER_KEY in c]
