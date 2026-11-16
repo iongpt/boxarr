@@ -83,7 +83,7 @@ def _plan(env, stored, body):
 @pytest.mark.parametrize(
     "body, field",
     [
-        ({"method": "external"}, "method"),
+        ({"method": "basic"}, "method"),
         ({"method": 1}, "method"),
         ({"username": 5}, "username"),
         ({"username": "a" * 65}, "username"),

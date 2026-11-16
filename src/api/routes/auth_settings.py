@@ -26,7 +26,10 @@ Shared rules:
 - An API key never gets here: the middleware answers 403 on /api/auth/*.
 - While forms is in effect every change needs a session plus the current
   password, checked through the login throttle. A wrong one is a 403 - not
-  the 401 that tells app.js the session has run out.
+  the 401 that tells app.js the session has run out. Under external the
+  ``proxy`` principal (a request through a trusted proxy) stands in for the
+  session, and the current password is asked for when one is stored
+  (design §3.3.7); "Sign out everywhere" has no sessions to end there.
 - Every write goes through ``AuthRuntime.update_auth_file()``: decided under
   the write lock against auth.json as it is then, never anything that would
   lock the instance, written 0600 and applied at once.
@@ -59,10 +62,12 @@ from ..auth.manage import (
     Kind,
     SettingsPlan,
     apply_plan,
+    external_lockout,
     finish_widget_token,
     new_api_key,
     new_widget_token,
     parse_settings,
+    password_stored,
     plan_settings,
     security_view,
     set_by,
@@ -97,6 +102,11 @@ CHOICE_MADE_MESSAGE = (
     "A choice is already saved. Change it in Settings → Security instead."
 )
 SESSION_NEEDED_MESSAGE = "Sign in to change the security settings."
+PROXY_NEEDED_MESSAGE = "Open Boxarr through your proxy to change the security settings."
+NO_SESSIONS_MESSAGE = (
+    "Your reverse proxy signs people in (external): Boxarr keeps no sign-ins "
+    "of its own to end. Sign out in your proxy instead."
+)
 SECURE_OVER_HTTP_MESSAGE = (
     "This page is plain http, so a sign-in cookie marked Secure would never "
     "come back and you could not stay signed in. Open Boxarr over https "
@@ -168,12 +178,32 @@ def _principal(request: Request) -> Optional[str]:
 
 
 def _require_access(request: Request, state: AuthState) -> None:
-    """While forms is in effect only a session gets here (the middleware
-    sees to that; this holds even if it did not)."""
-    if state.mode not in (Mode.UNSET, Mode.NONE, Mode.FORMS):
+    """While forms is in effect only a session gets here, under external
+    only a request through a trusted proxy (the middleware sees to that;
+    this holds even if it did not)."""
+    if state.mode not in (Mode.UNSET, Mode.NONE, Mode.FORMS, Mode.EXTERNAL):
         raise ChangeRefused(503, "Boxarr is locked.")
     if state.mode == Mode.FORMS and _principal(request) != "session":
         raise ChangeRefused(403, SESSION_NEEDED_MESSAGE)
+    if state.mode == Mode.EXTERNAL and _principal(request) != "proxy":
+        raise ChangeRefused(403, PROXY_NEEDED_MESSAGE)
+
+
+async def _confirm(
+    runtime: AuthRuntime, request: Request, state: AuthState, password: Any
+) -> None:
+    """The current password, where one is needed: always under forms, under
+    external only when one is stored (else the proxy alone)."""
+    if state.mode == Mode.EXTERNAL and not password_stored(state):
+        return
+    await _check_password(
+        runtime,
+        request,
+        state.username,
+        password,
+        state.password_hash,
+        state.env_password,
+    )
 
 
 def _same_text(given: str, expected: str) -> bool:
@@ -315,7 +345,7 @@ def _base(found: AuthFileResult, current: AuthState, runtime: AuthRuntime) -> Au
     if found.state == FileState.VALID and found.auth is not None:
         return found.auth
     return AuthFile(
-        method=Mode.FORMS,
+        method=current.mode if current.mode == Mode.EXTERNAL else Mode.FORMS,
         instance_id=runtime.instance_id,
         credential_generation=current.credential_generation,
     )
@@ -324,6 +354,15 @@ def _base(found: AuthFileResult, current: AuthState, runtime: AuthRuntime) -> Au
 def _settings_message(plan: SettingsPlan, runtime: AuthRuntime) -> str:
     if plan.kind == Kind.FIRST_ENABLE:
         return "Sign-in is on, and this browser is signed in."
+    if plan.switching_method and plan.method == Mode.EXTERNAL:
+        return (
+            "Your reverse proxy now signs people in (External): Boxarr lets in "
+            "the requests that come through a trusted proxy and refuses every "
+            "other one, except the API key and the widgets. Every Boxarr "
+            "sign-in was ended."
+        )
+    if plan.switching_method:
+        return "Boxarr's own sign-in is back on, and this browser is signed in."
     if plan.switching_off:
         return (
             "Sign-in is off: anyone who can reach Boxarr can use it. Turning "
@@ -350,6 +389,12 @@ def _log_settings(plan: SettingsPlan, token_made: bool = False) -> None:
         logger.info(
             "Authentication: sign-in turned on in Settings → Security (forms)%s",
             "; an API key was created" if plan.generate_key else "",
+        )
+    elif plan.switching_method:
+        logger.info(
+            "Authentication: sign-in switched to %s in Settings → Security; "
+            "every session was signed out",
+            plan.method,
         )
     elif plan.switching_off:
         logger.info(
@@ -400,6 +445,9 @@ async def _save_settings(runtime: AuthRuntime, request: Request) -> JSONResponse
     fields = parse_settings(await _read_json(request, SETTINGS_MAX_BYTES))
     stored = _stored(runtime)
     plan = plan_settings(env, state, stored, fields)
+    shut_out = external_lockout(plan, request.scope, env)
+    if shut_out:
+        raise ChangeRefused(400, shut_out, plan.external_field)
     if _loses_secure_cookie(plan, runtime, stored, request):
         variable = set_by(env, "cookie_secure")
         raise ChangeRefused(
@@ -415,14 +463,7 @@ async def _save_settings(runtime: AuthRuntime, request: Request) -> JSONResponse
     remember = True  # A2: "keep me signed in" is the default
     current_password = fields.get("current_password")
     if plan.kind == Kind.IN_EFFECT:
-        await _check_password(
-            runtime,
-            request,
-            state.username,
-            current_password,
-            state.password_hash,
-            state.env_password,
-        )
+        await _confirm(runtime, request, state, current_password)
         remember = _caller_remember(runtime, request, state)
     elif plan.env_password_proof:
         # S3: sign-in is off, so there is no "current" password: the one
@@ -472,7 +513,7 @@ async def _save_settings(runtime: AuthRuntime, request: Request) -> JSONResponse
             raise ChangeRefused(409, CHANGED_MESSAGE)
         if found.state == FileState.VALID:
             base: Optional[AuthFile] = found.auth
-        elif current.mode == Mode.FORMS:
+        elif current.mode in (Mode.FORMS, Mode.EXTERNAL):
             # Sign-in by environment, auth.json gone: keep the generation in
             # effect, so the caller's session survives a non-credential save.
             base = _base(found, current, runtime)
@@ -515,7 +556,7 @@ async def _save_settings(runtime: AuthRuntime, request: Request) -> JSONResponse
                 "path": cookie_path(_root(request)),
                 "secure": session[2],
             }
-    elif plan.switching_off:
+    elif plan.ends_sessions:
         runtime.sessions.revoke_all()
     if key is not None and key_record is not None:
         content["api_key"] = key
@@ -526,7 +567,7 @@ async def _save_settings(runtime: AuthRuntime, request: Request) -> JSONResponse
     if session is not None:
         token, max_age, secure = session
         _set_session_cookie(response, request, runtime, token, max_age, secure)
-    if plan.switching_off:
+    if plan.ends_sessions:
         plain, secure_name = cookie_names(runtime.instance_id)
         path = cookie_path(_root(request))
         _expire(response, plain, path, secure=False)
@@ -543,7 +584,7 @@ async def _key_preamble(
     runtime = _runtime(request)
     state = runtime.state
     _require_access(request, state)
-    if state.mode != Mode.FORMS:
+    if state.mode not in (Mode.FORMS, Mode.EXTERNAL):
         raise ChangeRefused(409, NOT_ON_MESSAGE)
     variable = set_by(runtime.env, setting)
     if variable:
@@ -557,14 +598,7 @@ async def _key_preamble(
     data = await _read_json(request, SMALL_BODY_MAX_BYTES)
     if not isinstance(data, dict) or set(data) - {"current_password"}:
         raise ChangeRefused(400, "Send only the current password.")
-    await _check_password(
-        runtime,
-        request,
-        state.username,
-        data.get("current_password"),
-        state.password_hash,
-        state.env_password,
-    )
+    await _confirm(runtime, request, state, data.get("current_password"))
     return runtime, state
 
 
@@ -674,6 +708,8 @@ async def revoke_all_sessions(request: Request) -> JSONResponse:
     try:
         state = runtime.state
         _require_access(request, state)
+        if state.mode == Mode.EXTERNAL:
+            raise ChangeRefused(409, NO_SESSIONS_MESSAGE)
         if state.mode != Mode.FORMS:
             raise ChangeRefused(409, NOT_ON_MESSAGE)
         data = await _read_json(request, SMALL_BODY_MAX_BYTES)
