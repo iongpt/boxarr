@@ -460,3 +460,25 @@ def test_turning_sign_in_on_sends_no_widgets_mode_it_does_not_need(
     body = run(COLLECT_DRIVER, {**page, "values": FIRST_ENABLE_VALUES})
 
     assert body["method"] == "forms" and "widgets" not in body
+
+
+def test_under_env_none_a_stored_external_is_not_what_save_sends(monkeypatch, tmp_path):
+    """Review (security): External cannot be kept under
+    BOXARR_AUTH_METHOD=none, so the page does not offer it there, even when
+    auth.json says External: Save sends On or Off, never External, and Off
+    drops the stored proxies."""
+    from src.utils.config import settings
+
+    monkeypatch.setattr(settings, "radarr_api_key", "fake-radarr-key")
+    stored = {"method": "external", "trusted_proxies": ["192.0.2.10"]}
+    client, page = _render_off(monkeypatch, tmp_path, stored, method="none")
+
+    untouched = run(COLLECT_DRIVER, {**page, "values": {}})
+    off = run(COLLECT_DRIVER, {**page, "values": {"securityMethod": "none"}})
+
+    assert untouched["method"] == "forms"
+    assert off == {"method": "none"}
+    saved = client.post("/api/auth/settings", json=off, headers=SAME_ORIGIN)
+    assert saved.status_code == 200, saved.text
+    after = json.loads((tmp_path / "auth.json").read_text())
+    assert after["method"] == "none" and after["trusted_proxies"] is None

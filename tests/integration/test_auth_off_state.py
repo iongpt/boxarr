@@ -396,13 +396,12 @@ def test_nothing_shows_a_widget_token_while_off(off_app, state):
 
 
 @pytest.mark.parametrize("state", OFF_STATES)
-def test_external_is_offered_while_off_only_where_it_is_stored(off_app, state):
+def test_external_is_never_offered_while_off(off_app, state):
     """External is a switch a signed-in owner makes: while sign-in is off,
-    Settings neither offers it nor shows its note - except under
-    BOXARR_AUTH_METHOD=none over a stored external, where it is what
-    auth.json holds and stays selected. Saving it is refused everywhere,
-    that state included (it cannot be kept there: the takeover recovery),
-    and nothing is written."""
+    Settings neither offers it nor shows its note, and saving it is refused
+    with nothing written. Under BOXARR_AUTH_METHOD=none over a stored
+    external too (it cannot be kept there: the takeover recovery); the page
+    says so, and /api/auth/status reads as it did before External existed."""
     app, _, _, data = off_app(state)
     before = {p.name: p.read_bytes() for p in data.iterdir()}
 
@@ -422,10 +421,14 @@ def test_external_is_offered_while_off_only_where_it_is_stored(off_app, state):
         ],
     )
 
+    assert "external" not in json.loads(status.body)
+    assert b'value="external"' not in setup.body
+    assert b'id="securityExternal"' not in setup.body
     stored_external = state == "env-none-over-external"
-    assert ("external" in json.loads(status.body)) is stored_external
-    assert (b'value="external"' in setup.body) is stored_external
-    assert (b'id="securityExternal"' in setup.body) is stored_external
+    assert (b'id="securityEnvNoneExternal"' in setup.body) is stored_external
+    assert (b'id="securityExternalHint"' in setup.body) is (
+        not state.startswith("env-none")
+    )
     assert save.status == 400, save.body
     assert json.loads(save.body)["field"] == "method"
     assert {p.name: p.read_bytes() for p in data.iterdir()} == before

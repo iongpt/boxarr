@@ -1109,9 +1109,10 @@ def security_view(runtime: AuthRuntime, scope: Scope) -> Dict[str, Any]:
         },
         "request": request,
     }
-    if in_effect or chosen == Mode.EXTERNAL:
-        # External is offered where it can be saved: to a signed-in owner,
-        # and under BOXARR_AUTH_METHOD=none when it is what auth.json holds.
+    if in_effect:
+        # External is offered where it can be saved: to a signed-in owner
+        # only. Under BOXARR_AUTH_METHOD=none it cannot be, not even the one
+        # auth.json holds (EXTERNAL_UNDER_ENV_NONE_MESSAGE).
         view["external"] = external_view(request, proxies_var)
     if in_effect:
         # Only while sign-in is on: while it is off, anyone may read this.
