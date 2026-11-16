@@ -147,6 +147,15 @@ def redact_secrets(text: str, *, target: bool = False) -> str:
     return _BOXARR_SECRET_RE.sub(lambda m: m.group(0)[:3] + "_" + REDACTED, text)
 
 
+# The headers whose value is a credential. The websockets library logs every
+# header of a WebSocket handshake at DEBUG, on the logger uvicorn hands it
+# (uvicorn.error), as ``"< %s: %s"`` (request) and ``"> %s: %s"`` (response).
+_SECRET_HEADERS = frozenset(
+    {"authorization", "proxy-authorization", "cookie", "set-cookie", "x-api-key"}
+)
+_HEADER_LINE_FORMATS = frozenset({"< %s: %s", "> %s: %s"})
+
+
 class _SecretQueryFilter(logging.Filter):
     """Redact credentials from uvicorn's request lines.
 
@@ -156,15 +165,27 @@ class _SecretQueryFilter(logging.Filter):
     is redacted as a target, and the types and number of the arguments are
     kept, since uvicorn's access formatter unpacks them. A record without
     arguments has its message redacted as a whole line.
+
+    At DEBUG the websockets library also logs each handshake header as its
+    own record: the value of a credential header (a session cookie, an API
+    key, an Authorization header) is replaced whole, design §3.8.5.
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
-        if isinstance(record.args, tuple) and record.args:
+        args = record.args
+        if (
+            record.msg in _HEADER_LINE_FORMATS
+            and isinstance(args, tuple)
+            and len(args) == 2
+            and str(args[0]).strip().lower() in _SECRET_HEADERS
+        ):
+            record.args = (args[0], REDACTED)
+        elif isinstance(args, tuple) and args:
             record.args = tuple(
                 redact_secrets(arg, target=True) if isinstance(arg, str) else arg
-                for arg in record.args
+                for arg in args
             )
-        elif not record.args and isinstance(record.msg, str):
+        elif not args and isinstance(record.msg, str):
             record.msg = redact_secrets(record.msg)
         return True
 

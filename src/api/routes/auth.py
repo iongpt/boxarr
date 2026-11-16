@@ -48,7 +48,7 @@ FAILED_MESSAGE = "Invalid username or password"
 BAD_REQUEST_MESSAGE = "Send the username and password as a JSON object."
 NOT_ENABLED_MESSAGE = "Sign-in is not enabled: authentication is off."
 EXTERNAL_MESSAGE = (
-    "Your reverse proxy signs people in (external): Boxarr has no sign-in of "
+    "Your reverse proxy signs people in (External): Boxarr has no sign-in of "
     "its own."
 )
 BUSY_MESSAGE = "Boxarr is busy checking other sign-ins. Try again in a moment."

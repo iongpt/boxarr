@@ -400,8 +400,9 @@ def test_external_is_offered_while_off_only_where_it_is_stored(off_app, state):
     """External is a switch a signed-in owner makes: while sign-in is off,
     Settings neither offers it nor shows its note - except under
     BOXARR_AUTH_METHOD=none over a stored external, where it is what
-    auth.json holds and stays selected. Saving it is refused everywhere
-    else, and nothing is written."""
+    auth.json holds and stays selected. Saving it is refused everywhere,
+    that state included (it cannot be kept there: the takeover recovery),
+    and nothing is written."""
     app, _, _, data = off_app(state)
     before = {p.name: p.read_bytes() for p in data.iterdir()}
 
@@ -425,9 +426,6 @@ def test_external_is_offered_while_off_only_where_it_is_stored(off_app, state):
     assert ("external" in json.loads(status.body)) is stored_external
     assert (b'value="external"' in setup.body) is stored_external
     assert (b'id="securityExternal"' in setup.body) is stored_external
-    if stored_external:
-        assert save.status == 200, save.body
-    else:
-        assert save.status == 400
-        assert json.loads(save.body)["field"] == "method"
-        assert {p.name: p.read_bytes() for p in data.iterdir()} == before
+    assert save.status == 400, save.body
+    assert json.loads(save.body)["field"] == "method"
+    assert {p.name: p.read_bytes() for p in data.iterdir()} == before

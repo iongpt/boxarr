@@ -32,6 +32,7 @@ from src.api.auth.config import (
     resolve_state,
 )
 from src.api.auth.manage import (
+    EXTERNAL_UNDER_ENV_NONE_MESSAGE,
     EXTERNAL_WHILE_OFF_MESSAGE,
     Kind,
     apply_plan,
@@ -112,7 +113,11 @@ def test_external_by_environment_without_a_usable_list_locks_naming_the_fix(
         "BOXARR_AUTH_METHOD=external needs BOXARR_AUTH_TRUSTED_PROXIES"
     )
     assert says in reason
-    assert "BOXARR_AUTH_METHOD=forms (or none)" in reason
+    # The way out names what forms needs (review: forms alone locks again).
+    assert (
+        "or set BOXARR_AUTH_METHOD=forms with a username and a password, or "
+        "BOXARR_AUTH_METHOD=none" in reason
+    )
     assert PROXY not in reason  # FORWARDED_ALLOW_IPS was not read
 
 
@@ -226,6 +231,39 @@ def test_trusted_peer_ignores_the_client_and_every_header():
     assert trusted_peer(stranger, TRUSTED) is None
     assert trusted_peer(unrecorded, TRUSTED) is None
     assert trusted_peer({PEER_SCOPE_KEY: (PROXY, 1)}, TRUSTED) is None  # not a peer
+
+
+@pytest.mark.parametrize(
+    "entry, trusts, network",
+    [
+        ("::ffff:127.0.0.1", "127.0.0.1", "127.0.0.1/32"),
+        ("::ffff:127.0.0.0/120", "127.0.0.9", "127.0.0.0/24"),
+        ("[::ffff:192.0.2.0/120]", "192.0.2.10", "192.0.2.0/24"),
+        ("::ffff:10.0.0.0/104", "10.1.2.3", "10.0.0.0/8"),
+    ],
+)
+def test_an_ipv4_mapped_network_means_its_ipv4_network(entry, trusts, network):
+    """Review (security): every peer is unmapped to IPv4, so a mapped network
+    (::ffff:10.0.0.0/104) could never match one - under External it refused
+    everyone while the owner thought the proxy trusted. It is read as the
+    IPv4 network it names, the mapped peer included."""
+    trusted, problems = parse_trusted_proxies([entry])
+
+    assert [str(n) for n in trusted.networks] == [network]
+    assert not problems.invalid and not problems.refused
+    assert trusts in trusted
+    assert trusted_peer({PEER_SCOPE_KEY: SocketPeer(trusts, 1, "http")}, trusted)
+    mapped_peer = SocketPeer("::ffff:" + trusts, 1, "http")
+    assert trusted_peer({PEER_SCOPE_KEY: mapped_peer}, trusted)
+    assert "::1" not in trusted
+
+
+@pytest.mark.parametrize("entry", ["::ffff:0:0/96", "::ffff:0.0.0.0/97"])
+def test_a_mapped_network_too_broad_as_ipv4_is_refused(entry):
+    """::ffff:0:0/96 is every IPv4 address: refused as 0.0.0.0/0 would be."""
+    trusted, problems = parse_trusted_proxies([entry])
+
+    assert not trusted and problems.refused
 
 
 # --------------------------------------------------------------------------
@@ -471,16 +509,25 @@ def test_external_is_never_the_first_choice_while_off(stored):
     assert refused.value.message == EXTERNAL_WHILE_OFF_MESSAGE
 
 
-def test_under_env_none_a_stored_external_may_stay_but_none_is_chosen():
+@pytest.mark.parametrize(
+    "stored, body",
+    [
+        (_external_file(), {"method": "external"}),  # kept, named
+        (_external_file(), {"username": USERNAME}),  # kept, by default
+        (_forms_file(), {"method": "external"}),  # chosen
+    ],
+)
+def test_under_env_none_external_is_never_saved_not_even_a_stored_one(stored, body):
+    """BOXARR_AUTH_METHOD=none is how an owner takes Boxarr back; an external
+    kept there keeps trusted proxies that cannot be changed there and may be
+    whoever turned it on's (review: the takeover recovery)."""
     env = parse_env({"BOXARR_AUTH_METHOD": "none"})
 
-    kept = _plan(env, _external_file(), {"method": "external"})
-    with pytest.raises(ChangeRefused) as chosen:
-        _plan(env, _forms_file(), {"method": "external"})
+    with pytest.raises(ChangeRefused) as refused:
+        _plan(env, stored, body)
 
-    assert kept.kind == Kind.ENV_NONE and kept.method == Mode.EXTERNAL
-    assert chosen.value.field == "method"
-    assert "BOXARR_AUTH_METHOD=none" in chosen.value.message
+    assert (refused.value.status, refused.value.field) == (400, "method")
+    assert refused.value.message == EXTERNAL_UNDER_ENV_NONE_MESSAGE
 
 
 def test_forms_to_external_ends_every_session_and_mints_none():
@@ -495,7 +542,9 @@ def test_forms_to_external_ends_every_session_and_mints_none():
 @pytest.mark.parametrize(
     "stored, body, field",
     [
-        (_forms_file(trusted_proxies=None), {"method": "external"}, "method"),
+        # The field to fill in, whether or not the save sent it (review: the
+        # page focuses it, next to the message).
+        (_forms_file(trusted_proxies=None), {"method": "external"}, "trusted_proxies"),
         (
             _forms_file(trusted_proxies=None),
             {"method": "external", "trusted_proxies": []},
@@ -647,3 +696,27 @@ def test_no_lockout_check_when_external_is_not_in_effect_afterwards():
 
     assert plan.external_proxies is None
     assert external_lockout(plan, _peer(STRANGER), parse_env({})) is None
+
+
+@pytest.mark.parametrize("kind", ["session", "apikey", "widget", "anonymous", None])
+def test_the_security_routes_take_only_the_proxy_under_external(kind):
+    """Review (tests, mutant B14): the routes' own check, as if the
+    middleware had let something else through (a forged session under
+    external, say): only the proxy principal gets past it."""
+    from types import SimpleNamespace
+
+    from src.api.auth.middleware import AUTH_SCOPE_KEY
+    from src.api.routes.auth_settings import PROXY_NEEDED_MESSAGE, _require_access
+
+    env = parse_env(
+        {"BOXARR_AUTH_METHOD": "external", "BOXARR_AUTH_TRUSTED_PROXIES": PROXY}
+    )
+    state = resolve_state(env, UNSET)
+    assert state.mode == Mode.EXTERNAL
+    scope = {AUTH_SCOPE_KEY: {"kind": kind}} if kind else {}
+
+    with pytest.raises(ChangeRefused) as refused:
+        _require_access(SimpleNamespace(scope=scope), state)
+    _require_access(SimpleNamespace(scope={AUTH_SCOPE_KEY: {"kind": "proxy"}}), state)
+
+    assert (refused.value.status, refused.value.message) == (403, PROXY_NEEDED_MESSAGE)

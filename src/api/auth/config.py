@@ -926,7 +926,10 @@ def _external_reason(sources: Mapping[str, str], auth_file: Optional[Path]) -> s
     """
     if sources.get("method") == "env":
         lead = f"{ENV_METHOD}=external needs {ENV_TRUSTED_PROXIES}"
-        other = f"or set {ENV_METHOD}=forms (or none)"
+        other = (
+            f"or set {ENV_METHOD}=forms with a username and a password, or "
+            f"{ENV_METHOD}=none"
+        )
     else:
         lead = (
             f"{auth_file or AUTH_FILE_NAME} says method external, which needs "

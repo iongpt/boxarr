@@ -174,7 +174,7 @@ def test_switching_needs_a_trusted_proxy_and_says_so(boxarr):
     empty = _switch(client, trusted_proxies=[])
     wildcard = _switch(client, trusted_proxies=["*"])
 
-    assert (none.status_code, none.json()["field"]) == (400, "method")
+    assert (none.status_code, none.json()["field"]) == (400, "trusted_proxies")
     assert none.json()["message"] == EXTERNAL_NEEDS_PROXIES_MESSAGE
     for refused in (empty, wildcard):
         assert refused.status_code == 400, refused.text
@@ -244,6 +244,83 @@ def test_changes_under_external_need_the_current_password(switched):
     assert "set-cookie" not in saved.headers
     assert _stored(data)["session_hours"] == 6
     assert _stored(data)["method"] == "external"
+
+
+@pytest.mark.parametrize(
+    "method, path, setup",
+    [
+        ("POST", "/api/auth/api-key", None),
+        ("DELETE", "/api/auth/api-key", "key"),
+        ("POST", "/api/auth/widget-token", "token"),
+    ],
+)
+def test_under_external_a_stored_password_guards_the_key_and_the_token(
+    switched, method, path, setup
+):
+    """Review (tests, mutant R01): design §3.3.7 lets the proxy alone make
+    changes only when no password is stored. With one, creating, revoking
+    the API key and regenerating the widget token ask for it too."""
+    _, client, data = switched
+    if setup == "key":
+        made = _post(client, "api-key", {"current_password": PASSWORD})
+        assert made.status_code == 200, made.text
+    if setup == "token":
+        made = _post(
+            client, "settings", {"widgets": "token", "current_password": PASSWORD}
+        )
+        assert made.status_code == 200, made.text
+    before = (data / "auth.json").read_bytes()
+
+    def send(body: Dict[str, Any]):
+        return client.request(
+            method,
+            path,
+            content=json.dumps(body),
+            headers={"content-type": "application/json", **SAME_ORIGIN},
+        )
+
+    missing = send({})
+    wrong = send({"current_password": WRONG_PASSWORD})
+
+    assert (missing.status_code, missing.json()["field"]) == (400, "current_password")
+    assert (wrong.status_code, wrong.json()["field"]) == (403, "current_password")
+    assert (data / "auth.json").read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    "path, body",
+    [
+        ("settings", {"session_hours": 6}),
+        ("api-key", {}),
+        ("widget-token", {}),
+    ],
+)
+def test_external_by_environment_with_a_password_asks_for_it(external_env, path, body):
+    """Review (tests, mutant R04): a password set by the environment
+    (BOXARR_AUTH_PASSWORD) is a stored password too: the proxy alone is not
+    enough."""
+    app, client, data = external_env(
+        username=USERNAME, password=PASSWORD, widgets="token"
+    )
+    assert app.state.auth_runtime.state.mode == Mode.EXTERNAL
+
+    missing = _post(client, path, body)
+
+    assert (missing.status_code, missing.json()["field"]) == (400, "current_password")
+    assert not (data / "auth.json").exists()
+
+
+def test_a_concrete_forwarded_allow_ips_never_lets_the_proxy_in(boxarr, monkeypatch):
+    """Review (tests, mutant M08b): a usable FORWARDED_ALLOW_IPS in the
+    process (not just "*", which the parser drops anyway) is never the
+    list External needs: Boxarr locks, and that address is refused."""
+    monkeypatch.setenv("FORWARDED_ALLOW_IPS", "192.0.2.10")
+    app, _, _ = boxarr("env-external", method="external")
+
+    answer = TestClient(app, client=("192.0.2.10", 1)).get("/api/config")
+
+    assert app.state.auth_runtime.state.mode == Mode.LOCKED
+    assert (answer.status_code, answer.headers["x-boxarr-auth"]) == (503, "locked")
 
 
 def test_the_list_cannot_be_emptied_or_moved_away_under_external(switched):
