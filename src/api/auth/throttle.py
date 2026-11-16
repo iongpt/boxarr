@@ -283,9 +283,16 @@ class LoginThrottle:
         self._last_hint = now
         return key
 
-    def should_log_bad_key(self, client: Optional[str]) -> bool:
-        """Whether to log a bad API key from ``client``: once per 10 minutes."""
+    def should_log_bad_key(
+        self,
+        client: Optional[str],
+        kind: CredentialKind = CredentialKind.API_KEY,
+    ) -> bool:
+        """Whether to log a bad API key (or, with ``kind``, a bad widget
+        token) from ``client``: once per 10 minutes for each."""
         key = client_key(client)
+        if kind is not CredentialKind.API_KEY:
+            key = f"{kind.value}:{key}"
         now = self._clock()
         with self._lock:
             last = self._bad_keys.get(key)

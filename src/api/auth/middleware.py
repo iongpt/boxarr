@@ -17,15 +17,21 @@ in; everything else - unknown paths, ``/favicon.ico``, the API docs,
 While authentication is unset or ``none``, every request passes untouched
 (``scope["boxarr.auth"]`` says ``open``). Under forms a request passes with
 a session cookie, with an API key (headers only, API paths only), or when it
-is public; otherwise it is denied:
+is public; otherwise it is denied. The widgets (design §3.6) are public by
+default; with ``widgets: token`` a GET on either of them also passes with
+the widget token in ``?token=``, the one credential ever read from a URL.
+It opens those two routes and nothing else, and one that is sent must be
+the right one - even next to a session or a key - so a stale embed URL is
+seen as stale. Denied:
 
 - API (``/api/...``, ``/openapi.json``, any method but GET and HEAD): 401
   JSON in the cross-site guard's shape, ``X-Boxarr-Auth: login-required``
   (or ``invalid-key``) and a Bearer challenge - never Basic, so a browser
   shows no prompt;
 - a page: 302 to ``<root>/login?next=<the path and query>``;
-- a widget in token mode: 401 in the route's own format, still readable
-  from any origin, never a redirect (it would loop inside an iframe).
+- a widget in token mode: 401 in the route's own format (HTML or JSON),
+  ``X-Boxarr-Auth: invalid-token`` for a wrong token, still readable from
+  any origin, never a redirect (it would loop inside an iframe).
 
 When the instance is locked - or its auth state cannot be read at all -
 everything but the health check and static files answers 503: JSON for the
@@ -51,11 +57,13 @@ from ...utils.route_path import route_path
 from ..client_address import strict_client
 from .config import ENV_METHOD, AuthState, Mode, sha256_hex
 from .runtime import AuthRuntime
+from .throttle import CredentialKind
 
 logger = get_logger(__name__)
 
 # Where the decision is left for the routes: {"kind": "open" | "session" |
-# "apikey" | "anonymous", "mode": <Mode>, "username": <str or None>}.
+# "apikey" | "widget" | "anonymous", "mode": <Mode>, "username": <str or
+# None>}.
 AUTH_SCOPE_KEY = "boxarr.auth"
 
 # Requests that carry this header do not extend a session (pollers send it,
@@ -65,6 +73,10 @@ BACKGROUND_HEADER = "x-boxarr-background"
 API_KEY_HEADER = "x-api-key"
 API_KEY_PREFIX = "bxk_"
 AUTH_HEADER = "X-Boxarr-Auth"
+
+# The widget token's query parameter (design §3.6), as Settings → Security
+# writes it into the embed URLs.
+WIDGET_TOKEN_PARAM = "token"
 
 # When a public route is public.
 ALWAYS = "always"  # every state, locked included
@@ -110,6 +122,8 @@ WIDGET = "widget"
 
 LOGIN_REQUIRED_MESSAGE = "Authentication required. Sign in again."
 INVALID_KEY_MESSAGE = "Invalid API key."
+WIDGET_LOGIN_REQUIRED = "Authentication required"
+WIDGET_INVALID_TOKEN = "Invalid widget token"
 QUERY_KEY_MESSAGE = (
     "Authentication required. An API key in the URL is ignored: send it in "
     "the X-Api-Key header."
@@ -210,6 +224,32 @@ def api_key_valid(key: str, state: AuthState) -> bool:
     return hmac.compare_digest(sha256_hex(key), expected)
 
 
+def presented_widget_tokens(scope: Scope) -> List[str]:
+    """Every value of the request's ``token`` query parameter."""
+    query = scope.get("query_string", b"").decode("latin-1")
+    try:
+        pairs = parse_qsl(query, keep_blank_values=True)
+    except ValueError:  # pragma: no cover - parse_qsl is lenient
+        return []
+    return [value for name, value in pairs if name == WIDGET_TOKEN_PARAM]
+
+
+def widget_token_valid(presented: List[str], state: AuthState) -> bool:
+    """Whether the request sent the widget token, once, compared in constant
+    time. Without a configured token nothing is valid."""
+    expected = state.widget_token.get_secret_value() if state.widget_token else ""
+    if not expected or len(presented) != 1:
+        return False
+    return hmac.compare_digest(sha256_hex(presented[0]), sha256_hex(expected))
+
+
+def takes_widget_token(route: Optional["PublicRoute"], state: AuthState) -> bool:
+    """Whether ``route`` is a widget GET that a token opens: token mode only."""
+    return (
+        route is not None and route.when == WIDGETS_PUBLIC and state.widgets == "token"
+    )
+
+
 def _query_holds_key(scope: Scope) -> bool:
     query = scope.get("query_string", b"").decode("latin-1")
     try:
@@ -269,24 +309,34 @@ def _api_denial(
     )
 
 
-def _widget_denial(rp: str, invalid_key: bool) -> Response:
+def _widget_denial(rp: str, invalid_key: bool, invalid_token: bool) -> Response:
+    if invalid_token:
+        reason, message = "invalid-token", WIDGET_INVALID_TOKEN
+    else:
+        reason = "invalid-key" if invalid_key else "login-required"
+        message = WIDGET_LOGIN_REQUIRED
     headers = {
         "Access-Control-Allow-Origin": "*",
         "Cache-Control": _NO_STORE,
-        AUTH_HEADER: "invalid-key" if invalid_key else "login-required",
+        AUTH_HEADER: reason,
     }
     if rp == "/api/widget/json":
-        return JSONResponse(
-            {"detail": "Authentication required"}, status_code=401, headers=headers
-        )
+        return JSONResponse({"detail": message}, status_code=401, headers=headers)
     return HTMLResponse(
-        "<div>Boxarr widget: authentication required</div>",
+        f"<div>Boxarr widget: {message[0].lower() + message[1:]}</div>",
         status_code=401,
         headers=headers,
     )
 
 
-def deny(scope: Scope, rp: str, method: str, *, invalid_key: bool = False) -> Response:
+def deny(
+    scope: Scope,
+    rp: str,
+    method: str,
+    *,
+    invalid_key: bool = False,
+    invalid_token: bool = False,
+) -> Response:
     """The answer to a request that is not signed in (design §3.3.3)."""
     kind = request_class(rp, method)
     if kind == PAGE:
@@ -295,7 +345,7 @@ def deny(scope: Scope, rp: str, method: str, *, invalid_key: bool = False) -> Re
             headers={"Location": login_url(scope), "Cache-Control": _NO_STORE},
         )
     if kind == WIDGET:
-        return _widget_denial(rp, invalid_key)
+        return _widget_denial(rp, invalid_key, invalid_token)
     return _api_denial(scope, invalid_key=invalid_key)
 
 
@@ -516,6 +566,19 @@ class AuthMiddleware:
         kind = request_class(rp, method)
         headers = Headers(scope=scope)
 
+        # 0. A widget in token mode: the right token makes the request
+        # exempt, as a public widget is; a wrong one is refused, even next
+        # to a session or a key, so a stale embed URL never seems to work.
+        widget_token = False
+        if takes_widget_token(route, state):
+            presented = presented_widget_tokens(scope)
+            if presented:
+                if not widget_token_valid(presented, state):
+                    self._log_bad_widget_token(runtime, scope)
+                    return _Decision(deny(scope, rp, method, invalid_token=True))
+                widget_token = True
+        exempt = public or widget_token
+
         # 1. An API key, on API and widget paths only, from headers only.
         key = presented_api_key(headers) if kind in (API, WIDGET) else None
         if key is not None:
@@ -524,7 +587,7 @@ class AuthMiddleware:
                     return _Decision(_forbidden_key())
                 return _pass("apikey", state, private=True)
             self._log_bad_key(runtime, scope)
-            if not public:
+            if not exempt:
                 # Even with a valid cookie: a script with a stale key must
                 # learn it, not ride on someone's session (MF9).
                 return _Decision(deny(scope, rp, method, invalid_key=True))
@@ -540,12 +603,16 @@ class AuthMiddleware:
                     return _pass(
                         "session",
                         state,
-                        # Public paths (the health poll) never extend a session.
-                        touch=None if public or background else token,
+                        # Public paths (the health poll) and embedded
+                        # widgets never extend a session.
+                        touch=None if exempt or background else token,
                         private=True,
                         username=state.username,
                     )
 
+        # 3. The widget token.
+        if widget_token:
+            return _pass("widget", state, private=True)
         if public:
             return _pass("anonymous", state, private=True)
         return _Decision(deny(scope, rp, method))
@@ -555,3 +622,11 @@ class AuthMiddleware:
         client = strict_client(scope, runtime.state.trusted_proxies).client
         if runtime.throttle.should_log_bad_key(client):
             logger.warning("Invalid API key from %s", client or "-")
+
+    @staticmethod
+    def _log_bad_widget_token(runtime: AuthRuntime, scope: Scope) -> None:
+        """Logged at most once per client every 10 minutes, never counted
+        toward the sign-in throttle (a stale embed must not slow logins)."""
+        client = strict_client(scope, runtime.state.trusted_proxies).client
+        if runtime.throttle.should_log_bad_key(client, CredentialKind.WIDGET_TOKEN):
+            logger.warning("Invalid widget token from %s", client or "-")

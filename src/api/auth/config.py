@@ -77,6 +77,7 @@ ENV_PASSWORD_HASH = "BOXARR_AUTH_PASSWORD_HASH"
 ENV_API_KEY_FILE = "BOXARR_AUTH_API_KEY_FILE"
 ENV_API_KEY = "BOXARR_AUTH_API_KEY"
 ENV_WIDGETS = "BOXARR_AUTH_WIDGETS"
+ENV_WIDGET_TOKEN = "BOXARR_AUTH_WIDGET_TOKEN"
 ENV_TRUSTED_PROXIES = "BOXARR_AUTH_TRUSTED_PROXIES"
 ENV_COOKIE_SECURE = "BOXARR_AUTH_COOKIE_SECURE"
 ENV_SESSION_HOURS = "BOXARR_AUTH_SESSION_HOURS"
@@ -91,6 +92,7 @@ ENV_VARIABLES = (
     ENV_API_KEY_FILE,
     ENV_API_KEY,
     ENV_WIDGETS,
+    ENV_WIDGET_TOKEN,
     ENV_TRUSTED_PROXIES,
     ENV_COOKIE_SECURE,
     ENV_SESSION_HOURS,
@@ -104,6 +106,7 @@ _INSTANCE_ID = re.compile(r"[0-9a-f]{8,32}")
 _SHA256_HEX = re.compile(r"[0-9a-f]{64}")
 _KEY_HINT = re.compile(r"[A-Za-z0-9_-]{0,8}")
 _WIDGET_TOKEN = re.compile(r"bxw_[A-Za-z0-9_-]{16,128}")
+WIDGET_TOKEN_PREFIX = "bxw_"
 _PRINTABLE_ASCII = re.compile(r"[\x21-\x7e]+")
 
 _LOGGED_KEY_LIMIT = 40
@@ -165,6 +168,9 @@ class EnvAuthConfig:
     api_key_sha256: Optional[str] = None  # the key itself is never kept
     api_key_variable: Optional[str] = None
     widgets: Optional[str] = None
+    # The widget token (design §3.6): a read-only credential for the two
+    # widget routes, shown in Settings so its embed URL can be copied.
+    widget_token: Optional[SecretStr] = None
     trusted_proxies: Optional[TrustedProxies] = None
     cookie_secure: Optional[str] = None
     session_hours: Optional[int] = None
@@ -349,6 +355,16 @@ def parse_env(environ: Mapping[str, str] = os.environ) -> EnvAuthConfig:
                 api_key_sha256 = sha256_hex(key)
 
     widgets = _enum(environ, ENV_WIDGETS, WIDGET_MODES, errors)
+    widget_token: Optional[SecretStr] = None
+    raw_widget_token = _env_value(environ, ENV_WIDGET_TOKEN)
+    if raw_widget_token is not None:
+        if _WIDGET_TOKEN.fullmatch(raw_widget_token.strip()):
+            widget_token = SecretStr(raw_widget_token.strip())
+        else:
+            errors.append(
+                f"{ENV_WIDGET_TOKEN} must be {WIDGET_TOKEN_PREFIX} followed by 16 "
+                "to 128 letters, digits, - or _"
+            )
     cookie_secure = _enum(environ, ENV_COOKIE_SECURE, COOKIE_SECURE_MODES, errors)
     session_hours = _int(
         environ, ENV_SESSION_HOURS, SESSION_HOURS_MIN, SESSION_HOURS_MAX, errors
@@ -379,6 +395,7 @@ def parse_env(environ: Mapping[str, str] = os.environ) -> EnvAuthConfig:
         api_key_sha256=api_key_sha256,
         api_key_variable=api_key_variable,
         widgets=widgets,
+        widget_token=widget_token,
         trusted_proxies=trusted,
         cookie_secure=cookie_secure,
         session_hours=session_hours,
@@ -931,6 +948,9 @@ def resolve_state(env: EnvAuthConfig, file: AuthFileResult) -> AuthState:
     method = _pick(
         env.method, stored.method if stored else None, None, "method", sources
     )
+    # Sign-in credentials only. BOXARR_AUTH_WIDGET_TOKEN, like
+    # BOXARR_AUTH_WIDGETS, only narrows what sign-in opens once it is on:
+    # without a method it locks nothing and is not reported as ignored.
     credentials = [
         name
         for name in (ENV_USERNAME, *_PASSWORD_VARIABLES, *_API_KEY_VARIABLES)
@@ -970,6 +990,13 @@ def resolve_state(env: EnvAuthConfig, file: AuthFileResult) -> AuthState:
     )
     widgets = _pick(
         env.widgets, stored.widgets if stored else None, "public", "widgets", sources
+    )
+    widget_token = _pick(
+        env.widget_token,
+        stored.widget_token if stored else None,
+        None,
+        "widget_token",
+        sources,
     )
     cookie_secure = _pick(
         env.cookie_secure,
@@ -1011,7 +1038,7 @@ def resolve_state(env: EnvAuthConfig, file: AuthFileResult) -> AuthState:
         env_password=env.password,
         api_key_sha256=api_key_sha256,
         widgets=widgets,
-        widget_token=stored.widget_token if stored else None,
+        widget_token=widget_token,
         trusted_proxies=trusted,
         trusted_proxies_explicit=explicit,
         cookie_secure=cookie_secure,
