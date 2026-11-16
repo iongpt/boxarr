@@ -18,7 +18,7 @@ setup_logging()
 from src.api.app import create_app_with_scheduler  # noqa: E402
 from src.core.radarr import RadarrService  # noqa: E402
 from src.core.scheduler import BoxarrScheduler  # noqa: E402
-from src.utils.config import settings  # noqa: E402
+from src.utils.config import settings, use_config_file  # noqa: E402
 from src.utils.logger import get_logger  # noqa: E402
 
 logger = get_logger(__name__)
@@ -234,10 +234,11 @@ def cli():
 
     args = parser.parse_args()
 
-    # Override settings if provided
+    # Read the file over the settings file. Every load reads it, so it still
+    # applies after a save reloads the settings, and a data directory it names
+    # is the one whose local.yaml is read (see load_settings).
     if args.config and args.config.exists():
-        env_protected = settings._get_env_set_fields()
-        settings.load_from_yaml(args.config, env_protected_fields=env_protected)
+        use_config_file(args.config)
 
     if args.log_level:
         settings.log_level = args.log_level

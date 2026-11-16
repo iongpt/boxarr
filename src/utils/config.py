@@ -1049,8 +1049,104 @@ _pinned_settings: ContextVar[Optional[Settings]] = ContextVar(
 )
 
 
+# The file passed with --config (src/main.py). Every load reads it over the
+# settings file, so it still applies after a save reloads the settings.
+_config_file_override: Optional[Path] = None
+
+# The settings file shipped with Boxarr. It names /config as the data
+# directory, which only a manual install without BOXARR_DATA_DIRECTORY sees.
+_BUNDLED_DEFAULTS = Path("config/default.yaml")
+
+
+def use_config_file(path: Optional[Path]) -> None:
+    """Read ``path`` over the settings file from the next load on (--config)."""
+    global _config_file_override, _settings
+    _config_file_override = path
+    _settings = None
+
+
+def _exists(path: Path) -> bool:
+    """Like ``path.exists()``, but a path that cannot be checked counts as
+    absent: stat() raises PermissionError under a directory this user may not
+    search, such as a root-owned /config on a manual install."""
+    try:
+        return path.exists()
+    except OSError:
+        return False
+
+
+def _same_file(a: Path, b: Path) -> bool:
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return False
+
+
+def _settings_in_data_directory(
+    directory: Path, env_protected: set, replaced: Optional[Path]
+) -> Optional[Settings]:
+    """Return the settings of ``directory``'s own local.yaml or config.yaml.
+
+    The data directory stays ``directory`` whatever that file says, as in
+    Docker, where the environment variable fixes it: the setup page saves to
+    the data directory, so this file must not send the next load elsewhere.
+    Returns None when the directory has neither file or the file cannot be
+    read; the caller then keeps the settings it had.
+    """
+    path = next(
+        (
+            candidate
+            for candidate in (directory / "local.yaml", directory / "config.yaml")
+            if _exists(candidate)
+        ),
+        None,
+    )
+    if path is None or (replaced is not None and _same_file(path, replaced)):
+        # Nothing there, or the file already read under another spelling of
+        # the same directory.
+        return None
+    protected = env_protected | {"boxarr_data_directory"}
+    settings = Settings(boxarr_data_directory=directory)
+    try:
+        settings.load_from_yaml(path, env_protected_fields=protected)
+        if _config_file_override is not None:
+            settings.load_from_yaml(
+                _config_file_override, env_protected_fields=protected
+            )
+    except OSError as exc:
+        logger.warning(
+            "Could not read %s, keeping the settings read before: %s", path, exc
+        )
+        return None
+    if replaced is not None and replaced != _BUNDLED_DEFAULTS:
+        # The same warning as for config.yaml below: a file of the user's
+        # own is set aside.
+        logger.warning(
+            "%s is not read: %s, in the data directory %s, takes its place. "
+            "Make changes in %s.",
+            replaced,
+            path,
+            directory,
+            path,
+        )
+    else:
+        logger.info(
+            "Reading settings from %s in the data directory %s", path, directory
+        )
+    return settings
+
+
 def load_settings() -> Settings:
-    """Load settings with configuration file support."""
+    """Load settings with configuration file support.
+
+    The first settings file found is read, then the --config file over it.
+    When those name a data directory other than the one searched first - the
+    bundled config/default.yaml names /config - that directory's own
+    local.yaml (or config.yaml) is read instead: the setup page saves
+    local.yaml to the data directory, and the next start has to read it.
+    BOXARR_DATA_DIRECTORY fixes the data directory, so with it set (Docker),
+    only the first file found is read, as before.
+    """
     # Use environment variable to override default data directory
     data_dir = os.getenv("BOXARR_DATA_DIRECTORY", "config")
 
@@ -1069,20 +1165,40 @@ def load_settings() -> Settings:
 
     env_protected = settings._get_env_set_fields()
 
+    loaded: Optional[Path] = None
     for config_path in config_paths:
         if config_path.exists():
             settings.load_from_yaml(config_path, env_protected_fields=env_protected)
+            loaded = config_path
             break
 
-    # Only the first file found is read. The setup page's first save copies
-    # config.yaml into local.yaml; after that, config.yaml is not read.
-    if config_paths[0].exists() and config_paths[1].exists():
+    if _config_file_override is not None:
+        settings.load_from_yaml(
+            _config_file_override, env_protected_fields=env_protected
+        )
+
+    # A manual install without BOXARR_DATA_DIRECTORY reads config/default.yaml,
+    # which names /config: the setup page saves /config/local.yaml, so that is
+    # the file to read.
+    settings_dir = Path(data_dir)
+    if settings.boxarr_data_directory != settings_dir:
+        settings_dir = settings.boxarr_data_directory
+        own = _settings_in_data_directory(settings_dir, env_protected, loaded)
+        if own is not None:
+            settings = own
+
+    # Only one file of the data directory is read. The setup page's first
+    # save copies config.yaml into local.yaml; after that, config.yaml is not
+    # read.
+    local_yaml = settings_dir / "local.yaml"
+    config_yaml = settings_dir / "config.yaml"
+    if _exists(local_yaml) and _exists(config_yaml):
         logger.warning(
             "%s is not read: %s, which the setup page saves to, takes its "
             "place. Make changes in %s.",
-            config_paths[1],
-            config_paths[0],
-            config_paths[0],
+            config_yaml,
+            local_yaml,
+            local_yaml,
         )
 
     return settings
