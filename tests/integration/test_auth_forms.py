@@ -937,6 +937,146 @@ def test_a_new_env_password_bumps_the_generation_and_signs_everyone_out(
     assert _login(restarted, password="another-fake-password").status_code == 200
 
 
+STRANGER_KEY = "bxk_" + "stranger-fake-key-" * 3
+STRANGER_TOKEN = "bxw_" + "strangerfaketoken" * 2
+
+
+def _stranger_setup(tmp_path, password: str, source: str) -> None:
+    """auth.json as someone who turned sign-in on in Settings left it: their
+    password, an API key, token widgets and a trusted proxy."""
+    from src.api.auth.config import sha256_hex
+
+    (tmp_path / "auth.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "method": "forms",
+                "instance_id": "0badc0de",
+                "username": "someone-else",
+                "password_hash": cheap_hash(password),
+                "password_source": source,
+                "credential_generation": 3,
+                "api_key": {
+                    "sha256": sha256_hex(STRANGER_KEY),
+                    "hint": STRANGER_KEY[-4:],
+                    "created": "2026-11-16T00:00:00Z",
+                },
+                "widgets": "token",
+                "widget_token": STRANGER_TOKEN,
+                "trusted_proxies": ["127.0.0.1"],
+                "cookie_secure": "never",
+            }
+        )
+    )
+    os.chmod(tmp_path / "auth.json", 0o600)
+
+
+def test_an_env_password_over_one_set_in_settings_starts_over(
+    monkeypatch, tmp_path, caplog
+):
+    """The owner takes Boxarr back from whoever turned sign-in on first, by
+    putting their own password in the environment: nothing made under the
+    old password outlives it."""
+    _stranger_setup(tmp_path, "stranger-fake-password", "ui")
+    auth_env(monkeypatch, tmp_path, password=PASSWORD, password_hash=None, api_key=None)
+
+    with caplog.at_level(logging.WARNING):
+        app = create_app()
+
+    data = json.loads((tmp_path / "auth.json").read_text())
+    assert data["instance_id"] == "0badc0de"
+    assert data["credential_generation"] == 4
+    assert data["username"] == USERNAME and data["password_source"] == "env"
+    for name in ("api_key", "widget_token", "trusted_proxies"):
+        assert data.get(name) is None, name
+    assert data["widgets"] == "public" and data["cookie_secure"] == "auto"
+    client = TestClient(app)
+    assert client.get(
+        "/api/config", headers={"X-Api-Key": STRANGER_KEY}
+    ).status_code == (401)
+    assert not app.state.auth_runtime.state.trusted_proxies_explicit
+    assert "started over" in caplog.text
+    assert "the API key, the widget token, the trusted proxies" in caplog.text
+    assert STRANGER_KEY not in caplog.text and STRANGER_TOKEN not in caplog.text
+    assert _login(client).status_code == 200
+
+
+def test_the_same_password_moved_into_the_environment_keeps_everything(
+    monkeypatch, tmp_path
+):
+    _stranger_setup(tmp_path, PASSWORD, "ui")
+    before = (tmp_path / "auth.json").read_text()
+    auth_env(
+        monkeypatch,
+        tmp_path,
+        username="someone-else",
+        password=PASSWORD,
+        password_hash=None,
+        api_key=None,
+    )
+
+    signed_in = TestClient(create_app())
+    assert _login(signed_in, username="someone-else").status_code == 200
+
+    app = create_app()
+
+    # Only the source changes: the environment holds this password now, so a
+    # new one there later is the owner's rotation (next test). No new
+    # generation, no one signed out.
+    after = json.loads((tmp_path / "auth.json").read_text())
+    assert after["password_source"] == "env"
+    for name, value in json.loads(before).items():
+        if name not in ("password_source", "updated_at"):
+            assert after[name] == value, name
+    client = TestClient(app, cookies=signed_in.cookies)
+    assert client.get("/api/config").status_code == 200
+    assert client.get(
+        "/api/config", headers={"X-Api-Key": STRANGER_KEY}
+    ).status_code == (200)
+
+
+def test_moving_the_same_password_then_rotating_it_keeps_the_rest(
+    monkeypatch, tmp_path
+):
+    """The owner moves their own Settings password into the environment,
+    then changes it there: their key, token and proxies stay (#151)."""
+    _stranger_setup(tmp_path, PASSWORD, "ui")
+    common = dict(username="someone-else", password_hash=None, api_key=None)
+    auth_env(monkeypatch, tmp_path, password=PASSWORD, **common)
+    create_app()
+    auth_env(monkeypatch, tmp_path, password="rotated-fake-password", **common)
+
+    app = create_app()
+
+    data = json.loads((tmp_path / "auth.json").read_text())
+    assert data["credential_generation"] == 4
+    assert data["widget_token"] == STRANGER_TOKEN
+    assert data["trusted_proxies"] == ["127.0.0.1"]
+    assert TestClient(app).get(
+        "/api/config", headers={"X-Api-Key": STRANGER_KEY}
+    ).status_code == (200)
+
+
+def test_a_new_password_over_one_the_environment_set_keeps_the_rest(
+    monkeypatch, tmp_path
+):
+    """Rotating a password the environment had set is the owner's own
+    change: the key, the token and the proxies made under it stay."""
+    _stranger_setup(tmp_path, "old-env-fake-password", "env")
+    auth_env(monkeypatch, tmp_path, password=PASSWORD, password_hash=None, api_key=None)
+
+    app = create_app()
+
+    data = json.loads((tmp_path / "auth.json").read_text())
+    assert data["credential_generation"] == 4
+    assert data["api_key"] is not None and data["widget_token"] == STRANGER_TOKEN
+    assert data["trusted_proxies"] == ["127.0.0.1"]
+    client = TestClient(app)
+    assert client.get(
+        "/api/config", headers={"X-Api-Key": STRANGER_KEY}
+    ).status_code == (200)
+
+
 def test_an_env_hash_is_stored_as_it_is(monkeypatch, tmp_path):
     hashed = cheap_hash("hash-fake-password")
     auth_env(monkeypatch, tmp_path, password_hash=hashed)

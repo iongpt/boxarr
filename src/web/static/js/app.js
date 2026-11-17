@@ -282,6 +282,7 @@ function boxarrSecurityFocus(field) {
         new_password: 'securityNewPassword',
         confirm_password: 'securityConfirmPassword',
         current_password: 'securityCurrentPassword',
+        widgets: 'securityWidgets',
         trusted_proxies: 'securityTrustedProxies',
         cookie_secure: 'securityCookieSecure',
         session_hours: 'securitySessionHours',
@@ -293,7 +294,33 @@ function boxarrSecurityFocus(field) {
     if (advanced && typeof advanced.contains === 'function' && advanced.contains(el)) {
         advanced.open = true;
     }
-    if (typeof el.focus === 'function') el.focus();
+    // The cursor goes to the field, but the page stays on the message,
+    // which says what is wrong: the field may sit far above it (Sign-in is
+    // the first thing in the section).
+    if (typeof el.focus === 'function') el.focus({ preventScroll: true });
+    boxarrSecurityRevealMessage();
+}
+
+// Bring the message under the Save button into view, if it is out of it.
+function boxarrSecurityRevealMessage() {
+    const box = document.getElementById('securityMessage');
+    if (box && !box.hidden && typeof box.scrollIntoView === 'function') {
+        box.scrollIntoView({ block: 'nearest' });
+    }
+}
+
+// The widgets' own message, next to Regenerate (the form's is above it,
+// out of view on a phone); the form's message is cleared.
+function boxarrWidgetMessage(text, kind) {
+    const box = document.getElementById('securityWidgetMessage');
+    if (!box) {
+        boxarrSecurityMessage(text, kind);
+        return;
+    }
+    boxarrSecurityMessage('', null);
+    box.textContent = text || '';
+    box.className = 'security-message' + (kind ? ' security-message-' + kind : '');
+    box.hidden = !text;
 }
 
 function boxarrSecurityClearPasswords() {
@@ -316,21 +343,48 @@ function boxarrSecurityRequest(path, method, body) {
     });
 }
 
+// What a save says (what changed, what was cleared) survives the reload that
+// follows it: kept for this tab, shown once by boxarrInitSecurity.
+const BOXARR_SECURITY_NOTICE = 'boxarrSecurityNotice';
+
 function boxarrSecurityReloadSoon() {
+    const box = document.getElementById('securityMessage');
+    if (box && !box.hidden && box.textContent) {
+        const kind = (/security-message-([a-z]+)/.exec(box.className) || [])[1] || '';
+        try {
+            window.sessionStorage.setItem(BOXARR_SECURITY_NOTICE,
+                JSON.stringify({ text: box.textContent, kind: kind }));
+        } catch (e) { /* no storage: the message goes with the page */ }
+    }
     setTimeout(function() { window.location.reload(); }, 1200);
+}
+
+function boxarrSecurityShowNotice() {
+    let notice = null;
+    try {
+        const saved = window.sessionStorage.getItem(BOXARR_SECURITY_NOTICE);
+        window.sessionStorage.removeItem(BOXARR_SECURITY_NOTICE);
+        notice = saved ? JSON.parse(saved) : null;
+    } catch (e) { return; }
+    if (!notice || typeof notice.text !== 'string' || !notice.text) return;
+    const kind = /^[a-z]+$/.test(notice.kind || '') ? notice.kind : '';
+    boxarrSecurityMessage(notice.text, kind);
 }
 
 function boxarrInitSecurity() {
     const form = document.getElementById('securityForm');
     if (!form) return;
     boxarrSecurityInitial = {
-        username: boxarrSecurityValue('securityUsername')
+        username: boxarrSecurityValue('securityUsername'),
+        widgets: boxarrSecurityValue('securityWidgets')
     };
     Object.keys(BOXARR_SECURITY_FIELDS).forEach(function(key) {
         boxarrSecurityInitial[key] = boxarrSecurityValue(BOXARR_SECURITY_FIELDS[key]);
     });
     form.addEventListener('submit', boxarrSaveSecurity);
-    boxarrSecurityMethodChanged();
+    boxarrSecurityMethodChanged(true);
+    boxarrShowEmbedUrls(null);
+    boxarrSecurityShowNotice();
     // "Set up login" (the banner) lands here: start with the username.
     if (window.location.hash === '#security' && form.getAttribute('data-state') === 'unset') {
         const username = boxarrSecurityField('securityUsername');
@@ -351,14 +405,27 @@ function boxarrInitSecurity() {
     }
 }
 
-function boxarrSecurityMethodChanged() {
+// The method select: the credentials go with forms and external; External
+// (#151) brings its note - what it lets in, and whether this request came
+// through a trusted proxy - and, when the owner picks it, the reverse proxy
+// settings, where the trusted proxies it needs are set.
+function boxarrSecurityMethodChanged(initial) {
     const select = document.getElementById('securityMethod');
     const credentials = document.getElementById('securityCredentials');
-    if (select && credentials) credentials.hidden = select.value !== 'forms';
+    if (!select) return;
+    if (credentials) credentials.hidden = select.value === 'none';
+    const external = select.value === 'external';
+    ['securityExternal', 'securityExternalCredentials'].forEach(function(id) {
+        const el = document.getElementById(id);
+        if (el) el.hidden = !external;
+    });
+    const advanced = document.getElementById('securityAdvanced');
+    if (external && initial !== true && advanced) advanced.open = true;
 }
 
-// The body of a save: the method, the credentials when sign-in is to be on,
-// the current password, and the advanced settings that changed.
+// The body of a save: the method, the credentials when sign-in is to be on
+// (forms or external), the current password, and the advanced settings
+// that changed.
 function boxarrCollectSecurity() {
     const body = {};
     const initial = boxarrSecurityInitial || {};
@@ -367,7 +434,7 @@ function boxarrCollectSecurity() {
     const methodEl = document.getElementById('securityMethod');
     const method = methodEl ? methodEl.value : 'forms';
     if (select) body.method = method;
-    if (method === 'forms') {
+    if (method !== 'none') {
         const username = boxarrSecurityField('securityUsername');
         if (username && (!inEffect || username.value !== initial.username)) {
             body.username = username.value.trim();
@@ -378,6 +445,13 @@ function boxarrCollectSecurity() {
             body.new_password = fresh;
             body.confirm_password = confirm;
         }
+        // Turning sign-in on starts auth.json over, the widgets back at
+        // public: what the select shows is what that saves, whether or not
+        // it was changed. Otherwise only a change is sent.
+        const widgets = boxarrSecurityField('securityWidgets');
+        const firstEnable = !inEffect && !document.getElementById('securityEnvNone');
+        const unchanged = firstEnable ? 'public' : initial.widgets;
+        if (widgets && widgets.value !== unchanged) body.widgets = widgets.value;
     }
     const current = boxarrSecurityValue('securityCurrentPassword');
     if (current) body.current_password = current;
@@ -487,8 +561,16 @@ function boxarrSecurityContinue() {
 }
 
 function boxarrCopyKey() {
-    const value = document.getElementById('securityKeyValue');
-    const button = document.getElementById('securityKeyCopy');
+    boxarrCopyInput(document.getElementById('securityKeyValue'), document.getElementById('securityKeyCopy'));
+}
+
+// The widgets' Copy buttons name their input in data-target.
+function boxarrCopyEmbed(button) {
+    const id = button && typeof button.getAttribute === 'function' ? button.getAttribute('data-target') : null;
+    boxarrCopyInput(id ? document.getElementById(id) : null, button);
+}
+
+function boxarrCopyInput(value, button) {
     if (!value) return;
     function done(ok) {
         if (button) button.textContent = ok ? 'Copied' : 'Select and copy it';
@@ -505,26 +587,78 @@ function boxarrCopyKey() {
     }
 }
 
-// The key and Sign out everywhere ask for the current password in the form.
-function boxarrSecurityCurrentPassword() {
+// The widgets' embed URLs. The page holds each as a path (the URL base, the
+// route and, in token mode, the token), and shows it whole, from the origin
+// this browser reached Boxarr at: what a dashboard on the same network uses.
+// ``paths`` ({html, json}) replaces them after the token was regenerated.
+function boxarrShowEmbedUrls(paths) {
+    [['securityWidgetHtml', 'html'], ['securityWidgetJson', 'json']].forEach(function(pair) {
+        const el = document.getElementById(pair[0]);
+        if (!el) return;
+        const path = paths ? paths[pair[1]] : el.getAttribute('data-embed-path');
+        if (typeof path !== 'string' || path.charAt(0) !== '/' || path.charAt(1) === '/') return;
+        el.setAttribute('data-embed-path', path);
+        el.value = window.location.origin + path;
+    });
+}
+
+// Create the widget token, or replace it: the current password first, and a
+// confirmation before the old embed URLs stop working.
+function boxarrWidgetTokenRegenerate() {
+    const button = document.getElementById('securityWidgetToken');
+    const replacing = !!(button && button.getAttribute('data-has-token') === 'true');
+    const proof = boxarrSecurityProof();
+    if (!proof) return Promise.resolve();
+    if (replacing && !window.confirm('Regenerate the widget token? Embeds that use the old one stop working at once: update their URL wherever it is used.')) {
+        return Promise.resolve();
+    }
+    if (button) button.disabled = true;
+    return boxarrSecurityRequest('widget-token', 'POST', proof).then(function(result) {
+        if (button) button.disabled = false;
+        const data = result.data;
+        if (!result.ok || !data || !data.success) {
+            boxarrSecurityMessage(boxarrSecurityFailure(data, result.status, 'Could not make a widget token'), 'error');
+            if (data && data.field) boxarrSecurityFocus(data.field);
+            return;
+        }
+        boxarrSecurityClearPasswords();
+        boxarrWidgetMessage(data.message || 'Widget token created.', 'success');
+        if (document.getElementById('securityWidgetHtml') && data.embed) {
+            boxarrShowEmbedUrls(data.embed);
+        } else {
+            boxarrSecurityReloadSoon();  // the first token: the page shows its URLs
+        }
+    }).catch(function() {
+        if (button) button.disabled = false;
+        boxarrSecurityMessage('Could not reach Boxarr: the widget token was not changed.', 'error');
+    });
+}
+
+// The key, the widget token and Sign out everywhere ask for the current
+// password in the form: the body to send with it, or null when it is
+// missing. Under External with no password set the form has no such field
+// (the proxy alone may make changes), and nothing is sent.
+function boxarrSecurityProof() {
+    if (!document.getElementById('securityCurrentPassword')) return {};
     const current = boxarrSecurityValue('securityCurrentPassword');
     if (!current) {
         boxarrSecurityMessage('Enter your current password first.', 'error');
         boxarrSecurityFocus('current_password');
+        return null;
     }
-    return current;
+    return { current_password: current };
 }
 
 function boxarrApiKeyCreate() {
     const button = document.getElementById('securityApiKeyCreate');
     const replacing = !!(button && button.getAttribute('data-has-key') === 'true');
-    const current = boxarrSecurityCurrentPassword();
-    if (!current) return Promise.resolve();
+    const proof = boxarrSecurityProof();
+    if (!proof) return Promise.resolve();
     if (replacing && !window.confirm('Regenerate the API key? The old key stops working at once: update it wherever it is used.')) {
         return Promise.resolve();
     }
     if (button) button.disabled = true;
-    return boxarrSecurityRequest('api-key', 'POST', { current_password: current }).then(function(result) {
+    return boxarrSecurityRequest('api-key', 'POST', proof).then(function(result) {
         if (button) button.disabled = false;
         const data = result.data;
         if (!result.ok || !data || !data.api_key) {
@@ -542,12 +676,12 @@ function boxarrApiKeyCreate() {
 }
 
 function boxarrApiKeyRevoke() {
-    const current = boxarrSecurityCurrentPassword();
-    if (!current) return Promise.resolve();
+    const proof = boxarrSecurityProof();
+    if (!proof) return Promise.resolve();
     if (!window.confirm('Revoke the API key? Anything that still uses it is refused.')) {
         return Promise.resolve();
     }
-    return boxarrSecurityRequest('api-key', 'DELETE', { current_password: current }).then(function(result) {
+    return boxarrSecurityRequest('api-key', 'DELETE', proof).then(function(result) {
         const data = result.data;
         if (!result.ok || !data || !data.success) {
             boxarrSecurityMessage(boxarrSecurityFailure(data, result.status, 'Could not revoke the API key'), 'error');
@@ -563,12 +697,12 @@ function boxarrApiKeyRevoke() {
 }
 
 function boxarrSignOutEverywhere() {
-    const current = boxarrSecurityCurrentPassword();
-    if (!current) return Promise.resolve();
+    const proof = boxarrSecurityProof();
+    if (!proof) return Promise.resolve();
     if (!window.confirm('Sign out every browser and device? This one stays signed in.')) {
         return Promise.resolve();
     }
-    return boxarrSecurityRequest('sessions/revoke-all', 'POST', { current_password: current }).then(function(result) {
+    return boxarrSecurityRequest('sessions/revoke-all', 'POST', proof).then(function(result) {
         const data = result.data;
         if (!result.ok || !data || !data.success) {
             boxarrSecurityMessage(boxarrSecurityFailure(data, result.status, 'Could not sign out everywhere'), 'error');

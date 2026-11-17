@@ -141,8 +141,9 @@ def _swagger_ui_html(openapi_url: str, title: str) -> HTMLResponse:
 
 
 # Who sees the whole health body: anyone while authentication is off, a
-# signed-in session or an API key while it is on (amendment A13).
-_FULL_HEALTH_PRINCIPALS = frozenset({"open", "session", "apikey"})
+# signed-in session or an API key while it is on (amendment A13), and under
+# external a request through the trusted proxy.
+_FULL_HEALTH_PRINCIPALS = frozenset({"open", "session", "apikey", "proxy"})
 
 
 def _load_auth_runtime() -> AuthRuntime:

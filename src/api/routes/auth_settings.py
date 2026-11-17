@@ -10,6 +10,9 @@
   mode and session lengths.
 - ``POST /api/auth/api-key`` creates or regenerates the API key, shown in
   that answer only; ``DELETE /api/auth/api-key`` revokes it.
+- ``POST /api/auth/widget-token`` makes the widget token (design §3.6), or
+  a new one: the old one stops working at once. It answers with the
+  widgets' embed URLs, which carry it.
 - ``POST /api/auth/sessions/revoke-all`` signs out everywhere: a new
   credential generation ends every session, and the caller gets a new one.
 - ``POST /api/auth/keep-open`` is the banner's "Keep it open" (A5): it stores
@@ -23,7 +26,10 @@ Shared rules:
 - An API key never gets here: the middleware answers 403 on /api/auth/*.
 - While forms is in effect every change needs a session plus the current
   password, checked through the login throttle. A wrong one is a 403 - not
-  the 401 that tells app.js the session has run out.
+  the 401 that tells app.js the session has run out. Under external the
+  ``proxy`` principal (a request through a trusted proxy) stands in for the
+  session, and the current password is asked for when one is stored
+  (design §3.3.7); "Sign out everywhere" has no sessions to end there.
 - Every write goes through ``AuthRuntime.update_auth_file()``: decided under
   the write lock against auth.json as it is then, never anything that would
   lock the instance, written 0600 and applied at once.
@@ -34,7 +40,7 @@ import hmac
 import json
 import unicodedata
 from dataclasses import replace
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
@@ -56,11 +62,17 @@ from ..auth.manage import (
     Kind,
     SettingsPlan,
     apply_plan,
+    external_lockout,
+    finish_widget_token,
     new_api_key,
+    new_widget_token,
     parse_settings,
+    password_stored,
     plan_settings,
     security_view,
     set_by,
+    setting_label,
+    widget_embed_paths,
 )
 from ..auth.middleware import AUTH_SCOPE_KEY, cookie_names, session_tokens
 from ..auth.passwords import HashFormatError, hash_password, verify_password
@@ -90,6 +102,11 @@ CHOICE_MADE_MESSAGE = (
     "A choice is already saved. Change it in Settings → Security instead."
 )
 SESSION_NEEDED_MESSAGE = "Sign in to change the security settings."
+PROXY_NEEDED_MESSAGE = "Open Boxarr through your proxy to change the security settings."
+NO_SESSIONS_MESSAGE = (
+    "Your reverse proxy signs people in (External): Boxarr keeps no sign-ins "
+    "of its own to end. Sign out in your proxy instead."
+)
 SECURE_OVER_HTTP_MESSAGE = (
     "This page is plain http, so a sign-in cookie marked Secure would never "
     "come back and you could not stay signed in. Open Boxarr over https "
@@ -99,6 +116,12 @@ SECURE_OVER_HTTP_ENV_MESSAGE = (
     "This page is plain http, so a sign-in cookie marked Secure would never "
     "come back and you could not stay signed in. Open Boxarr over https "
     "first, or set {variable}=auto and restart Boxarr."
+)
+WIDGETS_PUBLIC_MESSAGE = (
+    "The widgets are public, so they need no token. Switch them to token " "first."
+)
+WIDGET_TOKEN_CREATED_MESSAGE = (
+    " The widgets now need their token: their embed URLs are under Widgets."
 )
 KEY_NOTE = (
     "Copy it now: it will not be shown again. Send it in the X-Api-Key "
@@ -155,12 +178,32 @@ def _principal(request: Request) -> Optional[str]:
 
 
 def _require_access(request: Request, state: AuthState) -> None:
-    """While forms is in effect only a session gets here (the middleware
-    sees to that; this holds even if it did not)."""
-    if state.mode not in (Mode.UNSET, Mode.NONE, Mode.FORMS):
+    """While forms is in effect only a session gets here, under external
+    only a request through a trusted proxy (the middleware sees to that;
+    this holds even if it did not)."""
+    if state.mode not in (Mode.UNSET, Mode.NONE, Mode.FORMS, Mode.EXTERNAL):
         raise ChangeRefused(503, "Boxarr is locked.")
     if state.mode == Mode.FORMS and _principal(request) != "session":
         raise ChangeRefused(403, SESSION_NEEDED_MESSAGE)
+    if state.mode == Mode.EXTERNAL and _principal(request) != "proxy":
+        raise ChangeRefused(403, PROXY_NEEDED_MESSAGE)
+
+
+async def _confirm(
+    runtime: AuthRuntime, request: Request, state: AuthState, password: Any
+) -> None:
+    """The current password, where one is needed: always under forms, under
+    external only when one is stored (else the proxy alone)."""
+    if state.mode == Mode.EXTERNAL and not password_stored(state):
+        return
+    await _check_password(
+        runtime,
+        request,
+        state.username,
+        password,
+        state.password_hash,
+        state.env_password,
+    )
 
 
 def _same_text(given: str, expected: str) -> bool:
@@ -198,12 +241,15 @@ async def _check_password(
     if attempt is None:
         raise _Throttled(wait or 1)
     try:
-        if stored_hash is not None:
+        # A password from the environment wins over a stored hash, as every
+        # variable wins over Settings: under external it is never stored, and
+        # the stored hash may be whoever set sign-in up in Settings (#151).
+        if plain is not None:
+            ok = _same_text(password, plain.get_secret_value())
+        elif stored_hash is not None:
             ok = await runtime.run_hash(
                 verify_password, password, stored_hash.get_secret_value()
             )
-        elif plain is not None:
-            ok = _same_text(password, plain.get_secret_value())
         else:
             ok = False
     except HashBusy:
@@ -302,7 +348,7 @@ def _base(found: AuthFileResult, current: AuthState, runtime: AuthRuntime) -> Au
     if found.state == FileState.VALID and found.auth is not None:
         return found.auth
     return AuthFile(
-        method=Mode.FORMS,
+        method=current.mode if current.mode == Mode.EXTERNAL else Mode.FORMS,
         instance_id=runtime.instance_id,
         credential_generation=current.credential_generation,
     )
@@ -311,18 +357,41 @@ def _base(found: AuthFileResult, current: AuthState, runtime: AuthRuntime) -> Au
 def _settings_message(plan: SettingsPlan, runtime: AuthRuntime) -> str:
     if plan.kind == Kind.FIRST_ENABLE:
         return "Sign-in is on, and this browser is signed in."
+    if plan.switching_method and plan.method == Mode.EXTERNAL:
+        return (
+            "Your reverse proxy now signs people in (External): Boxarr lets in "
+            "the requests that come through a trusted proxy and refuses every "
+            "other one, except the API key, the widgets and the health check. "
+            "Every Boxarr sign-in was ended."
+        )
+    if plan.switching_method:
+        return "Boxarr's own sign-in is back on, and this browser is signed in."
     if plan.switching_off:
         return (
-            "Sign-in is off: anyone who can reach Boxarr can use it. Turning "
-            "it on again starts over, with a new API key."
+            "Sign-in is off: anyone who can reach Boxarr can use it. Its "
+            "username, password, API key, widget token and settings were "
+            "cleared: turning it on again starts over, with a new API key."
         )
     if plan.kind == Kind.ENV_NONE:
+        started_over = (
+            " It starts over with these credentials: the API key, the widget "
+            "token, the trusted proxies and the other security settings saved "
+            "before were removed (make a new API key once you are signed in)."
+            if plan.starts_over
+            else ""
+        )
         return (
-            f"Saved to {runtime.paths.auth_file}. BOXARR_AUTH_METHOD=none keeps "
-            "sign-in off until you remove it and restart Boxarr."
+            f"Saved to {runtime.paths.auth_file}.{started_over} "
+            "BOXARR_AUTH_METHOD=none keeps sign-in off until you remove it and "
+            "restart Boxarr."
         )
     if plan.kind == Kind.OFF:
         return "Saved. Sign-in stays off."
+    if plan.credentials_changed and runtime.state.mode == Mode.EXTERNAL:
+        # Under External the proxy signs people in: no session ends here.
+        if plan.new_password is not None:
+            return "Saved. Settings → Security asks for the new password from now on."
+        return "Security settings saved."
     if plan.credentials_changed:
         return (
             "Saved. Every other browser and device was signed out; this one "
@@ -331,17 +400,28 @@ def _settings_message(plan: SettingsPlan, runtime: AuthRuntime) -> str:
     return "Security settings saved."
 
 
-def _log_settings(plan: SettingsPlan) -> None:
+def _log_settings(plan: SettingsPlan, token_made: bool = False) -> None:
     """Say what changed - names only, never a value."""
     if plan.kind == Kind.FIRST_ENABLE:
         logger.info(
             "Authentication: sign-in turned on in Settings → Security (forms)%s",
             "; an API key was created" if plan.generate_key else "",
         )
+    elif plan.switching_method:
+        logger.info(
+            "Authentication: sign-in switched to %s in Settings → Security; "
+            "every session was signed out",
+            plan.method,
+        )
     elif plan.switching_off:
         logger.info(
             "Authentication: sign-in turned off in Settings → Security; every "
             "session was signed out"
+        )
+    elif plan.starts_over:
+        logger.info(
+            "Authentication: new credentials saved under BOXARR_AUTH_METHOD=none; "
+            "auth.json started over (no API key, widget token or trusted proxies)"
         )
     elif plan.credentials_changed:
         logger.info(
@@ -353,6 +433,8 @@ def _log_settings(plan: SettingsPlan) -> None:
         logger.info(
             "Authentication: changed in Settings → Security: %s", ", ".join(changed)
         )
+    if token_made:
+        logger.info("Authentication: a widget token was created")
 
 
 @router.get("/api/auth/status", include_in_schema=False)
@@ -385,6 +467,9 @@ async def _save_settings(runtime: AuthRuntime, request: Request) -> JSONResponse
     fields = parse_settings(await _read_json(request, SETTINGS_MAX_BYTES))
     stored = _stored(runtime)
     plan = plan_settings(env, state, stored, fields)
+    shut_out = external_lockout(plan, request.scope, env)
+    if shut_out:
+        raise ChangeRefused(400, shut_out, plan.external_field)
     if _loses_secure_cookie(plan, runtime, stored, request):
         variable = set_by(env, "cookie_secure")
         raise ChangeRefused(
@@ -400,14 +485,7 @@ async def _save_settings(runtime: AuthRuntime, request: Request) -> JSONResponse
     remember = True  # A2: "keep me signed in" is the default
     current_password = fields.get("current_password")
     if plan.kind == Kind.IN_EFFECT:
-        await _check_password(
-            runtime,
-            request,
-            state.username,
-            current_password,
-            state.password_hash,
-            state.env_password,
-        )
+        await _confirm(runtime, request, state, current_password)
         remember = _caller_remember(runtime, request, state)
     elif plan.env_password_proof:
         # S3: sign-in is off, so there is no "current" password: the one
@@ -445,6 +523,10 @@ async def _save_settings(runtime: AuthRuntime, request: Request) -> JSONResponse
     key_record = None
     if plan.generate_key:
         key, key_record = new_api_key()
+    # Used only if the widgets need a token and have none (decided under
+    # the lock, against auth.json as it is then).
+    widget_token = new_widget_token()
+    token_made: List[bool] = []
     # A new auth.json keeps the id the cookie is already named after.
     instance_id = runtime.instance_id
 
@@ -453,13 +535,13 @@ async def _save_settings(runtime: AuthRuntime, request: Request) -> JSONResponse
             raise ChangeRefused(409, CHANGED_MESSAGE)
         if found.state == FileState.VALID:
             base: Optional[AuthFile] = found.auth
-        elif current.mode == Mode.FORMS:
+        elif current.mode in (Mode.FORMS, Mode.EXTERNAL):
             # Sign-in by environment, auth.json gone: keep the generation in
             # effect, so the caller's session survives a non-credential save.
             base = _base(found, current, runtime)
         else:
             base = None
-        return apply_plan(
+        candidate = apply_plan(
             plan,
             base,
             instance_id=instance_id,
@@ -468,14 +550,21 @@ async def _save_settings(runtime: AuthRuntime, request: Request) -> JSONResponse
             password_source=password_source,
             api_key=key_record,
         )
+        candidate, made = finish_widget_token(candidate, env, plan, widget_token)
+        token_made[:] = [made]
+        return candidate
 
     new_state = await runtime.update_auth_file(decide)
-    _log_settings(plan)
+    made = bool(token_made and token_made[0])
+    _log_settings(plan, made)
 
+    message = _settings_message(plan, runtime)
+    if made:
+        message += WIDGET_TOKEN_CREATED_MESSAGE
     content: Dict[str, Any] = {
         "success": True,
         "method": new_state.mode,
-        "message": _settings_message(plan, runtime),
+        "message": message,
         "warnings": list(plan.warnings),
         "signed_in": False,
     }
@@ -489,7 +578,7 @@ async def _save_settings(runtime: AuthRuntime, request: Request) -> JSONResponse
                 "path": cookie_path(_root(request)),
                 "secure": session[2],
             }
-    elif plan.switching_off:
+    elif plan.ends_sessions:
         runtime.sessions.revoke_all()
     if key is not None and key_record is not None:
         content["api_key"] = key
@@ -500,7 +589,7 @@ async def _save_settings(runtime: AuthRuntime, request: Request) -> JSONResponse
     if session is not None:
         token, max_age, secure = session
         _set_session_cookie(response, request, runtime, token, max_age, secure)
-    if plan.switching_off:
+    if plan.ends_sessions:
         plain, secure_name = cookie_names(runtime.instance_id)
         path = cookie_path(_root(request))
         _expire(response, plain, path, secure=False)
@@ -509,33 +598,29 @@ async def _save_settings(runtime: AuthRuntime, request: Request) -> JSONResponse
 
 
 async def _key_preamble(
-    request: Request,
+    request: Request, setting: str = "api_key"
 ) -> Tuple[AuthRuntime, AuthState]:
-    """What creating, regenerating and revoking the key need first: sign-in
-    on, a session, a key the environment does not set, the current
-    password."""
+    """What creating, regenerating and revoking the key (or, with
+    ``setting``, the widget token) need first: sign-in on, a session, a
+    value the environment does not set, the current password."""
     runtime = _runtime(request)
     state = runtime.state
     _require_access(request, state)
-    if state.mode != Mode.FORMS:
+    if state.mode not in (Mode.FORMS, Mode.EXTERNAL):
         raise ChangeRefused(409, NOT_ON_MESSAGE)
-    variable = set_by(runtime.env, "api_key")
+    variable = set_by(runtime.env, setting)
     if variable:
         raise ChangeRefused(
             400,
-            f"The API key is set by {variable}: change it there and restart Boxarr.",
+            f"{setting_label(setting)} is set by {variable}: change it there and "
+            "restart Boxarr.",
         )
+    if setting == "widget_token" and state.widgets != "token":
+        raise ChangeRefused(409, WIDGETS_PUBLIC_MESSAGE)
     data = await _read_json(request, SMALL_BODY_MAX_BYTES)
     if not isinstance(data, dict) or set(data) - {"current_password"}:
         raise ChangeRefused(400, "Send only the current password.")
-    await _check_password(
-        runtime,
-        request,
-        state.username,
-        data.get("current_password"),
-        state.password_hash,
-        state.env_password,
-    )
+    await _confirm(runtime, request, state, data.get("current_password"))
     return runtime, state
 
 
@@ -602,6 +687,41 @@ async def revoke_api_key(request: Request) -> JSONResponse:
     )
 
 
+@router.post("/api/auth/widget-token", include_in_schema=False)
+async def regenerate_widget_token(request: Request) -> JSONResponse:
+    """Make the widget token, or a new one; answer with the embed URLs."""
+    try:
+        runtime, state = await _key_preamble(request, "widget_token")
+        replacing = state.widget_token is not None
+        token = new_widget_token()
+
+        def decide(found: AuthFileResult, current: AuthState) -> AuthFile:
+            _expect(current, state)
+            base = _base(found, current, runtime)
+            return replace(base, widget_token=SecretStr(token), updated_at=utc_now())
+
+        new_state = await runtime.update_auth_file(decide)
+    except ChangeRefused as exc:
+        return _refused(exc)
+    logger.info(
+        "Authentication: the widget token was %s in Settings → Security",
+        "regenerated" if replacing else "created",
+    )
+    return _json(
+        200,
+        {
+            "success": True,
+            "message": (
+                "A new widget token replaces the old one, which no longer works: "
+                "update the embed URL wherever it is used."
+                if replacing
+                else "Widget token created."
+            ),
+            "embed": widget_embed_paths(new_state, _root(request)),
+        },
+    )
+
+
 @router.post("/api/auth/sessions/revoke-all", include_in_schema=False)
 async def revoke_all_sessions(request: Request) -> JSONResponse:
     """Sign out everywhere: a new credential generation ends every session;
@@ -610,6 +730,8 @@ async def revoke_all_sessions(request: Request) -> JSONResponse:
     try:
         state = runtime.state
         _require_access(request, state)
+        if state.mode == Mode.EXTERNAL:
+            raise ChangeRefused(409, NO_SESSIONS_MESSAGE)
         if state.mode != Mode.FORMS:
             raise ChangeRefused(409, NOT_ON_MESSAGE)
         data = await _read_json(request, SMALL_BODY_MAX_BYTES)

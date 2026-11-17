@@ -3,8 +3,9 @@
 Every 503 says "Fix what the log names", so the log must name it: each
 reason is logged as an ERROR before the "Authentication is locked" line,
 naming variables and files, never a value. The reasons point only to fixes
-that work while Boxarr is locked, and external (part 3 of #151) locks with
-its own reason, logged too.
+that work while Boxarr is locked. External without a trusted proxy locks
+naming BOXARR_AUTH_TRUSTED_PROXIES (amendment A7); with one, it starts and
+says which addresses it lets in.
 """
 
 import json
@@ -107,9 +108,13 @@ def test_forms_without_credentials_points_to_a_fix_that_works_while_locked(
         assert "or one in Settings" not in reason
 
 
-@pytest.mark.parametrize("proxies", [None, "10.0.0.1"])
-def test_external_locks_saying_it_is_not_available(tmp_path, caplog, proxies):
-    environ = {"BOXARR_AUTH_METHOD": "external"}
+@pytest.mark.parametrize("proxies", [None, "*", "0.0.0.0/0"])
+def test_external_without_a_trusted_proxy_locks_naming_the_variable(
+    tmp_path, caplog, proxies
+):
+    """A7: the reason names the problem and the fix - and never sends the
+    owner to FORWARDED_ALLOW_IPS, which external does not read."""
+    environ = {"BOXARR_AUTH_METHOD": "external", "FORWARDED_ALLOW_IPS": "*"}
     if proxies:
         environ["BOXARR_AUTH_TRUSTED_PROXIES"] = proxies
 
@@ -117,30 +122,63 @@ def test_external_locks_saying_it_is_not_available(tmp_path, caplog, proxies):
 
     assert runtime.state.mode == Mode.LOCKED
     (reason,) = runtime.state.reasons
-    assert "BOXARR_AUTH_METHOD=external is not available" in reason
-    assert "TRUSTED_PROXIES" not in reason  # no detour through a proxy list
-    _assert_named_before_the_locked_line(errors, "external is not available")
-
-
-def test_external_in_auth_json_locks_naming_the_file(tmp_path, caplog):
-    (tmp_path / "auth.json").write_text(
-        json.dumps(
-            {
-                "version": 1,
-                "method": "external",
-                "trusted_proxies": ["10.0.0.1"],
-                "username": FAKE_USERNAME,
-                "password_hash": cheap_hash(FAKE_PASSWORD),
-            }
-        )
+    assert reason.startswith(
+        "BOXARR_AUTH_METHOD=external needs BOXARR_AUTH_TRUSTED_PROXIES"
     )
+    assert "FORWARDED_ALLOW_IPS does not count" in reason or "never *" in reason
+    _assert_named_before_the_locked_line(errors, "external needs")
+    assert errors.count(f"Authentication: {reason}") == 1
+
+
+def test_external_with_a_trusted_proxy_starts_and_names_it(tmp_path, caplog):
+    runtime, errors = _start(
+        tmp_path,
+        caplog,
+        {
+            "BOXARR_AUTH_METHOD": "external",
+            "BOXARR_AUTH_TRUSTED_PROXIES": "10.0.0.1, 192.0.2.0/24",
+        },
+    )
+
+    assert runtime.state.mode == Mode.EXTERNAL
+    assert errors == []
+    infos = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO]
+    assert any(
+        "external" in m and "10.0.0.1/32, 192.0.2.0/24" in m for m in infos
+    ), infos
+
+
+def _external_file(tmp_path, **changes) -> None:
+    data = {
+        "version": 1,
+        "method": "external",
+        "username": FAKE_USERNAME,
+        "password_hash": cheap_hash(FAKE_PASSWORD),
+    }
+    data.update(changes)
+    (tmp_path / "auth.json").write_text(json.dumps(data))
+
+
+def test_external_in_auth_json_without_a_proxy_locks_naming_the_file(tmp_path, caplog):
+    _external_file(tmp_path)
 
     runtime, errors = _start(tmp_path, caplog, {})
 
     assert runtime.state.mode == Mode.LOCKED
     (reason,) = runtime.state.reasons
     assert str(tmp_path / "auth.json") in reason and "external" in reason
+    assert "BOXARR_AUTH_TRUSTED_PROXIES" in reason and "--auth-reset" in reason
     _assert_named_before_the_locked_line(errors, str(tmp_path / "auth.json"))
+    assert FAKE_USERNAME not in caplog.text
+
+
+def test_external_in_auth_json_with_a_proxy_starts(tmp_path, caplog):
+    _external_file(tmp_path, trusted_proxies=["10.0.0.1"])
+
+    runtime, errors = _start(tmp_path, caplog, {})
+
+    assert runtime.state.mode == Mode.EXTERNAL
+    assert errors == []
     assert FAKE_USERNAME not in caplog.text
 
 

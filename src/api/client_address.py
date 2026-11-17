@@ -18,7 +18,8 @@ Two answers, kept apart (#151, amendment A1).
    from that peer with ``resolve_strict()``: ``X-Forwarded-For`` walked right
    to left, trusting only an explicit ``BOXARR_AUTH_TRUSTED_PROXIES`` (or
    auth.json) list, never ``*``, ``0.0.0.0/0`` or ``::/0``, and never
-   ``FORWARDED_ALLOW_IPS``. Nothing uses it yet.
+   ``FORWARDED_ALLOW_IPS``. The External method asks ``trusted_peer()``
+   whether the connection itself comes from one of those proxies.
 """
 
 import ipaddress
@@ -191,6 +192,9 @@ class ProxyListProblems(NamedTuple):
     broad: List[str]  # IPv4 shorter than /24, IPv6 shorter than /64: warn
 
 
+_IPV4_MAPPED = ipaddress.IPv6Network("::ffff:0:0/96")
+
+
 def _parse_network(entry: str) -> Optional[IPNetwork]:
     if entry.startswith("[") and entry.endswith("]"):
         entry = entry[1:-1]
@@ -204,6 +208,13 @@ def _parse_network(entry: str) -> Optional[IPNetwork]:
             network = ipaddress.ip_network(address)
     except ValueError:
         return None
+    if isinstance(network, ipaddress.IPv6Network) and network.subnet_of(_IPV4_MAPPED):
+        # Every peer is unmapped to IPv4 (parse_ip), so an IPv4-mapped
+        # network could never match one: it means its IPv4 network, and the
+        # floors below judge it as one (::ffff:0:0/96 is 0.0.0.0/0).
+        mapped = network.network_address.ipv4_mapped
+        if mapped is not None:  # always, inside ::ffff:0:0/96
+            return ipaddress.IPv4Network(f"{mapped}/{network.prefixlen - 96}")
     return network
 
 
@@ -235,6 +246,13 @@ def parse_trusted_proxies(
         position += 1
         if entry == "*":
             problems.refused.append(f"entry {position} is *, which trusts anyone")
+            continue
+        if "%" in entry:
+            # An IPv6 zone (fe80::1%eth0) takes any text, newlines included,
+            # and a peer address never carries one: refused, never logged.
+            problems.invalid.append(
+                f"entry {position} has a zone (%), which no proxy needs"
+            )
             continue
         network = _parse_network(entry)
         if network is None:
@@ -344,6 +362,26 @@ def resolve_strict(
             else:
                 scheme = proto
     return StrictClient(str(client_address), scheme, str(peer_address))
+
+
+def trusted_peer(scope: Scope, trusted: TrustedProxies) -> Optional[str]:
+    """Return the socket peer's address if it is on ``trusted``, else None.
+
+    For the External method (#151, design §3.2.1): only the connection's own
+    other end counts - ``scope["boxarr.peer"]``, recorded before any proxy
+    header is read. Never ``scope["client"]``, which uvicorn's proxy-header
+    layers rewrite from ``X-Forwarded-For`` (with ``FORWARDED_ALLOW_IPS=*``,
+    from whatever the client sent), and never any header: X-Forwarded-For,
+    X-Real-IP, Forwarded, Remote-User and their kin cannot make a request
+    come from a proxy. A peer that is not an IP address is never trusted.
+    """
+    peer = scope.get(PEER_SCOPE_KEY)
+    if not isinstance(peer, SocketPeer):
+        return None
+    address = parse_ip(peer.host)
+    if address is None or address not in trusted:
+        return None
+    return str(address)
 
 
 def strict_client(scope: Scope, trusted: TrustedProxies) -> StrictClient:

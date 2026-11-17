@@ -83,7 +83,7 @@ def _plan(env, stored, body):
 @pytest.mark.parametrize(
     "body, field",
     [
-        ({"method": "external"}, "method"),
+        ({"method": "basic"}, "method"),
         ({"method": 1}, "method"),
         ({"username": 5}, "username"),
         ({"username": "a" * 65}, "username"),
@@ -335,14 +335,53 @@ def test_a_new_file_takes_the_fresh_generation_and_the_given_id():
     assert written.credential_generation == 1_800_000_000
 
 
-def test_an_existing_file_counts_on_and_keeps_its_id():
-    stored = _forms_file()
+def test_switching_off_counts_on_keeps_the_id_and_nothing_else():
+    """A stored none starts over, as --auth-reset does: nothing in it may
+    outlive sign-in into a later one turned on by environment."""
+    from src.api.auth.config import ApiKeyRecord
+
+    stored = _forms_file(
+        api_key=ApiKeyRecord(sha256_hex("bxk_fake"), "fake", "2026-11-16T00:00:00Z"),
+        widgets="token",
+        widget_token=SecretStr("bxw_" + "fake" * 8),
+        trusted_proxies=("10.0.0.1",),
+        cookie_secure="never",
+        session_hours=168,
+        remember_days=7,
+    )
     plan = _plan(_env(), stored, {"method": "none", "current_password": "x"})
 
     written = apply_plan(plan, stored, instance_id="feedf00d", fresh_generation=1)
 
+    assert plan.drops_access
     assert written.credential_generation == 6 and written.instance_id == "0badc0de"
-    assert written.username == USERNAME and written.password_hash is not None
+    assert written.method == Mode.NONE
+    empty = AuthFile(method=Mode.NONE)
+    for name in (
+        "username",
+        "password_hash",
+        "password_source",
+        "api_key",
+        "widgets",
+        "widget_token",
+        "trusted_proxies",
+        "cookie_secure",
+        "session_hours",
+        "remember_days",
+    ):
+        assert getattr(written, name) == getattr(empty, name), name
+
+
+def test_an_off_saved_where_no_file_is_holds_nothing_either():
+    plan = _plan(_env(method="none"), None, {"method": "none", "username": "x"})
+
+    written = apply_plan(
+        plan, None, instance_id="feedf00d", fresh_generation=1_800_000_000
+    )
+
+    assert written.method == Mode.NONE and written.username is None
+    assert written.instance_id == "feedf00d"
+    assert written.credential_generation == 1_800_000_000
 
 
 def _planted_none_file() -> AuthFile:

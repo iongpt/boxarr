@@ -21,7 +21,8 @@ import pytest
 from starlette.staticfiles import StaticFiles
 
 from src.api.app import create_app
-from src.api.auth.middleware import PUBLIC_ROUTES
+from src.api.auth.middleware import PUBLIC_ROUTES, AuthMiddleware, request_class
+from src.api.client_address import SocketPeer
 from tests.auth_support import (
     API_KEY,
     Answer,
@@ -342,23 +343,204 @@ def test_widgets_in_token_mode_are_denied_in_their_own_format(forms_app):
     assert with_key.status == 200
 
 
-def test_external_is_not_offered_yet_and_fails_closed(forms_app):
-    app, _ = forms_app("", method="external", TRUSTED_PROXIES="192.0.2.10")
-    # Locked, with that reason: the trusted peer does not pass as a proxy.
-    assert app.state.auth_runtime.state.mode == "locked"
+WIDGET_TOKEN = "bxw_fakeWidgetTokenForTests0123"
 
-    page, api, health = call_all(
+
+@pytest.mark.parametrize("url_base", URL_BASES)
+@pytest.mark.parametrize("token", [True, False], ids=["with-token", "without"])
+def test_in_token_mode_the_token_opens_the_widget_gets_and_nothing_else(
+    forms_app, url_base, token
+):
+    """Design §3.6: the widget token is the one credential read from a URL,
+    and it grants GET on the two widget routes only. Every route and method
+    is asked with it (and without it): the widgets answer only with it,
+    everything else exactly as when no token is sent."""
+    app, root = forms_app(url_base, widgets="token", widget_token=WIDGET_TOKEN)
+    query = f"token={WIDGET_TOKEN}".encode() if token else b""
+    cases = _route_cases(app)
+
+    requests, labels = [], []
+    for route_path_, concrete_path in cases:
+        for method in METHODS:
+            requests.append((raw_scope(method, root + concrete_path, query=query), b""))
+            labels.append((route_path_, concrete_path, method))
+    answers = call_all(app, requests)
+
+    passed = set()
+    for (route_path_, concrete_path, method), answer in zip(labels, answers):
+        widget_get = method == "GET" and concrete_path in (
+            "/api/widget",
+            "/api/widget/json",
+        )
+        if _expected_public(concrete_path, method) and not widget_get:
+            assert answer.status not in DENIED | {503}, (concrete_path, method)
+            passed.add((route_path_, method))
+        elif widget_get and token:
+            assert answer.status == 200, (concrete_path, answer.body[:200])
+            assert answer.scope["boxarr.auth"]["kind"] == "widget"
+            passed.add((route_path_, method))
+        else:
+            _assert_denied(answer, (concrete_path, method))
+            if widget_get:
+                assert answer.status == 401  # never a redirect
+                assert answer.header("access-control-allow-origin") == "*"
+
+    expected = {
+        ("/api/health", "GET"),
+        ("/static", "GET"),
+        ("/static", "HEAD"),
+        ("/login", "GET"),
+        ("/api/auth/login", "POST"),
+        ("/api/auth/logout", "POST"),
+    }
+    if token:
+        expected |= {("/api/widget", "GET"), ("/api/widget/json", "GET")}
+    assert passed == expected
+
+
+PROXY = "192.0.2.10"
+# What a client that is not the proxy sends to pass for it, or for a user.
+SPOOFED = [
+    (b"x-forwarded-for", PROXY.encode()),
+    (b"x-real-ip", PROXY.encode()),
+    (b"forwarded", f"for={PROXY};proto=https".encode()),
+    (b"x-forwarded-proto", b"https"),
+    (b"remote-user", b"owner"),
+    (b"x-forwarded-user", b"owner"),
+    (b"x-remote-user", b"owner"),
+]
+
+
+@pytest.mark.parametrize("url_base", URL_BASES)
+def test_under_external_every_other_peer_gets_only_the_public_routes(
+    forms_app, url_base
+):
+    """Design §3.2.1 (D2): a peer that is not a trusted proxy - whatever
+    headers it sends to look like one - gets health, static files and the
+    public widgets; every other route and method is refused before routing,
+    403 and never the login page (external has none)."""
+    app, root = forms_app(url_base, method="external", TRUSTED_PROXIES=PROXY)
+    assert app.state.auth_runtime.state.mode == "external"
+    cases = _route_cases(app)
+
+    requests, labels = [], []
+    for route_path_, concrete_path in cases:
+        for method in METHODS:
+            scope = raw_scope(method, root + concrete_path, headers=SPOOFED)
+            requests.append((scope, b""))
+            labels.append((route_path_, concrete_path, method))
+    answers = call_all(app, requests)
+
+    passed = set()
+    for (route_path_, concrete_path, method), answer in zip(labels, answers):
+        widget_get = method == "GET" and concrete_path in WIDGETS
+        always = (concrete_path == "/api/health" and method == "GET") or (
+            concrete_path.startswith("/static/") and method in ("GET", "HEAD")
+        )
+        if always or widget_get:
+            assert answer.status not in DENIED | {503}, (concrete_path, method)
+            assert answer.scope["boxarr.auth"]["kind"] == "anonymous"
+            passed.add((route_path_, method))
+            continue
+        assert answer.endpoint is None, (concrete_path, method)
+        assert answer.header("cache-control") == "no-store"
+        assert answer.header("location") is None
+        kind = request_class(concrete_path, method)
+        if kind == "widget":
+            # HEAD on a widget: its own 401, as under forms, never a page.
+            assert answer.status == 401, (concrete_path, method)
+            assert answer.header("access-control-allow-origin") == "*"
+            continue
+        assert answer.status == 403, (concrete_path, method, answer.status)
+        assert answer.header("x-boxarr-auth") == "proxy-required"
+        if kind == "page":
+            assert b"Open Boxarr through your proxy" in answer.body
+            assert b"203.0.113.9" in answer.body  # the real peer, not the header
+        else:
+            assert json.loads(answer.body)["success"] is False
+
+    assert passed == {
+        ("/api/health", "GET"),
+        ("/static", "GET"),
+        ("/static", "HEAD"),
+        ("/api/widget", "GET"),
+        ("/api/widget/json", "GET"),
+    }
+    # Health from that peer: the minimal body (amendment A13).
+    (health,) = call_all(app, [(raw_scope("GET", root + "/api/health"), b"")])
+    assert health.body == b'{"status":"healthy"}'
+
+
+WIDGETS = ("/api/widget", "/api/widget/json")
+
+
+@pytest.mark.parametrize("url_base", URL_BASES)
+@pytest.mark.parametrize("peer", [PROXY, "::ffff:" + PROXY])
+def test_under_external_the_trusted_proxy_passes_on_every_route(
+    forms_app, url_base, peer
+):
+    """The socket peer on the list - IPv4-mapped too - is the ``proxy``
+    principal on every route and method, deny-by-default included: the
+    decision is asked directly, so no handler runs."""
+    app, root = forms_app(url_base, method="external", TRUSTED_PROXIES=PROXY)
+    runtime = app.state.auth_runtime
+    middleware = AuthMiddleware(app)
+
+    for route_path_, concrete_path in _route_cases(app) + [("/nope", "/nope")]:
+        for method in METHODS:
+            scope = raw_scope(method, root + concrete_path)
+            scope["root_path"] = root
+            # As recorded, or still mapped: trusted_peer() unmaps it too.
+            scope["boxarr.peer"] = SocketPeer(peer, 1, "http")
+            decision = middleware._decide(runtime, scope)
+            if concrete_path.startswith("/static/") and method in ("GET", "HEAD"):
+                assert decision.auth["kind"] == "anonymous"
+                continue
+            assert decision.response is None, (concrete_path, method)
+            assert decision.auth == {
+                "kind": "proxy",
+                "mode": "external",
+                "username": None,
+            }, (concrete_path, method)
+
+
+def test_under_external_the_peer_is_the_connection_and_nothing_else(forms_app):
+    """Through the whole stack: an IPv4-mapped peer is unmapped and passes,
+    a CIDR list covers its network, and the address a header names never
+    counts - neither for a stranger naming the proxy, nor for the proxy
+    naming a stranger."""
+    app, _ = forms_app("", method="external", TRUSTED_PROXIES="192.0.2.0/24")
+
+    mapped, in_net, outside, proxy_naming_client = call_all(
         app,
         [
-            (raw_scope("GET", "/setup", client=("192.0.2.10", 1)), b""),
-            (raw_scope("GET", "/api/config", client=("192.0.2.10", 1)), b""),
-            (raw_scope("GET", "/api/health"), b""),
+            (raw_scope("GET", "/api/config", client=("::ffff:192.0.2.77", 1)), b""),
+            (raw_scope("GET", "/api/config", client=("192.0.2.200", 1)), b""),
+            (
+                raw_scope(
+                    "GET",
+                    "/api/config",
+                    client=("192.0.3.1", 1),
+                    headers=[(b"x-forwarded-for", b"192.0.2.77")],
+                ),
+                b"",
+            ),
+            (
+                raw_scope(
+                    "GET",
+                    "/api/config",
+                    client=("192.0.2.77", 1),
+                    headers=[(b"x-forwarded-for", b"198.51.100.4")],
+                ),
+                b"",
+            ),
         ],
     )
 
-    assert page.status == 503 and b"not available in this version" in page.body
-    assert api.status == 503
-    assert health.status == 200
+    for answer in (mapped, in_net, proxy_naming_client):
+        assert answer.status == 200, answer.body[:200]
+        assert answer.scope["boxarr.auth"]["kind"] == "proxy"
+    assert outside.status == 403 and outside.endpoint is None
 
 
 # Settings → Security (#151 PR 5): none of these is on the allowlist.
@@ -368,6 +550,7 @@ SECURITY_ROUTES = [
     ("POST", "/api/auth/settings", "save_settings"),
     ("POST", "/api/auth/api-key", "create_api_key"),
     ("DELETE", "/api/auth/api-key", "revoke_api_key"),
+    ("POST", "/api/auth/widget-token", "regenerate_widget_token"),
     ("POST", "/api/auth/sessions/revoke-all", "revoke_all_sessions"),
     ("POST", "/api/auth/keep-open", "keep_open"),
 ]
@@ -432,4 +615,41 @@ def test_the_security_routes_take_a_session_and_nothing_else(forms_app, url_base
         assert _endpoint_name(s) == handler, (method, path, s.status)
         assert s.status not in (401, 302), (method, path, s.body[:200])
         for answer in (a, k, s):
+            assert answer.header("cache-control") == "no-store", (method, path)
+
+
+@pytest.mark.parametrize("url_base", URL_BASES)
+def test_under_external_the_security_routes_take_the_proxy_and_nothing_else(
+    forms_app, url_base
+):
+    """Another peer: 403 before routing. An API key, even through the proxy:
+    403 before routing (MF4). The proxy: the handler runs."""
+    app, root = forms_app(url_base, method="external", TRUSTED_PROXIES=PROXY)
+    json_type = (b"content-type", b"application/json")
+    key = (b"x-api-key", API_KEY.encode("ascii"))
+
+    def requests(client, extra):
+        return [
+            (
+                raw_scope(
+                    method, root + path, headers=[json_type, *extra], client=client
+                ),
+                b"{}",
+            )
+            for method, path, _ in SECURITY_ROUTES
+        ]
+
+    stranger = call_all(app, requests(("203.0.113.9", 1), SPOOFED))
+    keyed = call_all(app, requests((PROXY, 1), [key]))
+    proxied = call_all(app, requests((PROXY, 1), []))
+
+    for (method, path, handler), a, k, p in zip(
+        SECURITY_ROUTES, stranger, keyed, proxied
+    ):
+        assert (a.status, a.endpoint) == (403, None), (method, path)
+        assert a.header("x-boxarr-auth") == "proxy-required"
+        assert (k.status, k.endpoint) == (403, None), (method, path)
+        assert _endpoint_name(p) == handler, (method, path, p.status)
+        assert p.status not in (401, 302), (method, path, p.body[:200])
+        for answer in (a, k, p):
             assert answer.header("cache-control") == "no-store", (method, path)

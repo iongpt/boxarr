@@ -177,6 +177,104 @@ def test_a_state_reader_that_raises_answers_503_never_pass_through(
     assert ws.close_code == 1008
 
 
+def test_a_widget_token_does_not_get_past_a_state_reader_that_raises(
+    monkeypatch, tmp_path
+):
+    """Token mode (#151 group C): the token is checked inside the auth
+    layer, so a failure to read the state answers 503 to it as to anything
+    else - never the widget."""
+    token = "bxw_fakeWidgetTokenForTests0123"
+    auth_env(monkeypatch, tmp_path, widgets="token", widget_token=token)
+    app = create_app()
+    monkeypatch.setattr(AuthRuntime, "state", property(_raise))
+
+    answers = call_all(
+        app,
+        [
+            (raw_scope("GET", path, query=f"token={token}".encode()), b"")
+            for path in ("/api/widget", "/api/widget/json")
+        ],
+    )
+
+    for answer in answers:
+        assert answer.status == 503
+        assert answer.endpoint is None
+        assert answer.header("x-boxarr-auth") == "locked"
+
+
+def test_external_trusts_the_recorded_peer_not_the_client_the_proxy_layers_rewrite(
+    monkeypatch, tmp_path
+):
+    """External (#151 group C, design §3.2.1): with FORWARDED_ALLOW_IPS=*,
+    uvicorn's proxy-header layer - which runs before auth - rewrites
+    scope["client"] to whatever X-Forwarded-For says. Auth reads the peer
+    PeerRecorder kept from before it, so a stranger naming the proxy is
+    refused, and the proxy itself passes whatever client it names."""
+    proxy = "192.0.2.10"
+    auth_env(monkeypatch, tmp_path, method="external", TRUSTED_PROXIES=proxy)
+    monkeypatch.setenv("FORWARDED_ALLOW_IPS", "*")
+    app = create_app()
+
+    spoofed, proxied = call_all(
+        app,
+        [
+            (
+                raw_scope(
+                    "GET",
+                    "/api/config",
+                    client=("203.0.113.9", 1),
+                    headers=[(b"x-forwarded-for", proxy.encode())],
+                ),
+                b"",
+            ),
+            (
+                raw_scope(
+                    "GET",
+                    "/api/config",
+                    client=(proxy, 1),
+                    headers=[(b"x-forwarded-for", b"198.51.100.4")],
+                ),
+                b"",
+            ),
+        ],
+    )
+
+    # The rewrite happened, as it always did: the client is the header's.
+    assert spoofed.scope["client"][0] == proxy
+    assert spoofed.scope["boxarr.peer"].host == "203.0.113.9"
+    assert spoofed.status == 403 and spoofed.endpoint is None
+    assert spoofed.header("x-boxarr-auth") == "proxy-required"
+    assert proxied.scope["client"][0] == "198.51.100.4"
+    assert proxied.status == 200
+    assert proxied.scope["boxarr.auth"]["kind"] == "proxy"
+
+
+def test_the_trusted_proxy_does_not_get_past_a_state_reader_that_raises(
+    monkeypatch, tmp_path
+):
+    """External: the peer is checked inside the auth layer, so a failure to
+    read the state answers 503 to the proxy as to anyone - never a pass."""
+    proxy = "192.0.2.10"
+    auth_env(monkeypatch, tmp_path, method="external", TRUSTED_PROXIES=proxy)
+    app = create_app()
+    assert app.state.auth_runtime.state.mode == "external"
+    monkeypatch.setattr(AuthRuntime, "state", property(_raise))
+
+    page, api, health = call_all(
+        app,
+        [
+            (raw_scope("GET", "/setup", client=(proxy, 1)), b""),
+            (raw_scope("GET", "/api/config", client=(proxy, 1)), b""),
+            (raw_scope("GET", "/api/health", client=(proxy, 1)), b""),
+        ],
+    )
+
+    for answer in (page, api):
+        assert answer.status == 503 and answer.endpoint is None
+        assert answer.header("x-boxarr-auth") == "locked"
+    assert health.status == 200 and health.body == b'{"status":"healthy"}'
+
+
 def test_an_off_state_reader_that_raises_still_answers_503(monkeypatch, tmp_path):
     """Even with no authentication configured: a failure is not 'open'."""
     clear_auth_env(monkeypatch)

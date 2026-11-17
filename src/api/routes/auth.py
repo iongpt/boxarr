@@ -47,6 +47,10 @@ NO_STORE = {"Cache-Control": "no-store"}
 FAILED_MESSAGE = "Invalid username or password"
 BAD_REQUEST_MESSAGE = "Send the username and password as a JSON object."
 NOT_ENABLED_MESSAGE = "Sign-in is not enabled: authentication is off."
+EXTERNAL_MESSAGE = (
+    "Your reverse proxy signs people in (External): Boxarr has no sign-in of "
+    "its own."
+)
 BUSY_MESSAGE = "Boxarr is busy checking other sign-ins. Try again in a moment."
 
 
@@ -223,7 +227,10 @@ async def login(request: Request) -> JSONResponse:
     if state.mode == Mode.LOCKED:  # pragma: no cover - the middleware answers
         return _json(503, {"success": False, "message": "Boxarr is locked."})
     if state.mode != Mode.FORMS:
-        return _json(409, {"success": False, "message": NOT_ENABLED_MESSAGE})
+        message = (
+            EXTERNAL_MESSAGE if state.mode == Mode.EXTERNAL else NOT_ENABLED_MESSAGE
+        )
+        return _json(409, {"success": False, "message": message})
 
     client = strict_client(request.scope, state.trusted_proxies).client
     throttle = runtime.throttle

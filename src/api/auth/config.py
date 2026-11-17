@@ -17,8 +17,6 @@ The files live in ``Path(os.getenv("BOXARR_DATA_DIRECTORY", "config"))``,
 resolved independently of any YAML (amendment A9), so a broken settings file
 cannot move them: ``/config`` in Docker, ``./config`` for a manual install
 without the variable.
-
-Nothing reads this module during a request yet.
 """
 
 import filecmp
@@ -77,6 +75,7 @@ ENV_PASSWORD_HASH = "BOXARR_AUTH_PASSWORD_HASH"
 ENV_API_KEY_FILE = "BOXARR_AUTH_API_KEY_FILE"
 ENV_API_KEY = "BOXARR_AUTH_API_KEY"
 ENV_WIDGETS = "BOXARR_AUTH_WIDGETS"
+ENV_WIDGET_TOKEN = "BOXARR_AUTH_WIDGET_TOKEN"
 ENV_TRUSTED_PROXIES = "BOXARR_AUTH_TRUSTED_PROXIES"
 ENV_COOKIE_SECURE = "BOXARR_AUTH_COOKIE_SECURE"
 ENV_SESSION_HOURS = "BOXARR_AUTH_SESSION_HOURS"
@@ -91,6 +90,7 @@ ENV_VARIABLES = (
     ENV_API_KEY_FILE,
     ENV_API_KEY,
     ENV_WIDGETS,
+    ENV_WIDGET_TOKEN,
     ENV_TRUSTED_PROXIES,
     ENV_COOKIE_SECURE,
     ENV_SESSION_HOURS,
@@ -104,6 +104,7 @@ _INSTANCE_ID = re.compile(r"[0-9a-f]{8,32}")
 _SHA256_HEX = re.compile(r"[0-9a-f]{64}")
 _KEY_HINT = re.compile(r"[A-Za-z0-9_-]{0,8}")
 _WIDGET_TOKEN = re.compile(r"bxw_[A-Za-z0-9_-]{16,128}")
+WIDGET_TOKEN_PREFIX = "bxw_"
 _PRINTABLE_ASCII = re.compile(r"[\x21-\x7e]+")
 
 _LOGGED_KEY_LIMIT = 40
@@ -165,6 +166,9 @@ class EnvAuthConfig:
     api_key_sha256: Optional[str] = None  # the key itself is never kept
     api_key_variable: Optional[str] = None
     widgets: Optional[str] = None
+    # The widget token (design §3.6): a read-only credential for the two
+    # widget routes, shown in Settings so its embed URL can be copied.
+    widget_token: Optional[SecretStr] = None
     trusted_proxies: Optional[TrustedProxies] = None
     cookie_secure: Optional[str] = None
     session_hours: Optional[int] = None
@@ -349,6 +353,16 @@ def parse_env(environ: Mapping[str, str] = os.environ) -> EnvAuthConfig:
                 api_key_sha256 = sha256_hex(key)
 
     widgets = _enum(environ, ENV_WIDGETS, WIDGET_MODES, errors)
+    widget_token: Optional[SecretStr] = None
+    raw_widget_token = _env_value(environ, ENV_WIDGET_TOKEN)
+    if raw_widget_token is not None:
+        if _WIDGET_TOKEN.fullmatch(raw_widget_token.strip()):
+            widget_token = SecretStr(raw_widget_token.strip())
+        else:
+            errors.append(
+                f"{ENV_WIDGET_TOKEN} must be {WIDGET_TOKEN_PREFIX} followed by 16 "
+                "to 128 letters, digits, - or _"
+            )
     cookie_secure = _enum(environ, ENV_COOKIE_SECURE, COOKIE_SECURE_MODES, errors)
     session_hours = _int(
         environ, ENV_SESSION_HOURS, SESSION_HOURS_MIN, SESSION_HOURS_MAX, errors
@@ -379,6 +393,7 @@ def parse_env(environ: Mapping[str, str] = os.environ) -> EnvAuthConfig:
         api_key_sha256=api_key_sha256,
         api_key_variable=api_key_variable,
         widgets=widgets,
+        widget_token=widget_token,
         trusted_proxies=trusted,
         cookie_secure=cookie_secure,
         session_hours=session_hours,
@@ -902,7 +917,49 @@ def _pick(
     return default
 
 
-def resolve_state(env: EnvAuthConfig, file: AuthFileResult) -> AuthState:
+def _external_reason(sources: Mapping[str, str], auth_file: Optional[Path]) -> str:
+    """Why external locks: it has no trusted proxy to let requests in through.
+
+    Names where the method came from and the variable that fixes it (A7),
+    never a value. FORWARDED_ALLOW_IPS is not read for authentication, so
+    the message says it does not count.
+    """
+    if sources.get("method") == "env":
+        lead = f"{ENV_METHOD}=external needs {ENV_TRUSTED_PROXIES}"
+        other = (
+            f"or set {ENV_METHOD}=forms with a username and a password, or "
+            f"{ENV_METHOD}=none"
+        )
+    else:
+        lead = (
+            f"{auth_file or AUTH_FILE_NAME} says method external, which needs "
+            f"{ENV_TRUSTED_PROXIES}"
+        )
+        other = "or run python -m src.main --auth-reset"
+    if sources.get("trusted_proxies") == "default":
+        problem = (
+            ": set it to your reverse proxy's address and restart Boxarr "
+            "(FORWARDED_ALLOW_IPS does not count)"
+        )
+    else:
+        # Set, but nothing in it can be trusted (*, /0, a network broader
+        # than /8 or /16 - each logged as refused - or an empty list).
+        where = (
+            ENV_TRUSTED_PROXIES
+            if sources.get("trusted_proxies") == "env"
+            else f"trusted_proxies in {auth_file or AUTH_FILE_NAME}"
+        )
+        problem = (
+            f": {where} names no address Boxarr will trust (never *, /0 or a "
+            "network broader than /8 or /16); set it to your reverse proxy's "
+            "address and restart Boxarr"
+        )
+    return f"{lead}{problem}, {other}"
+
+
+def resolve_state(
+    env: EnvAuthConfig, file: AuthFileResult, auth_file: Optional[Path] = None
+) -> AuthState:
     """Combine the environment and auth.json into the effective state.
 
     1. An explicit BOXARR_AUTH_METHOD=none: open, whatever else is wrong.
@@ -915,7 +972,9 @@ def resolve_state(env: EnvAuthConfig, file: AuthFileResult) -> AuthState:
        open, and the credential variables it overrides are named in
        ``ignored_variables``, which log_findings() reports as an error.
     5. forms needs a username and a password; external needs an explicit
-       trusted-proxy list. Without them: locked.
+       trusted-proxy list (BOXARR_AUTH_TRUSTED_PROXIES or auth.json's, never
+       FORWARDED_ALLOW_IPS) that trusts at least one address. Without them:
+       locked, never open. ``auth_file`` names auth.json in that reason.
     """
     if env.method_none:
         return AuthState(mode=Mode.NONE, sources={"method": "env"})
@@ -931,6 +990,9 @@ def resolve_state(env: EnvAuthConfig, file: AuthFileResult) -> AuthState:
     method = _pick(
         env.method, stored.method if stored else None, None, "method", sources
     )
+    # Sign-in credentials only. BOXARR_AUTH_WIDGET_TOKEN, like
+    # BOXARR_AUTH_WIDGETS, only narrows what sign-in opens once it is on:
+    # without a method it locks nothing and is not reported as ignored.
     credentials = [
         name
         for name in (ENV_USERNAME, *_PASSWORD_VARIABLES, *_API_KEY_VARIABLES)
@@ -970,6 +1032,13 @@ def resolve_state(env: EnvAuthConfig, file: AuthFileResult) -> AuthState:
     )
     widgets = _pick(
         env.widgets, stored.widgets if stored else None, "public", "widgets", sources
+    )
+    widget_token = _pick(
+        env.widget_token,
+        stored.widget_token if stored else None,
+        None,
+        "widget_token",
+        sources,
     )
     cookie_secure = _pick(
         env.cookie_secure,
@@ -1011,7 +1080,7 @@ def resolve_state(env: EnvAuthConfig, file: AuthFileResult) -> AuthState:
         env_password=env.password,
         api_key_sha256=api_key_sha256,
         widgets=widgets,
-        widget_token=stored.widget_token if stored else None,
+        widget_token=widget_token,
         trusted_proxies=trusted,
         trusted_proxies_explicit=explicit,
         cookie_secure=cookie_secure,
@@ -1041,7 +1110,7 @@ def resolve_state(env: EnvAuthConfig, file: AuthFileResult) -> AuthState:
                 f"forms needs a password: set {ENV_PASSWORD_FILE}, {via_settings}"
             )
     elif method == Mode.EXTERNAL and not (explicit and trusted):
-        reasons.append(f"external needs the proxy's address in {ENV_TRUSTED_PROXIES}")
+        reasons.append(_external_reason(sources, auth_file))
     if reasons:
         return replace(state, mode=Mode.LOCKED, reasons=tuple(reasons))
     return state
@@ -1096,6 +1165,6 @@ def load_state(
     paths = paths or auth_paths()
     env = parse_env(environ)
     file = load_auth_file(paths.auth_file)
-    state = resolve_state(env, file)
+    state = resolve_state(env, file, paths.auth_file)
     log_findings(env, file, state)
     return state

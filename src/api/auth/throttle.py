@@ -54,6 +54,9 @@ class CredentialKind(Enum):
     PASSWORD = "password"  # a login or a current-password check: counts
     API_KEY = "api_key"  # never counts
     WIDGET_TOKEN = "widget_token"  # never counts
+    # Not a credential: a connection from an address that is not a trusted
+    # proxy, under the External method. Logged like a bad key, never counted.
+    UNTRUSTED_PEER = "untrusted_peer"
 
 
 def client_key(client: Optional[str]) -> str:
@@ -283,9 +286,17 @@ class LoginThrottle:
         self._last_hint = now
         return key
 
-    def should_log_bad_key(self, client: Optional[str]) -> bool:
-        """Whether to log a bad API key from ``client``: once per 10 minutes."""
+    def should_log_bad_key(
+        self,
+        client: Optional[str],
+        kind: CredentialKind = CredentialKind.API_KEY,
+    ) -> bool:
+        """Whether to log a bad API key (or, with ``kind``, a bad widget
+        token or a refused peer) from ``client``: once per 10 minutes for
+        each."""
         key = client_key(client)
+        if kind is not CredentialKind.API_KEY:
+            key = f"{kind.value}:{key}"
         now = self._clock()
         with self._lock:
             last = self._bad_keys.get(key)

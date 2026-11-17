@@ -32,7 +32,7 @@ import os
 import threading
 import weakref
 from dataclasses import replace
-from typing import Any, Callable, Mapping, Optional, TypeVar
+from typing import Any, Callable, Mapping, Optional, Tuple, TypeVar
 
 import anyio
 import anyio.to_thread
@@ -43,6 +43,7 @@ from ...utils.logger import get_logger
 from .cli import _generation_after_everything
 from .config import (
     ENV_METHOD,
+    ENV_USERNAME,
     AuthFile,
     AuthFileResult,
     AuthPaths,
@@ -123,35 +124,84 @@ def auth_write_lock() -> asyncio.Lock:
         return lock
 
 
-def _external_unavailable(
-    env: EnvAuthConfig, found: AuthFileResult, state: AuthState, paths: AuthPaths
-) -> AuthState:
-    """Lock, naming why, when the method is external (#151, part 3 adds it).
+def _credential_variables(env: EnvAuthConfig) -> Tuple[str, ...]:
+    """The username and password variables set, by name."""
+    names = []
+    if env.username is not None:
+        names.append(ENV_USERNAME)
+    if env.password is not None or env.password_hash is not None:
+        names.append(env.password_variable or "the password variable")
+    return tuple(names)
 
-    Until then a method of external locks whatever else it has or lacks: a
-    reason about its proxy list would send the owner off to set one, only
-    to be told next that external is not offered at all.
-    """
-    if env.method_none or env.errors or found.state == FileState.LOCKED:
-        return state
-    if env.method is not None:
-        if env.method != Mode.EXTERNAL:
-            return state
-        reason = (
-            f"{ENV_METHOD}=external is not available in this version of Boxarr: "
-            f"set {ENV_METHOD}=forms (or none) and restart"
+
+def _settings_kept_under_external(
+    env: EnvAuthConfig, found: AuthFileResult, state: AuthState
+) -> Tuple[str, ...]:
+    """What auth.json, filled in Settings → Security, still decides while
+    external is in effect by BOXARR_AUTH_METHOD=external, or with credential
+    variables that do not change it: each item named, never a value (the
+    proxy addresses are settings, and the owner needs them to tell). A
+    Settings-only External setup with no such variable says nothing."""
+    if state.mode != Mode.EXTERNAL:
+        return ()
+    if env.method != Mode.EXTERNAL and not _credential_variables(env):
+        return ()
+    stored = found.auth if found.state == FileState.VALID else None
+    if stored is None:
+        return ()
+    held = []
+    if (
+        stored.password_hash is not None
+        and stored.password_source != "env"
+        and env.password is None
+        and env.password_hash is None
+    ):
+        held.append("a password")
+    if stored.api_key is not None and env.api_key_sha256 is None:
+        held.append("an API key")
+    if stored.widget_token and env.widget_token is None and state.widgets == "token":
+        held.append("the widget token")
+    if stored.trusted_proxies and env.trusted_proxies is None:
+        held.append("the trusted proxies (" + ", ".join(stored.trusted_proxies) + ")")
+    return tuple(held)
+
+
+def _warn_settings_kept_under_external(
+    env: EnvAuthConfig, found: AuthFileResult, state: AuthState
+) -> None:
+    """Name what still comes from Settings → Security under external (#151).
+    Whoever reached Boxarr while it was open may have set it up, and nothing
+    under external tells them from the owner moving their own setup to a
+    proxy: it is kept, and said at every start, with the way to clear it."""
+    held = _settings_kept_under_external(env, found, state)
+    if not held:
+        return
+    if env.method == Mode.EXTERNAL:
+        logger.warning(
+            "Authentication: BOXARR_AUTH_METHOD=external, and auth.json still "
+            "holds a sign-in set up in Settings → Security: %s. They still "
+            "apply. If you did not set them up, someone who reached Boxarr "
+            "while sign-in was off may have: run python -m src.main "
+            "--auth-reset (in Docker: docker exec boxarr python -m src.main "
+            "--auth-reset), keep BOXARR_AUTH_METHOD=external, set "
+            "BOXARR_AUTH_TRUSTED_PROXIES to your proxy's address, and restart "
+            "Boxarr.",
+            ", ".join(held),
         )
-    elif found.state == FileState.VALID and found.auth is not None:
-        if found.auth.method != Mode.EXTERNAL:
-            return state
-        reason = (
-            f"{paths.auth_file} says method external, which is not available "
-            f"in this version of Boxarr: set {ENV_METHOD}=none, restart Boxarr "
-            "and choose in Settings → Security"
-        )
-    else:
-        return state
-    return AuthState(mode=Mode.LOCKED, reasons=(reason,))
+        return
+    has_password = env.password is not None or env.password_hash is not None
+    logger.warning(
+        "Authentication: auth.json, set in Settings → Security, keeps sign-in "
+        "external, so %s %s not turn on Boxarr's login page, and %s still "
+        "apply. If you did not set it up, someone who reached Boxarr while "
+        "sign-in was off may have: set BOXARR_AUTH_METHOD=forms%s and restart "
+        "Boxarr, and auth.json starts over with %s.",
+        " and ".join(_credential_variables(env)),
+        "do" if len(_credential_variables(env)) > 1 else "does",
+        ", ".join(held),
+        "" if has_password else " and your own password in BOXARR_AUTH_PASSWORD_FILE",
+        "these credentials" if has_password else "that password",
+    )
 
 
 class AuthRuntime:
@@ -173,6 +223,9 @@ class AuthRuntime:
         # the hash of an env password then live for this process only.
         self._fallback_instance_id = new_instance_id()
         self._env_hash_override: Optional[SecretStr] = None
+        # Set when auth.json had to start over and could not be written: the
+        # instance stays locked until it restarts with a writable directory.
+        self._start_over_failed: Optional[str] = None
         self.throttle = LoginThrottle(trusted=lambda: self._state.trusted_proxies)
         self._hash_pending = 0
         self._hash_pending_guard = threading.Lock()
@@ -191,12 +244,22 @@ class AuthRuntime:
         paths = paths or AuthPaths.from_env(environ)
         env = parse_env(environ)
         found = load_auth_file(paths.auth_file)
-        state = _external_unavailable(env, found, resolve_state(env, found), paths)
+        state = resolve_state(env, found, paths.auth_file)
         log_findings(env, found, state)
         runtime = cls(paths, env, state)
         runtime._apply_env_password(found)
+        _warn_settings_kept_under_external(env, found, runtime.state)
         if runtime.state.mode == Mode.FORMS:
             logger.info("Authentication: sign-in required (forms)")
+        elif runtime.state.mode == Mode.EXTERNAL:
+            # The addresses are settings, not secrets: they say which
+            # connections pass, which is what an owner debugging a 403 needs.
+            logger.info(
+                "Authentication: external - requests whose connection comes from "
+                "a trusted proxy (%s) pass; any other address gets only the API "
+                "key, the widgets and the health check",
+                ", ".join(str(n) for n in runtime.state.trusted_proxies.networks),
+            )
         return runtime
 
     @classmethod
@@ -218,10 +281,10 @@ class AuthRuntime:
 
         The environment is not read again: it is fixed for the process.
         """
+        if self._start_over_failed is not None:
+            return self._state
         found = load_auth_file(self.paths.auth_file)
-        state = _external_unavailable(
-            self.env, found, resolve_state(self.env, found), self.paths
-        )
+        state = resolve_state(self.env, found, self.paths.auth_file)
         if self._env_hash_override is not None and self.env.password is not None:
             state = replace(state, password_hash=self._env_hash_override)
         if state.mode == Mode.LOCKED:
@@ -257,20 +320,45 @@ class AuthRuntime:
                 stored_hash.encode("ascii", "replace"),
                 new_hash.encode("ascii", "replace"),
             ):
+                self._adopt_env_password(found)
                 return
         else:
             plain = env.password.get_secret_value() if env.password else ""
             if stored_hash is not None:
                 try:
                     if verify_password(plain, stored_hash):
+                        self._adopt_env_password(found)
                         return
                 except HashFormatError:
                     pass
             new_hash = hash_password(plain)
 
+        cleared: Tuple[str, ...] = ()
         if stored is not None:
             generation = stored.credential_generation + 1
             base = stored
+            if stored.password_hash is not None and stored.password_source != "env":
+                # A password set in Settings → Security is replaced from the
+                # environment. Whoever set it may be whoever reached Boxarr
+                # while it was open, and the API key, the widget token and the
+                # trusted proxies made under it would outlive it: start over,
+                # as the first enable does, keeping only the instance id. A
+                # password the environment had set before is the owner's own
+                # rotation, and keeps the rest. A file with no password holds
+                # nothing a stranger could have made: Settings turns sign-in
+                # on only with a password, and removes it only by turning
+                # sign-in off, which clears the rest too. Such a file is the
+                # owner's (saved under BOXARR_AUTH_METHOD), and is kept.
+                cleared = tuple(
+                    name
+                    for name, value in (
+                        ("the API key", stored.api_key),
+                        ("the widget token", stored.widget_token),
+                        ("the trusted proxies", stored.trusted_proxies),
+                    )
+                    if value
+                )
+                base = AuthFile(method=Mode.FORMS, instance_id=stored.instance_id)
         else:
             # Nothing to count from: start past any generation a leftover
             # sessions file could name.
@@ -287,9 +375,25 @@ class AuthRuntime:
             credential_generation=generation,
             updated_at=utc_now(),
         )
+        starting_over = stored is not None and base is not stored
         try:
             save_auth_file(self.paths.auth_file, updated)
         except OSError as exc:
+            if starting_over:
+                # What was set in Settings must not stay in effect next to
+                # the owner's password: locked until auth.json can start over.
+                reason = (
+                    f"the password from {env.password_variable} replaces the one "
+                    f"set in Settings → Security, so {self.paths.auth_file} must "
+                    f"start over, but it could not be written "
+                    f"({type(exc).__name__}): make its directory writable and "
+                    f"restart Boxarr"
+                )
+                logger.error("Authentication: %s", reason)
+                self._start_over_failed = reason
+                self._state = AuthState(mode=Mode.LOCKED, reasons=(reason,))
+                self.sessions.revoke_all()
+                return
             logger.warning(
                 "Authentication: could not write %s (%s): the password from %s "
                 "applies until Boxarr restarts",
@@ -311,6 +415,40 @@ class AuthRuntime:
             "signed out",
             env.password_variable,
         )
+        if starting_over:
+            logger.warning(
+                "Authentication: the password from %s replaces the one set in "
+                "Settings → Security, so %s started over: %s and every setting "
+                "saved there were cleared. Sign in as %s%s; create a new API key "
+                "in Settings → Security if you use one.",
+                env.password_variable,
+                self.paths.auth_file,
+                ", ".join(cleared) if cleared else "the sign-in settings",
+                state.username,
+                (
+                    ""
+                    if env.username is not None
+                    else f" (set {ENV_USERNAME} to choose another username)"
+                ),
+            )
+        self.reload()
+
+    def _adopt_env_password(self, found: AuthFileResult) -> None:
+        """The stored password is the one the environment holds: mark it as
+        the environment's, so that a new password there later is the owner
+        rotating their own and keeps the rest. Nothing else changes: no new
+        generation, no one signed out. A file that cannot be written is
+        tried again at the next start."""
+        stored = found.auth if found.state == FileState.VALID else None
+        if stored is None or stored.password_source == "env":
+            return
+        try:
+            save_auth_file(
+                self.paths.auth_file,
+                replace(stored, password_source="env", updated_at=utc_now()),
+            )
+        except OSError:
+            return
         self.reload()
 
     # ------------------------------------------------------------ sessions
@@ -358,7 +496,7 @@ class AuthRuntime:
         """
         async with auth_write_lock():
             found = load_auth_file(self.paths.auth_file)
-            current = resolve_state(self.env, found)
+            current = resolve_state(self.env, found, self.paths.auth_file)
             candidate = decide(found, current)
             text = serialize_auth_file(candidate)
             self._check_candidate(text)
@@ -389,13 +527,7 @@ class AuthRuntime:
             # What the file will mean once BOXARR_AUTH_METHOD=none goes (the
             # variables it overrides are judged then, by their own errors).
             env = replace(env, method=None, errors=())
-        would = resolve_state(env, checked)
-        if would.mode == Mode.EXTERNAL:
-            raise ChangeRefused(
-                400,
-                "External sign-in is not available in this version of Boxarr.",
-                "method",
-            )
+        would = resolve_state(env, checked, self.paths.auth_file)
         if would.mode == Mode.LOCKED:
             raise ChangeRefused(
                 400,
