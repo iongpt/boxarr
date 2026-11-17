@@ -265,6 +265,19 @@ def the_remedy_for_a_username_over_a_stored_external(
     return app
 
 
+def env_forms_over_an_external_without_a_password(
+    boxarr, stranger: Stranger, monkeypatch=None
+):
+    """A stored External with no password (the stranger's proxy list, key
+    and token): the owner's password from the environment takes over, and
+    auth.json starts over all the same."""
+    _switch_to_external(stranger)
+    stored = _stored(stranger.data)
+    stored.pop("password_hash")
+    (stranger.data / "auth.json").write_text(json.dumps(stored))
+    return env_forms_by_password(boxarr, stranger)
+
+
 def the_owner_moves_their_password_then_rotates_it(
     boxarr, stranger: Stranger, monkeypatch=None
 ):
@@ -347,6 +360,7 @@ ROWS = [
     (the_remedy_for_env_external, {**_taken_back("external"), "proxy trusted": False}),
     (the_remedy_for_credentials_over_a_stored_external, _taken_back("forms")),
     (the_remedy_for_a_username_over_a_stored_external, _taken_back("forms")),
+    (env_forms_over_an_external_without_a_password, _taken_back("forms")),
     (the_same_password_by_a_new_hash, _taken_back("forms")),
     *[
         (
@@ -519,7 +533,7 @@ def test_a_username_alone_over_a_stored_external_asks_for_a_password_too(
     with caplog.at_level(logging.WARNING):
         boxarr("unset", username=OWNER)
 
-    assert "BOXARR_AUTH_USERNAME do not turn on Boxarr's login page" in caplog.text
+    assert "BOXARR_AUTH_USERNAME does not turn on Boxarr's login page" in caplog.text
     assert (
         "set BOXARR_AUTH_METHOD=forms and your own password in "
         "BOXARR_AUTH_PASSWORD_FILE and restart Boxarr, and auth.json starts over "
