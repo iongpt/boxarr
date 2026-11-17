@@ -763,6 +763,30 @@ def load_auth_file(path: Path, *, copy_broken: bool = True) -> AuthFileResult:
     )
 
 
+def parse_auth_text(text: str) -> AuthFileResult:
+    """Read auth.json text as load_auth_file() reads the file, without one.
+
+    For a write that must never leave a file the loader would refuse: the
+    text is checked before it replaces auth.json. No message quotes a value.
+    """
+    refusals: List[str] = []
+    warnings: List[str] = []
+    try:
+        data = json.loads(
+            text,
+            object_pairs_hook=_reject_duplicates,
+            parse_constant=_reject_constant,
+        )
+        auth = _parse_auth_data(data, refusals, warnings)
+    except _Invalid as exc:
+        return AuthFileResult(FileState.LOCKED, problem=f"it would not be valid: {exc}")
+    except (ValueError, RecursionError):
+        return AuthFileResult(FileState.LOCKED, problem="it would not be valid JSON")
+    return AuthFileResult(
+        FileState.VALID, auth=auth, refusals=tuple(refusals), warnings=tuple(warnings)
+    )
+
+
 def new_instance_id() -> str:
     """Return a fresh instance id: 8 random hex digits."""
     return secrets.token_hex(4)
@@ -1001,20 +1025,23 @@ def resolve_state(env: EnvAuthConfig, file: AuthFileResult) -> AuthState:
     )
 
     reasons: List[str] = []
+    # Settings cannot be opened while Boxarr is locked: the way there is
+    # BOXARR_AUTH_METHOD=none and a restart.
+    via_settings = (
+        f"or set {ENV_METHOD}=none, restart Boxarr and choose one in "
+        "Settings → Security"
+    )
     if method == Mode.FORMS:
         if username is None:
             reasons.append(
-                f"forms needs a username: set {ENV_USERNAME} or one in Settings"
+                f"forms needs a username: set {ENV_USERNAME}, {via_settings}"
             )
         if password_hash is None and env.password is None:
             reasons.append(
-                f"forms needs a password: set {ENV_PASSWORD_FILE} or one in Settings"
+                f"forms needs a password: set {ENV_PASSWORD_FILE}, {via_settings}"
             )
     elif method == Mode.EXTERNAL and not (explicit and trusted):
-        reasons.append(
-            f"external needs the proxy's address in {ENV_TRUSTED_PROXIES} "
-            "or in Settings"
-        )
+        reasons.append(f"external needs the proxy's address in {ENV_TRUSTED_PROXIES}")
     if reasons:
         return replace(state, mode=Mode.LOCKED, reasons=tuple(reasons))
     return state
@@ -1042,6 +1069,15 @@ def log_findings(env: EnvAuthConfig, file: AuthFileResult, state: AuthState) -> 
             ENV_METHOD,
         )
     if state.mode == Mode.LOCKED:
+        # The reasons resolve_state() found itself (a credential variable
+        # without a method, forms without a username...): nothing above
+        # names them yet.
+        logged = set(env.errors)
+        if file.state == FileState.LOCKED and file.problem:
+            logged.add(file.problem)
+        for reason in state.reasons:
+            if reason not in logged:
+                logger.error("Authentication: %s", reason)
         logger.error(
             "Authentication is locked: only /api/health and static files answer. "
             "Fix the problem above, or set %s=none and restart.",

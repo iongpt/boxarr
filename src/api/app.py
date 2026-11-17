@@ -16,10 +16,14 @@ from ..core.scheduler import BoxarrScheduler
 from ..utils.config import settings
 from ..utils.logger import get_logger, set_access_log_root_path
 from ..utils.route_path import route_path
+from .auth.middleware import AUTH_SCOPE_KEY, AuthMiddleware
+from .auth.runtime import AuthRuntime
 from .client_address import install_proxy_headers
 from .health import RadarrHealthCheck
 from .routes import (
     admin_router,
+    auth_router,
+    auth_settings_router,
     boxoffice_router,
     config_router,
     movies_router,
@@ -136,6 +140,28 @@ def _swagger_ui_html(openapi_url: str, title: str) -> HTMLResponse:
     return HTMLResponse(html)
 
 
+# Who sees the whole health body: anyone while authentication is off, a
+# signed-in session or an API key while it is on (amendment A13).
+_FULL_HEALTH_PRINCIPALS = frozenset({"open", "session", "apikey"})
+
+
+def _load_auth_runtime() -> AuthRuntime:
+    """Resolve the authentication state once, before the first request.
+
+    A failure to read it at all locks the instance (503 but for the health
+    check and static files): it never leaves Boxarr open.
+    """
+    try:
+        return AuthRuntime.start()
+    except Exception as exc:
+        logger.error(
+            "Authentication settings could not be loaded (%s): Boxarr is locked; "
+            "only /api/health and static files answer",
+            type(exc).__name__,
+        )
+        return AuthRuntime.unreadable()
+
+
 def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
     """
     Create and configure the FastAPI application.
@@ -162,6 +188,10 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
         redoc_url="/api/redoc",
     )
 
+    # The BOXARR_AUTH_* variables and auth.json, resolved now: requests are
+    # checked against this from the first one on (#151).
+    app.state.auth_runtime = _load_auth_runtime()
+
     @app.get("/api/docs", include_in_schema=False)
     async def swagger_ui(request: Request) -> HTMLResponse:
         """Serve the interactive API docs (what FastAPI's docs_url would)."""
@@ -169,6 +199,12 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
         return _swagger_ui_html(
             openapi_url=prefix + app.openapi_url, title=f"{app.title} - Swagger UI"
         )
+
+    # Innermost of the middleware, right in front of the router: deny by
+    # default while authentication is in effect (#151). Everything added
+    # below runs before it - the cross-site guard included, so a forged
+    # cross-site login or logout is refused before it reaches auth.
+    app.add_middleware(AuthMiddleware)
 
     # Add ProxyHeadersMiddleware to handle reverse proxy headers
     # Note: Remove trusted_hosts parameter for better security
@@ -227,6 +263,8 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
     app.include_router(boxoffice_router)
     app.include_router(movies_router)
     app.include_router(scheduler_router)
+    app.include_router(auth_router)
+    app.include_router(auth_settings_router)
     app.include_router(web_router)
 
     # Store scheduler instance if provided
@@ -258,13 +296,23 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
             scheduler.stop()
             logger.info("Scheduler stopped")
 
+        # Sessions' last_seen is flushed at most every 5 minutes: write the rest.
+        app.state.auth_runtime.flush()
+
     # Radarr's status comes from a check that runs off the event loop and is
     # reused for a while: a hung Radarr must not make the healthcheck hang (#138)
     app.state.radarr_health = RadarrHealthCheck()
 
     @app.get("/api/health")
-    async def health_check():
+    async def health_check(request: Request):
         """Simple health check endpoint."""
+        # The docstring above is the OpenAPI description: kept as it was, so
+        # openapi.json does not change (#151). This answers 200 in every
+        # state, locked included; while authentication is on, a caller that
+        # is not signed in learns nothing but that.
+        auth = request.scope.get(AUTH_SCOPE_KEY) or {}
+        if auth.get("kind") not in _FULL_HEALTH_PRINCIPALS:
+            return {"status": "healthy"}
         radarr_connected = await app.state.radarr_health.connected()
 
         return {

@@ -18,6 +18,7 @@ import uvicorn
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from src.api.app import create_app
+from src.api.auth.middleware import AuthMiddleware
 from src.api.client_address import (
     PEER_SCOPE_KEY,
     PeerRecorder,
@@ -105,7 +106,8 @@ def test_reading_the_list_leaves_logging_alone():
 
 
 def test_create_app_orders_the_layers(monkeypatch):
-    """Request order: recorder, uvicorn's (server list), guard, app-level."""
+    """Request order: recorder, uvicorn's (server list), guard, app-level,
+    then authentication, right in front of the router."""
     monkeypatch.setenv("FORWARDED_ALLOW_IPS", "192.0.2.10")
 
     middleware = [(m.cls, m.kwargs) for m in create_app().user_middleware]
@@ -115,6 +117,7 @@ def test_create_app_orders_the_layers(monkeypatch):
         (ProxyHeadersMiddleware, {"trusted_hosts": "192.0.2.10"}),
         (CrossSiteRequestGuard, {}),
         (ProxyHeadersMiddleware, {}),
+        (AuthMiddleware, {}),
     ]
 
 

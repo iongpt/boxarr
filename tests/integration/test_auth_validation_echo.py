@@ -7,7 +7,9 @@ as /api/auth/... the ``input`` member is dropped, and so is anything else that
 could quote what was sent: ``ctx``, a dict key deeper in ``loc``, and a
 message that is not constraint text. Other routes keep it all.
 
-No auth route exists yet, so the tests mount a stand-in one on a fresh app.
+The real auth routes parse their bodies by hand, so the tests mount a
+stand-in route with a pydantic body on a fresh app, at a path no real
+route uses (/api/auth/settings is one since Settings → Security).
 """
 
 import json
@@ -36,7 +38,7 @@ async def _accept(body: _Settings) -> dict:
 def _client(monkeypatch, base: str = "") -> TestClient:
     monkeypatch.setattr("src.api.app.settings.boxarr_url_base", base)
     app = create_app()
-    app.add_api_route("/api/auth/settings", _accept, methods=["POST"])
+    app.add_api_route("/api/auth/stand-in", _accept, methods=["POST"])
     app.add_api_route("/api/other/settings", _accept, methods=["POST"])
     return TestClient(app)
 
@@ -56,7 +58,7 @@ BAD_BODIES = {
 @pytest.mark.parametrize("case", ["missing-field", "wrong-type"])
 def test_auth_422_has_no_input(monkeypatch, base, prefixed, case):
     client = _client(monkeypatch, base)
-    path = (f"/{base}" if base and prefixed else "") + "/api/auth/settings"
+    path = (f"/{base}" if base and prefixed else "") + "/api/auth/stand-in"
 
     response = client.post(path, json=BAD_BODIES[case])
 
@@ -76,7 +78,7 @@ def test_auth_422_for_a_non_finite_number_still_answers(monkeypatch):
     )
 
     response = client.post(
-        "/api/auth/settings",
+        "/api/auth/stand-in",
         content=body,
         headers={"Content-Type": "application/json"},
     )

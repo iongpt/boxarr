@@ -15,7 +15,6 @@ import json
 import os
 import sys
 import time
-from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, Iterable, List, Mapping, TextIO
 
@@ -109,17 +108,21 @@ def auth_reset_command(
     out: TextIO = sys.stdout,
     err: TextIO = sys.stderr,
 ) -> int:
-    """Turn authentication off in auth.json and sign out every session."""
+    """Turn authentication off, clear what auth.json holds and sign out
+    every session."""
     paths = AuthPaths.from_env(environ)
     # Read before anything is written: the sessions file is emptied below.
     fresh_generation = _generation_after_everything(paths)
     found = load_auth_file(paths.auth_file)
     if found.state == FileState.VALID and found.auth is not None:
-        # Keep the rest (username, hash, key) for a later re-enable; a new
+        # A reset starts sign-in over: the username, the password hash, the
+        # API key, the widget token and every setting go, so nothing someone
+        # else set up survives into the owner's next enable (which makes a
+        # new key). The instance id (the cookie's name) stays, and a new
         # credential generation invalidates every session made before.
-        auth = replace(
-            found.auth,
+        auth = AuthFile(
             method="none",
+            instance_id=found.auth.instance_id,
             credential_generation=found.auth.credential_generation + 1,
             updated_at=utc_now(),
         )
@@ -150,9 +153,11 @@ def auth_reset_command(
         return 1
 
     out.write(
-        f"Authentication is off: {paths.auth_file} now says method none"
-        + (", and every session was signed out" if signed_out else "")
-        + ".\nRestart Boxarr to apply it.\n"
+        f"Authentication is off: {paths.auth_file} now says method none, and "
+        "its username, password, API key and settings were cleared"
+        + ("; every session was signed out" if signed_out else "")
+        + ".\nRestart Boxarr to apply it, then set sign-in up again in "
+        "Settings → Security.\n"
     )
     method = (environ.get(ENV_METHOD) or "").strip().lower()
     if method and method != "none":

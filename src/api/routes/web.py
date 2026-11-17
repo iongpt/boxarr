@@ -32,6 +32,8 @@ from ...utils.config import (
     settings,
 )
 from ...utils.logger import get_logger
+from ..auth.manage import banner_for, security_view
+from ..auth.runtime import AuthRuntime
 from .weekly_regions import (
     build_region_view,
     lead_region_tag,
@@ -80,8 +82,49 @@ def get_template_context(request: Request, **kwargs) -> dict:
         # Footer copyright year, read per request so it rolls over on 1 January.
         "current_year": _today().year,
     }
+    context.update(_auth_context(request))
     context.update(kwargs)
     return context
+
+
+def _auth_context(request: Request) -> dict:
+    """What the pages show about sign-in: the method in effect, who this
+    request is (``open``, ``session``, ``apikey`` or ``anonymous``) and, for
+    a session, the username. The logout control shows for a session only.
+
+    ``auth_banner`` is the banner base.html and setup.html show (A5, S3):
+    ``unset`` until a choice is saved, ``ignored`` while auth.json's none
+    overrides credential variables (named in ``auth_ignored_variables``).
+    It is read from the running state, which a save changes at once."""
+    scope = getattr(request, "scope", None)
+    auth = (scope.get("boxarr.auth") if isinstance(scope, dict) else None) or {}
+    principal = auth.get("kind")
+    runtime = _auth_runtime(request)
+    return {
+        "auth_method": auth.get("mode"),
+        "auth_principal": principal,
+        "auth_username": auth.get("username") if principal == "session" else None,
+        "auth_banner": banner_for(runtime.state) if runtime else None,
+        "auth_ignored_variables": (
+            list(runtime.state.ignored_variables) if runtime else []
+        ),
+        "auth_file": str(runtime.paths.auth_file) if runtime else "",
+    }
+
+
+def _auth_runtime(request: Request) -> Optional[AuthRuntime]:
+    """The app's AuthRuntime, or None for a page built without the app."""
+    scope = getattr(request, "scope", None)
+    app = scope.get("app") if isinstance(scope, dict) else None
+    runtime = getattr(getattr(app, "state", None), "auth_runtime", None)
+    return runtime if isinstance(runtime, AuthRuntime) else None
+
+
+def _security_context(request: Request) -> Optional[dict]:
+    """What Settings → Security shows (manage.security_view), or None for
+    a page built without the app."""
+    runtime = _auth_runtime(request)
+    return security_view(runtime, request.scope) if runtime else None
 
 
 class WeekInfo(BaseModel):
@@ -816,6 +859,9 @@ async def setup_page(request: Request):
             min_gross_max=f"{MIN_GROSS_MAX:.0f}",
             # URL base for reverse proxy support
             url_base=settings.boxarr_url_base,
+            # Settings → Security (#151): sign-in, the API key, sessions and
+            # where this request came from. Never a hash, key or token.
+            auth_security=_security_context(request),
         ),
     )
 

@@ -12,6 +12,11 @@
   client every 10 minutes instead.
 - There is no hard or global lockout. The throttle is consulted only before
   a password check, so a valid session or key is never blocked.
+- ``begin()`` checks and reserves in one step: the attempt counts as a
+  failure from the moment it is let through, so requests that arrive while
+  its scrypt runs are already held back (one check per backoff window, not
+  one per waiting request). ``succeeded()`` and ``cancel()`` take the
+  reservation back; ``failed()`` keeps it.
 
 The client is the strict one (client_address.resolve_strict); IPv6 clients
 are grouped by /64. Both tables are LRUs of 10,000 entries, in memory only:
@@ -25,7 +30,7 @@ import threading
 import time
 from collections import OrderedDict, deque
 from enum import Enum
-from typing import Callable, Deque, Optional, Tuple
+from typing import Callable, Deque, NamedTuple, Optional, Tuple
 
 from ...utils.logger import get_logger
 from ..client_address import TrustedProxies, parse_ip
@@ -105,8 +110,28 @@ class _Table:
     def clear(self, key: object) -> None:
         self._entries.pop(key, None)
 
+    def discard(self, key: object, at: float) -> None:
+        """Forget one time recorded for ``key`` (a reservation taken back)."""
+        times = self._entries.get(key)
+        if times is None:
+            return
+        try:
+            times.remove(at)
+        except ValueError:  # already pushed out of the deque
+            pass
+        if not times:
+            del self._entries[key]
+
     def __len__(self) -> int:
         return len(self._entries)
+
+
+class Attempt(NamedTuple):
+    """A password check that begin() let through and reserved."""
+
+    key: str  # the client's throttle key
+    pair: Tuple[str, str]  # (client key, username key)
+    at: float  # when it was let through
 
 
 class LoginThrottle:
@@ -131,22 +156,74 @@ class LoginThrottle:
         self._bad_keys: "OrderedDict[str, float]" = OrderedDict()
         self._max = max_entries
 
+    def _wait(self, key: str, pair: Tuple[str, str], now: float) -> Optional[int]:
+        """Seconds to wait (under the lock), or None."""
+        wait = 0.0
+        for table, k, free in (
+            (self._pairs, pair, FREE_FAILURES),
+            (self._clients, key, CLIENT_CEILING),
+        ):
+            times = table.recent(k, now)
+            delay = backoff(len(times), free)
+            if delay and times:
+                wait = max(wait, times[-1] + delay - now)
+        return math.ceil(wait) if wait > 0 else None
+
     def retry_after(self, client: Optional[str], username: object) -> Optional[int]:
-        """Return how many seconds the client must wait, or None to go ahead."""
+        """Return how many seconds the client must wait, or None to go ahead.
+
+        A check only: before a password check, use begin(), which also
+        reserves the attempt.
+        """
         key = client_key(client)
         pair = (key, _username_key(username))
         now = self._clock()
         with self._lock:
-            wait = 0.0
-            for table, k, free in (
-                (self._pairs, pair, FREE_FAILURES),
-                (self._clients, key, CLIENT_CEILING),
-            ):
-                times = table.recent(k, now)
-                delay = backoff(len(times), free)
-                if delay and times:
-                    wait = max(wait, times[-1] + delay - now)
-        return math.ceil(wait) if wait > 0 else None
+            return self._wait(key, pair, now)
+
+    def begin(
+        self, client: Optional[str], username: object
+    ) -> Tuple[Optional[int], Optional[Attempt]]:
+        """Check and reserve a password check in one step.
+
+        Returns ``(seconds, None)`` when the client must wait, else
+        ``(None, attempt)``: the attempt counts as a failure at once, and
+        must then be settled with failed(), succeeded() or cancel().
+        """
+        key = client_key(client)
+        pair = (key, _username_key(username))
+        now = self._clock()
+        with self._lock:
+            wait = self._wait(key, pair, now)
+            if wait:
+                return wait, None
+            self._pairs.add(pair, now)
+            self._clients.add(key, now)
+        return None, Attempt(key, pair, now)
+
+    def failed(self, attempt: Attempt) -> None:
+        """The password was wrong: the reservation stays, as the failure."""
+        with self._lock:
+            self._recent.append((attempt.at, attempt.key))
+            hint = self._shared_ip_hint(self._clock())
+        self._log_hint(hint)
+
+    def succeeded(self, attempt: Attempt) -> None:
+        """The password was right: clear the (client, username) backoff.
+
+        The per-client ceiling only loses this attempt's reservation, so a
+        success never resets the count of someone spraying other usernames
+        from the same address (S7).
+        """
+        with self._lock:
+            self._pairs.clear(attempt.pair)
+            self._clients.discard(attempt.key, attempt.at)
+
+    def cancel(self, attempt: Attempt) -> None:
+        """The password was never checked (every slot busy, an error)."""
+        with self._lock:
+            self._pairs.discard(attempt.pair, attempt.at)
+            self._clients.discard(attempt.key, attempt.at)
 
     def record_failure(
         self,
@@ -164,6 +241,10 @@ class LoginThrottle:
             self._clients.add(key, now)
             self._recent.append((now, key))
             hint = self._shared_ip_hint(now)
+        self._log_hint(hint)
+
+    @staticmethod
+    def _log_hint(hint: Optional[str]) -> None:
         if hint:
             logger.warning(
                 "All failed sign-ins come from %s. If that is your reverse "
