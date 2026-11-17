@@ -694,3 +694,62 @@ def test_a_start_over_that_cannot_be_written_says_how_to_fix_it(
     assert "must start over, but it could not be written (PermissionError)" in reason
     assert reason.endswith("make its directory writable and restart Boxarr")
     assert TestClient(app, client=FAR).get("/api/health").status_code == 200
+
+
+# ------------------------------------- the owner's own setup by environment
+
+
+def test_a_key_made_under_env_external_survives_the_move_to_env_forms(boxarr):
+    """No auth.json, sign-in by the environment alone: what Settings saves
+    there is the owner's (only their proxy gets in), so the move to forms
+    by environment keeps it."""
+    app, _, data = boxarr("unset", method="external", trusted_proxies="127.0.0.1")
+    proxied = TestClient(app, client=("127.0.0.1", 50000))
+    made = _post(proxied, "api-key", {}, **{"Remote-User": "the-owner"})
+    assert made.status_code == 200, made.text
+    key = made.json()["api_key"]
+    assert _stored(data)["password_source"] == "env"
+
+    app, _, _ = boxarr(
+        "env-forms", username=OWNER, password=OWNER_PASSWORD, api_key=None
+    )
+
+    far = TestClient(app, client=FAR)
+    assert far.get("/api/config", headers={"X-Api-Key": key}).status_code == 200
+
+
+def test_a_key_made_after_a_failed_first_write_survives_the_next_start(
+    boxarr, monkeypatch
+):
+    """The first start could not write auth.json (fixed while running);
+    the owner then made a key: the next start keeps it."""
+    real_save = runtime_module.save_auth_file
+    calls = []
+
+    def first_fails(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            raise PermissionError("read-only for now")
+        return real_save(*args, **kwargs)
+
+    monkeypatch.setattr(runtime_module, "save_auth_file", first_fails)
+    app, client, data = boxarr(
+        "env-forms", username=OWNER, password=OWNER_PASSWORD, api_key=None
+    )
+    monkeypatch.setattr(runtime_module, "save_auth_file", real_save)
+    signed_in = client.post(
+        "/api/auth/login",
+        json={"username": OWNER, "password": OWNER_PASSWORD},
+        headers=SAME_ORIGIN,
+    )
+    assert signed_in.status_code == 200, signed_in.text
+    made = _post(client, "api-key", {"current_password": OWNER_PASSWORD})
+    assert made.status_code == 200, made.text
+    key = made.json()["api_key"]
+
+    app, _, _ = boxarr(
+        "env-forms", username=OWNER, password=OWNER_PASSWORD, api_key=None
+    )
+
+    far = TestClient(app, client=FAR)
+    assert far.get("/api/config", headers={"X-Api-Key": key}).status_code == 200

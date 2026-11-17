@@ -347,10 +347,18 @@ def _base(found: AuthFileResult, current: AuthState, runtime: AuthRuntime) -> Au
     could be written at startup), what the running state amounts to."""
     if found.state == FileState.VALID and found.auth is not None:
         return found.auth
+    # Only a request that passed the environment's own sign-in gets here, so
+    # what it saves is the owner's: marked as the environment's, a later
+    # password there is the owner's own change and keeps it (#151).
+    by_env = runtime.env.method in (Mode.FORMS, Mode.EXTERNAL) and current.mode in (
+        Mode.FORMS,
+        Mode.EXTERNAL,
+    )
     return AuthFile(
         method=current.mode if current.mode == Mode.EXTERNAL else Mode.FORMS,
         instance_id=runtime.instance_id,
         credential_generation=current.credential_generation,
+        password_source="env" if by_env else "ui",
     )
 
 
