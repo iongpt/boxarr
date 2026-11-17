@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.0] - 2026-11-17
+
+### Added
+- **Optional sign-in**: Boxarr can now ask for a login. Choose it in the new **Settings → Security** section, or by environment variable. The [Authentication](https://github.com/iongpt/boxarr/wiki/Authentication) wiki page has the details (#151, #177, #178, #179).
+  - **Off** keeps Boxarr as it was: anyone who can reach it can use it.
+  - **Forms** is Boxarr's own login page, with a username and password. The password is stored as a scrypt hash in `auth.json`. A session lasts 24 hours, or 90 days with "Keep me signed in"; both lengths can be changed. **Sign out everywhere** ends every other session.
+  - **External** lets a reverse proxy that signs people in (Authelia, Authentik and the like) decide. Boxarr passes only requests whose connection comes from an address listed in **Trusted proxies** (`BOXARR_AUTH_TRUSTED_PROXIES`). `FORWARDED_ALLOW_IPS` does not count, and networks broader than /8 (IPv4) or /16 (IPv6) are refused, as are IPv6 zones (`%`). Boxarr can't tell a request the proxy let through without its sign-in from one it signed in, so a path the proxy leaves open is open in Boxarr too.
+  - Boxarr has no option to skip sign-in for local addresses. Behind Docker every client can look local, and a website you visit could reach Boxarr through DNS rebinding.
+  - Pages without a session go to `/login`. The API answers 401, and a page left open shows a "session expired" banner rather than navigating away, so unsaved input survives.
+  - Every setting can come from a `BOXARR_AUTH_*` variable instead, and a variable always wins over Settings: `METHOD`, `USERNAME`, `PASSWORD_FILE` / `PASSWORD` / `PASSWORD_HASH`, `API_KEY_FILE` / `API_KEY`, `WIDGETS`, `WIDGET_TOKEN`, `TRUSTED_PROXIES`, `COOKIE_SECURE`, `SESSION_HOURS` and `REMEMBER_DAYS`. Settings then shows that field read-only and names the variable. `python -m src.main --hash-password` prints a hash for `BOXARR_AUTH_PASSWORD_HASH`.
+- **API key for scripts and apps**: with sign-in on, the API takes a `bxk_…` key in the `X-Api-Key` header, or in `Authorization: Bearer`. Create the key in Settings → Security, where it is shown once (Boxarr keeps only its SHA-256), or set it with `BOXARR_AUTH_API_KEY` or `BOXARR_AUTH_API_KEY_FILE`. A key in the URL (`?apikey=`) is refused with a message saying to use the header. A key never opens the Security settings.
+- **Widget token**: `/api/widget` and `/api/widget/json` stay public by default, so dashboards keep working. Set **Widgets** to **Token** to require a `bxw_…` token in `?token=`, or `BOXARR_AUTH_WIDGET_TOKEN`. The token opens only the widgets, and Settings shows the embed URLs with it.
+- **`--auth-reset`**: `python -m src.main --auth-reset` turns sign-in off, clears the username, password, API key, widget token and settings, and signs everyone out. In Docker the command is `docker exec boxarr python -m src.main --auth-reset`. Use it for a forgotten password, or if someone else turned sign-in on.
+
+### Changed
+- **After upgrading, sign-in is off, as before.** Every page shows a banner until you choose: **Set up login** opens Settings → Security, and **Keep it open** hides the banner for good. While sign-in is off, every page and API answer is the same as in 2.3.0, apart from the banner, the Security section and the new `/login` and `/api/auth/*` routes.
+- **Until you choose, anyone who can reach Boxarr can turn sign-in on with their own password.** Boxarr makes sure the owner can take it back without the other person keeping access:
+  - Turning sign-in off clears the username, the password, the API key, the widget token and the settings.
+  - Turning sign-in on always issues a new API key.
+  - A save under `BOXARR_AUTH_METHOD=none` (recovery) starts `auth.json` over.
+  - A password from the environment that replaces one set in Settings starts `auth.json` over: the API key, the widget token, the trusted proxies and the other saved settings are cleared, and a warning says so. Moving the same password into the environment keeps everything (with `BOXARR_AUTH_PASSWORD`, `BOXARR_AUTH_PASSWORD_FILE`, or the hash copied from `auth.json`), and so does changing it there afterwards. A new hash from `--hash-password` has a new salt, so it counts as a new password. If `auth.json` can't be written for the start-over, Boxarr stays locked until its directory is writable.
+  - Under External, a sign-in set up in Settings is kept, and every start logs a warning naming what it still decides, with what to do if you didn't set it up. This applies under `BOXARR_AUTH_METHOD=external`, and also when credential variables are set without `BOXARR_AUTH_METHOD`; there, Settings won't switch to Forms until `BOXARR_AUTH_METHOD=forms` is set and Boxarr restarted, which starts `auth.json` over.
+- **New files in the data directory**: `auth.json` and `auth-sessions.json`, both written at mode 0600. Back them up with `local.yaml`.
+- **Access logs hide secrets**: the values of `apikey`, `api_key`, `token` and `password` query parameters are replaced, and so is any `bxk_` or `bxw_` string. Health checks under a URL base are no longer logged either.
+- **FastAPI 0.115.3 or later** is now required, up from 0.104.
+
 ## [2.3.0] - 2026-11-16
 
 ### Added
