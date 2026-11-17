@@ -6,7 +6,10 @@ import re
 import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
+from urllib.parse import unquote, unquote_plus
+
+from .route_path import route_path
 
 # Paths that produce high-frequency, low-value log noise when hit by automated
 # probes (Docker/orchestrator health checks, uptime monitors, load balancer
@@ -23,6 +26,19 @@ _HEALTHCHECK_PATHS = {"/api/health"}
 _ACCESS_REQUEST_TARGET_RE = re.compile(r'"\S+\s+(?P<target>\S+)\s+HTTP/')
 
 
+# The app's root path (``/`` + url_base), set by create_app(). uvicorn logs
+# the full request path, so under url_base the health probe is logged as
+# /<url_base>/api/health; the filter strips the prefix the way the router
+# does (see route_path) before it compares.
+_access_log_root_path = ""
+
+
+def set_access_log_root_path(root_path: Optional[str]) -> None:
+    """Tell the access-log filters the root path the app routes under."""
+    global _access_log_root_path
+    _access_log_root_path = root_path or ""
+
+
 class _HealthCheckFilter(logging.Filter):
     """Drop uvicorn access-log records for health-check endpoints."""
 
@@ -30,9 +46,127 @@ class _HealthCheckFilter(logging.Filter):
         match = _ACCESS_REQUEST_TARGET_RE.search(record.getMessage())
         if match is None:
             return True
-        # Strip any query string; match only the path component.
-        path = match.group("target").split("?", 1)[0]
-        return path not in _HEALTHCHECK_PATHS
+        # Strip any query string; match only the path component. uvicorn
+        # logs the path percent-quoted: unquoting gives back the path the
+        # router saw, which route_path() then strips of the root path.
+        path = unquote(match.group("target").split("?", 1)[0])
+        routed = route_path({"path": path, "root_path": _access_log_root_path})
+        return routed not in _HEALTHCHECK_PATHS
+
+
+# Query parameters whose values never reach the access log, compared after
+# percent-decoding and lowercasing the name. Boxarr reads none of them from a
+# URL as a credential, but a user or a dashboard may still send one there.
+_SECRET_QUERY_NAMES = frozenset({"apikey", "api_key", "token", "password"})
+
+# ``name=`` right after the ``?`` or ``&`` that starts a query parameter. Only
+# the name is consumed, so a parameter nested in another's value (as in
+# ``?next=/x?token=...``) is found too.
+_QUERY_NAME_RE = re.compile(r'(?<=[?&])(?P<name>[^=&#\s"?]+)=')
+
+# Where a query value ends. In a request target - one argument of uvicorn's
+# record, which never holds whitespace - only at the next parameter or the
+# fragment: a ``"`` sent unencoded is part of the value. In a whole log line
+# (a record without arguments) also at whitespace and the line's own ``"``.
+_TARGET_VALUE_END_RE = re.compile(r"[&#]")
+_LINE_VALUE_END_RE = re.compile(r'[&#\s"]')
+
+# Boxarr's own credentials (bxk_ API keys, bxw_ widget tokens) wherever they
+# appear, the underscore percent-encoded or not.
+_BOXARR_SECRET_RE = re.compile(r"bx[kw](?:_|%5f)[A-Za-z0-9_\-%]*", re.IGNORECASE)
+
+# How many times a value is percent-decoded to look for a secret inside it.
+_DECODE_ROUNDS = 3
+
+REDACTED = "[redacted]"
+
+
+def _is_secret_name(name: str) -> bool:
+    return unquote_plus(name).strip().lower() in _SECRET_QUERY_NAMES
+
+
+def _holds_encoded_secret(value: str) -> bool:
+    """Whether ``value``, percent-decoded, holds a secret parameter or a
+    bxk_/bxw_ string - as ``next=%2Fweeks%3Fapikey%3D...`` does once the
+    login redirect has quoted the page's own query into it."""
+    for _ in range(_DECODE_ROUNDS):
+        decoded = unquote_plus(value)
+        if decoded == value:
+            return False
+        value = decoded
+        if _BOXARR_SECRET_RE.search(value) or any(
+            _is_secret_name(match.group("name"))
+            for match in _QUERY_NAME_RE.finditer(value)
+        ):
+            return True
+    return False
+
+
+def _secret_query_spans(
+    text: str, value_end: "re.Pattern[str]" = _LINE_VALUE_END_RE
+) -> List[Tuple[int, int]]:
+    """Return the (start, end) of every secret query value in ``text``: the
+    value of a secret parameter, or a whole value that holds one encoded."""
+    spans = []
+    for match in _QUERY_NAME_RE.finditer(text):
+        start = match.end()
+        end_match = value_end.search(text, start)
+        end = end_match.start() if end_match else len(text)
+        if end <= start:
+            continue
+        if _is_secret_name(match.group("name")) or _holds_encoded_secret(
+            text[start:end]
+        ):
+            spans.append((start, end))
+    return spans
+
+
+def redact_secrets(text: str, *, target: bool = False) -> str:
+    """Return ``text`` with secret query values and bxk_/bxw_ strings redacted.
+
+    Redacts the values of the ``apikey``, ``api_key``, ``token`` and
+    ``password`` query parameters, any value that holds one of them (or a
+    bxk_/bxw_ string) percent-encoded, and every ``bxk_...`` or ``bxw_...``
+    string. Everything else is left as it was. ``target`` says ``text`` is a
+    request target alone, where only ``&`` and ``#`` end a value.
+    """
+    spans = _secret_query_spans(
+        text, _TARGET_VALUE_END_RE if target else _LINE_VALUE_END_RE
+    )
+    if spans:
+        parts = []
+        position = 0
+        for start, end in sorted(spans):
+            if end <= position:
+                continue  # inside a value already redacted
+            parts.append(text[position : max(start, position)])
+            parts.append(REDACTED)
+            position = end
+        parts.append(text[position:])
+        text = "".join(parts)
+    return _BOXARR_SECRET_RE.sub(lambda m: m.group(0)[:3] + "_" + REDACTED, text)
+
+
+class _SecretQueryFilter(logging.Filter):
+    """Redact credentials from uvicorn's request lines.
+
+    uvicorn logs the full request target, query string included, as one of
+    the record's arguments: on ``uvicorn.access`` for HTTP requests, and on
+    ``uvicorn.error`` for refused WebSocket handshakes. Each string argument
+    is redacted as a target, and the types and number of the arguments are
+    kept, since uvicorn's access formatter unpacks them. A record without
+    arguments has its message redacted as a whole line.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple) and record.args:
+            record.args = tuple(
+                redact_secrets(arg, target=True) if isinstance(arg, str) else arg
+                for arg in record.args
+            )
+        elif not record.args and isinstance(record.msg, str):
+            record.msg = redact_secrets(record.msg)
+        return True
 
 
 DEFAULT_LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -245,7 +379,13 @@ def setup_logging(
     # log fills with ~2,880 identical lines per day before any real traffic is
     # counted.  The filter is attached to the logger itself so it applies
     # regardless of which handler the record is destined for.
-    logging.getLogger("uvicorn.access").addFilter(_HealthCheckFilter())
+    access_logger = logging.getLogger("uvicorn.access")
+    access_logger.addFilter(_HealthCheckFilter())
+    # uvicorn logs the full request target: keep credentials sent in a query
+    # string (or anywhere in the target) out of the log. A refused WebSocket
+    # handshake is logged with its target on uvicorn.error.
+    access_logger.addFilter(_SecretQueryFilter())
+    logging.getLogger("uvicorn.error").addFilter(_SecretQueryFilter())
 
 
 def get_logger(name: Optional[str] = None) -> logging.Logger:

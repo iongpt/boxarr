@@ -27,6 +27,10 @@ from .logger import get_logger, log_level_from_env, normalize_log_level
 
 logger = get_logger(__name__)
 
+# Settings whose value is a secret: a warning about an invalid one names the
+# field and the error type, never the value.
+_SECRET_FIELDS = frozenset({"radarr_api_key"})
+
 # auto_add_options keys holding language names, migrated through the alias
 # table on load so a legacy value like "Mandarin" matches Radarr's "Chinese".
 _LANGUAGE_LIST_KEYS = ("language_whitelist", "language_blacklist")
@@ -847,6 +851,16 @@ class Settings(BaseSettings):
             try:
                 self.__pydantic_validator__.validate_assignment(self, field, value)
             except ValidationError as exc:
+                if field in _SECRET_FIELDS:
+                    # The pydantic message quotes the value (input_value=...),
+                    # which here is a secret: name the error types only.
+                    logger.warning(
+                        "Ignoring invalid value for '%s' in %s (using default): %s",
+                        field,
+                        config_path,
+                        ", ".join(sorted({str(e["type"]) for e in exc.errors()})),
+                    )
+                    return
                 logger.warning(
                     "Ignoring invalid value for '%s' in %s (using default): %s",
                     field,

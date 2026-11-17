@@ -23,7 +23,8 @@ classifiers = [
 ]
 requires-python = ">=3.10"
 dependencies = [
-    "fastapi>=0.104.0",
+    # Starlette 0.40 (src/utils/route_path.py copies its get_route_path)
+    "fastapi>=0.115.3",
     "uvicorn[standard]>=0.24.0",
     "httpx>=0.25.0",
     "beautifulsoup4>=4.12.0",

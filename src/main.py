@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Main entry point for Boxarr application."""
 
+import argparse
 import asyncio
 import signal
 import sys
@@ -16,12 +17,52 @@ from src.utils.logger import apply_log_level, parse_log_level, setup_logging
 setup_logging()
 
 from src.api.app import create_app_with_scheduler  # noqa: E402
+from src.api.auth.cli import auth_reset_command, hash_password_command  # noqa: E402
 from src.core.radarr import RadarrService  # noqa: E402
 from src.core.scheduler import BoxarrScheduler  # noqa: E402
 from src.utils.config import settings, use_config_file  # noqa: E402
 from src.utils.logger import get_logger  # noqa: E402
 
 logger = get_logger(__name__)
+
+
+class _ArgumentParser(argparse.ArgumentParser):
+    """argparse, except that some flags answer only to their full spelling.
+
+    argparse accepts any unambiguous prefix of a flag. ``--auth-reset``
+    changes auth.json, so ``--a`` must stay the error it always was, and
+    ``--hash-password`` must not make ``--h`` ambiguous with ``--help``.
+    """
+
+    exact_only = frozenset({"--hash-password", "--auth-reset"})
+
+    def _get_option_tuples(self, option_string):
+        # Only prefix matches come through here; an exact spelling is looked
+        # up before. Each tuple starts with the matching action.
+        return [
+            option
+            for option in super()._get_option_tuples(option_string)
+            if not self.exact_only.intersection(
+                getattr(option[0], "option_strings", ())
+            )
+        ]
+
+
+def server_config(app) -> uvicorn.Config:
+    """Return the uvicorn configuration Boxarr serves ``app`` with.
+
+    ``proxy_headers=False``: the app runs uvicorn's proxy-header middleware
+    itself, with the same FORWARDED_ALLOW_IPS list, behind a recorder of the
+    socket peer that uvicorn's would hide (#151, src/api/client_address.py).
+    """
+    return uvicorn.Config(
+        app=app,
+        host=settings.boxarr_host,
+        port=settings.boxarr_port,
+        log_level=settings.log_level.lower(),
+        access_log=True,
+        proxy_headers=False,
+    )
 
 
 class BoxarrApplication:
@@ -92,15 +133,7 @@ class BoxarrApplication:
         """Run FastAPI application."""
         self.app = create_app_with_scheduler()
 
-        config = uvicorn.Config(
-            app=self.app,
-            host=settings.boxarr_host,
-            port=settings.boxarr_port,
-            log_level=settings.log_level.lower(),
-            access_log=True,
-        )
-
-        server = uvicorn.Server(config)
+        server = uvicorn.Server(server_config(self.app))
 
         # Start server in background
         asyncio.create_task(server.serve())
@@ -201,11 +234,7 @@ class BoxarrApplication:
 
 def cli():
     """Command-line interface."""
-    import argparse
-
-    parser = argparse.ArgumentParser(
-        description="Boxarr - Box Office Tracking for Radarr"
-    )
+    parser = _ArgumentParser(description="Boxarr - Box Office Tracking for Radarr")
     parser.add_argument(
         "--mode",
         choices=["api", "cli", "update"],
@@ -232,7 +261,28 @@ def cli():
         "CRITICAL, in any case",
     )
 
+    # Authentication tools: they run instead of the server, and before the
+    # settings are read, so they work even when local.yaml is broken (#151).
+    auth_tools = parser.add_mutually_exclusive_group()
+    auth_tools.add_argument(
+        "--hash-password",
+        action="store_true",
+        help="Read a password twice (not echoed), print its hash for "
+        "BOXARR_AUTH_PASSWORD_HASH and exit",
+    )
+    auth_tools.add_argument(
+        "--auth-reset",
+        action="store_true",
+        help="Turn authentication off in auth.json, sign out every session "
+        "and exit; restart Boxarr to apply it",
+    )
+
     args = parser.parse_args()
+
+    if args.hash_password:
+        sys.exit(hash_password_command())
+    if args.auth_reset:
+        sys.exit(auth_reset_command())
 
     # Read the file over the settings file. Every load reads it, so it still
     # applies after a save reloads the settings, and a data directory it names

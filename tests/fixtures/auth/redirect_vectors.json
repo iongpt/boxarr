@@ -1,0 +1,388 @@
+{
+ "description": "Vectors for the login redirect validator (#151, design 3.3.5). src/api/auth/redirects.py validate_next() and the login page's JavaScript validator must both map each 'next' to 'expect'. Non-string inputs map to '/'.",
+ "fallback": "/",
+ "max_length": 2048,
+ "vectors": [
+  {
+   "next": "/",
+   "expect": "/",
+   "why": "the root"
+  },
+  {
+   "next": "/weeks",
+   "expect": "/weeks",
+   "why": "a page"
+  },
+  {
+   "next": "/overview?region=DE",
+   "expect": "/overview?region=DE",
+   "why": "a page with a query"
+  },
+  {
+   "next": "/2026W45",
+   "expect": "/2026W45",
+   "why": "a weekly page"
+  },
+  {
+   "next": "/dashboard#latest",
+   "expect": "/dashboard#latest",
+   "why": "a fragment"
+  },
+  {
+   "next": "/overview?next=/login",
+   "expect": "/overview?next=/login",
+   "why": "/login in the query is not the path"
+  },
+  {
+   "next": "/overview?q=a%20b",
+   "expect": "/overview?q=a%20b",
+   "why": "a valid escape"
+  },
+  {
+   "next": "/setup?x=http://evil.com",
+   "expect": "/setup?x=http://evil.com",
+   "why": "a URL in the query, after the path"
+  },
+  {
+   "next": "/loginx",
+   "expect": "/loginx",
+   "why": "only /login itself and below are refused"
+  },
+  {
+   "next": "/apiary",
+   "expect": "/apiary",
+   "why": "only /api itself and below are refused"
+  },
+  {
+   "next": "/x:y",
+   "expect": "/x:y",
+   "why": "a colon after the first slash"
+  },
+  {
+   "next": "",
+   "expect": "/",
+   "why": "empty"
+  },
+  {
+   "next": "weeks",
+   "expect": "/",
+   "why": "relative"
+  },
+  {
+   "next": "//evil",
+   "expect": "/",
+   "why": "protocol-relative"
+  },
+  {
+   "next": "//evil.com/x",
+   "expect": "/",
+   "why": "protocol-relative with a path"
+  },
+  {
+   "next": "///evil.com",
+   "expect": "/",
+   "why": "three slashes"
+  },
+  {
+   "next": "https://evil.com",
+   "expect": "/",
+   "why": "absolute URL"
+  },
+  {
+   "next": "javascript:x",
+   "expect": "/",
+   "why": "javascript scheme"
+  },
+  {
+   "next": "JavaScript:alert(1)",
+   "expect": "/",
+   "why": "javascript scheme, mixed case"
+  },
+  {
+   "next": "data:text/html,x",
+   "expect": "/",
+   "why": "data scheme"
+  },
+  {
+   "next": "http:/evil.com",
+   "expect": "/",
+   "why": "scheme with one slash"
+  },
+  {
+   "next": "/\\evil",
+   "expect": "/",
+   "why": "backslash, which browsers read as a slash"
+  },
+  {
+   "next": "/\\/evil.com",
+   "expect": "/",
+   "why": "slash backslash slash"
+  },
+  {
+   "next": "\\\\evil.com",
+   "expect": "/",
+   "why": "two backslashes"
+  },
+  {
+   "next": "/\t/evil.com",
+   "expect": "/",
+   "why": "a TAB, which browsers strip"
+  },
+  {
+   "next": "/\n/evil.com",
+   "expect": "/",
+   "why": "a newline"
+  },
+  {
+   "next": "/\r/evil.com",
+   "expect": "/",
+   "why": "a carriage return"
+  },
+  {
+   "next": "/\u0000",
+   "expect": "/",
+   "why": "NUL"
+  },
+  {
+   "next": "/\u007f",
+   "expect": "/",
+   "why": "DEL"
+  },
+  {
+   "next": " /weeks",
+   "expect": "/",
+   "why": "a leading space"
+  },
+  {
+   "next": "/%09/evil.com",
+   "expect": "/",
+   "why": "an encoded TAB"
+  },
+  {
+   "next": "/%0A/evil.com",
+   "expect": "/",
+   "why": "an encoded newline"
+  },
+  {
+   "next": "/%2F%2Fevil",
+   "expect": "/",
+   "why": "encoded slashes make //"
+  },
+  {
+   "next": "/%2f%2fevil",
+   "expect": "/",
+   "why": "encoded slashes, lower case"
+  },
+  {
+   "next": "%2F%2Fevil.com",
+   "expect": "/",
+   "why": "encoded leading slashes"
+  },
+  {
+   "next": "/%5Cevil",
+   "expect": "/",
+   "why": "an encoded backslash"
+  },
+  {
+   "next": "/%5cevil",
+   "expect": "/",
+   "why": "an encoded backslash, lower case"
+  },
+  {
+   "next": "/%00",
+   "expect": "/",
+   "why": "encoded NUL"
+  },
+  {
+   "next": "/%7F",
+   "expect": "/",
+   "why": "encoded DEL"
+  },
+  {
+   "next": "/%zz",
+   "expect": "/",
+   "why": "a malformed escape"
+  },
+  {
+   "next": "/%",
+   "expect": "/",
+   "why": "a lone percent"
+  },
+  {
+   "next": "/%2",
+   "expect": "/",
+   "why": "a short escape"
+  },
+  {
+   "next": "/%E2%82",
+   "expect": "/",
+   "why": "a truncated UTF-8 sequence"
+  },
+  {
+   "next": "/%FF",
+   "expect": "/",
+   "why": "bytes that are not UTF-8"
+  },
+  {
+   "next": "/%C3%BC",
+   "expect": "/",
+   "why": "decodes to non-ASCII"
+  },
+  {
+   "next": "/%252F%252Fevil",
+   "expect": "/%252F%252Fevil",
+   "why": "decoded once only: %25 is a literal percent"
+  },
+  {
+   "next": "/login",
+   "expect": "/",
+   "why": "the login page itself"
+  },
+  {
+   "next": "/login?next=/",
+   "expect": "/",
+   "why": "the login page with a query"
+  },
+  {
+   "next": "/login/",
+   "expect": "/",
+   "why": "under /login"
+  },
+  {
+   "next": "/login#x",
+   "expect": "/",
+   "why": "the login page with a fragment"
+  },
+  {
+   "next": "/%6Cogin",
+   "expect": "/",
+   "why": "an encoded /login"
+  },
+  {
+   "next": "/login%3Fnext=/",
+   "expect": "/",
+   "why": "decodes to /login?next=/"
+  },
+  {
+   "next": "/api/x",
+   "expect": "/",
+   "why": "an API path"
+  },
+  {
+   "next": "/api",
+   "expect": "/",
+   "why": "/api itself"
+  },
+  {
+   "next": "/api/health",
+   "expect": "/",
+   "why": "health"
+  },
+  {
+   "next": "/%61pi/x",
+   "expect": "/",
+   "why": "an encoded /api"
+  },
+  {
+   "next": "/x/../login",
+   "expect": "/",
+   "why": "a dot-dot segment"
+  },
+  {
+   "next": "/./weeks",
+   "expect": "/",
+   "why": "a dot segment"
+  },
+  {
+   "next": "/x/%2E%2E/login",
+   "expect": "/",
+   "why": "an encoded dot-dot segment"
+  },
+  {
+   "next": "/..",
+   "expect": "/",
+   "why": "dot-dot at the end"
+  },
+  {
+   "next": "/caf\u00e9",
+   "expect": "/",
+   "why": "non-ASCII"
+  },
+  {
+   "next": "/\u2215\u2215evil.com",
+   "expect": "/",
+   "why": "division slashes"
+  },
+  {
+   "next": "/\uff0f\uff0fevil.com",
+   "expect": "/",
+   "why": "fullwidth slashes"
+  },
+  {
+   "next": "/login ",
+   "expect": "/",
+   "why": "a trailing space: a browser strips it and lands on /login"
+  },
+  {
+   "next": "/api ",
+   "expect": "/",
+   "why": "a trailing space: a browser strips it and lands on /api"
+  },
+  {
+   "next": "/.. ",
+   "expect": "/",
+   "why": "a trailing space: a browser strips it and climbs out of the url_base"
+  },
+  {
+   "next": "/weeks ",
+   "expect": "/",
+   "why": "a trailing space, even on a page"
+  },
+  {
+   "next": "/a b",
+   "expect": "/",
+   "why": "a space anywhere in the raw form"
+  },
+  {
+   "next": "/x/..%20",
+   "expect": "/x/..%20",
+   "why": "an encoded space after dots is not a dot segment"
+  },
+  {
+   "next": "/x%3F/../login",
+   "expect": "/",
+   "why": "the raw form must pass too: an encoded ? hides a dot segment"
+  },
+  {
+   "next": "/a%23/../api/config",
+   "expect": "/",
+   "why": "the raw form must pass too: an encoded # hides a dot segment"
+  },
+  {
+   "next": "/x%3F/./setup",
+   "expect": "/",
+   "why": "the raw form must pass too: an encoded ? hides a single dot"
+  },
+  {
+   "next": "/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "expect": "/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "why": "exactly 2048 characters"
+  },
+  {
+   "next": "/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "expect": "/",
+   "why": "2049 characters"
+  }
+ ],
+ "non_strings": [
+  null,
+  7,
+  true,
+  [
+   "/weeks"
+  ],
+  {
+   "next": "/weeks"
+  }
+ ]
+}

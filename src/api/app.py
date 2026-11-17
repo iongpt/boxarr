@@ -1,7 +1,7 @@
 """Boxarr API application."""
 
 import math
-from typing import Optional, Union
+from typing import Any, Dict, Optional, Union
 
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
@@ -14,7 +14,9 @@ from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from .. import __version__
 from ..core.scheduler import BoxarrScheduler
 from ..utils.config import settings
-from ..utils.logger import get_logger
+from ..utils.logger import get_logger, set_access_log_root_path
+from ..utils.route_path import route_path
+from .client_address import install_proxy_headers
 from .health import RadarrHealthCheck
 from .routes import (
     admin_router,
@@ -56,6 +58,71 @@ _SWAGGER_REQUEST_INTERCEPTOR = f"""
         }},"""
 
 
+# Routes whose request bodies hold credentials: a 422 never echoes their input.
+_SECRET_INPUT_PREFIX = "/api/auth/"
+
+# Error types whose pydantic message is constraint text only, never a piece
+# of the input. Any other message (a validator's own, a parser's that quotes
+# a character) is replaced under /api/auth/.
+_CONSTRAINT_ONLY_MESSAGES = frozenset(
+    {
+        "missing",
+        "extra_forbidden",
+        "none_required",
+        "string_type",
+        "string_too_short",
+        "string_too_long",
+        "string_pattern_mismatch",
+        "int_type",
+        "int_parsing",
+        "int_from_float",
+        "float_type",
+        "float_parsing",
+        "finite_number",
+        "bool_type",
+        "bool_parsing",
+        "greater_than",
+        "greater_than_equal",
+        "less_than",
+        "less_than_equal",
+        "multiple_of",
+        "literal_error",
+        "enum",
+        "dict_type",
+        "list_type",
+        "model_type",
+        "model_attributes_type",
+        "too_short",
+        "too_long",
+        "json_invalid",
+        "json_type",
+    }
+)
+
+
+def _echo_is_secret(request: Request) -> bool:
+    """Return whether a validation error must not echo the request's input."""
+    return route_path(request.scope).startswith(_SECRET_INPUT_PREFIX)
+
+
+def _secret_safe_error(error: Dict[str, Any]) -> Dict[str, Any]:
+    """Return a validation error that tells nothing the request held.
+
+    ``input`` and ``ctx`` go, ``loc`` keeps where the field sits in the
+    request (``["body", "password"]``) but not a dict key below it, and a
+    message that could quote a value becomes a fixed one.
+    """
+    error_type = error.get("type")
+    message = error.get("msg")
+    if error_type not in _CONSTRAINT_ONLY_MESSAGES or not isinstance(message, str):
+        message = "Invalid value"
+    return {
+        "type": error_type,
+        "loc": list(error.get("loc", ()))[:2],
+        "msg": message,
+    }
+
+
 def _swagger_ui_html(openapi_url: str, title: str) -> HTMLResponse:
     """Return FastAPI's Swagger UI page, its requests marked as Boxarr's own."""
     page = get_swagger_ui_html(openapi_url=openapi_url, title=title)
@@ -82,6 +149,9 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
     # Prepare root_path from settings
     base = settings.boxarr_url_base
     root_path = f"/{base}" if base else ""
+    # uvicorn logs /<url_base>/api/health; the access-log health filter
+    # strips the root path the way the router does.
+    set_access_log_root_path(root_path)
 
     app = FastAPI(
         title="Boxarr",
@@ -113,6 +183,13 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
     # CORS alone does not stop: a form POST needs no preflight.
     app.add_middleware(CrossSiteRequestGuard)
 
+    # In front of both: the socket peer is recorded as scope["boxarr.peer"],
+    # then uvicorn's own proxy-header middleware runs with FORWARDED_ALLOW_IPS
+    # as it did in uvicorn's server, which src/main.py now starts with
+    # proxy_headers=False. scope["client"] and scope["scheme"] are what they
+    # were (#151, see client_address.py).
+    install_proxy_headers(app)
+
     # Mount static files
     app.mount("/static", StaticFiles(directory="src/web/static"), name="static")
 
@@ -127,12 +204,19 @@ def create_app(scheduler: Optional[BoxarrScheduler] = None) -> FastAPI:
         back in the error - but Starlette renders responses with
         allow_nan=False, so serializing that echo raised and the rejection
         came back as a 500. Only the echoed value changes shape here.
+
+        Under /api/auth/ the echo is dropped altogether, with anything
+        else that could quote what was sent (see _secret_safe_error): what
+        those routes are sent is a password, a key or a token.
         """
+        errors = list(exc.errors())
+        if _echo_is_secret(request):
+            errors = [_secret_safe_error(error) for error in errors]
         return JSONResponse(
             status_code=422,
             content={
                 "detail": jsonable_encoder(
-                    exc.errors(), custom_encoder={float: _json_safe_float}
+                    errors, custom_encoder={float: _json_safe_float}
                 )
             },
         )

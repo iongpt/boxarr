@@ -270,3 +270,9 @@ security-report.html
 
 # Docker build context
 .dockerignore.tmp
+
+# Authentication state (#151): credential hashes and sessions, 0600
+config/auth.json
+config/auth.json.broken*
+config/auth-sessions.json
+config/auth-sessions.json.broken*
