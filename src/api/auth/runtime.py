@@ -189,14 +189,17 @@ def _warn_settings_kept_under_external(
             ", ".join(held),
         )
         return
+    has_password = env.password is not None or env.password_hash is not None
     logger.warning(
         "Authentication: auth.json, set in Settings → Security, keeps sign-in "
         "external, so %s do not turn on Boxarr's login page, and %s still "
         "apply. If you did not set it up, someone who reached Boxarr while "
-        "sign-in was off may have: set BOXARR_AUTH_METHOD=forms and restart "
-        "Boxarr, and auth.json starts over with these credentials.",
+        "sign-in was off may have: set BOXARR_AUTH_METHOD=forms%s and restart "
+        "Boxarr, and auth.json starts over with %s.",
         " and ".join(_credential_variables(env)),
         ", ".join(held),
+        "" if has_password else " and your own password in BOXARR_AUTH_PASSWORD_FILE",
+        "these credentials" if has_password else "that password",
     )
 
 

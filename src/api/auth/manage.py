@@ -597,6 +597,18 @@ def plan_settings(
         and (credentials_changed or stored_method != Mode.FORMS)
     )
 
+    if switching_method and requested == Mode.FORMS and password_from_env:
+        # With a password variable but no BOXARR_AUTH_METHOD, the switch
+        # would leave the login on the stored hash (perhaps whoever set
+        # External up) until a restart applies the variable (#151). The
+        # restart under forms does it all: the password, and a start-over.
+        variable = set_by(env, "password")
+        raise ChangeRefused(
+            400,
+            f"{variable} is set: to use Boxarr's own sign-in with it, set "
+            f"{ENV_METHOD}=forms and restart Boxarr.",
+            "method",
+        )
     if switching_method and requested == Mode.FORMS:
         # Back to Boxarr's own sign-in: it needs both, or it would lock.
         has_password = bool(

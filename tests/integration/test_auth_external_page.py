@@ -510,6 +510,21 @@ def test_under_external_a_new_password_signs_no_one_out(boxarr):
     )
 
 
+def test_under_external_a_new_username_alone_is_just_saved(boxarr):
+    client, _ = boxarr()
+    _enable_and_sign_in(client)
+    _switch(client)
+
+    saved = client.post(
+        "/api/auth/settings",
+        json={"username": "renamed-owner", "current_password": PASSWORD},
+        headers=SAME_ORIGIN,
+    )
+
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["message"] == "Security settings saved."
+
+
 def test_under_forms_the_help_texts_are_as_before(boxarr):
     client, _ = boxarr()
     _enable_and_sign_in(client)

@@ -251,6 +251,20 @@ def the_remedy_for_credentials_over_a_stored_external(
     return env_forms_by_password(boxarr, stranger)
 
 
+def the_remedy_for_a_username_over_a_stored_external(
+    boxarr, stranger: Stranger, monkeypatch=None
+):
+    """Only BOXARR_AUTH_USERNAME was set: the warning says to add the method
+    and a password of your own in a file. Done to the letter."""
+    _switch_to_external(stranger)
+    secret = stranger.data.parent / "owner-password"
+    secret.write_text(OWNER_PASSWORD + "\n")
+    app, _, _ = boxarr(
+        "unset", method="forms", username=OWNER, password_file=str(secret)
+    )
+    return app
+
+
 def the_owner_moves_their_password_then_rotates_it(
     boxarr, stranger: Stranger, monkeypatch=None
 ):
@@ -332,6 +346,7 @@ ROWS = [
     ),
     (the_remedy_for_env_external, {**_taken_back("external"), "proxy trusted": False}),
     (the_remedy_for_credentials_over_a_stored_external, _taken_back("forms")),
+    (the_remedy_for_a_username_over_a_stored_external, _taken_back("forms")),
     (the_same_password_by_a_new_hash, _taken_back("forms")),
     *[
         (
@@ -493,6 +508,51 @@ def test_credentials_over_a_stored_external_say_so_at_every_start(boxarr, caplog
     ) in lines[0]
     assert "set BOXARR_AUTH_METHOD=forms and restart Boxarr" in lines[0]
     assert stranger.key not in caplog.text and stranger.token not in caplog.text
+
+
+def test_a_username_alone_over_a_stored_external_asks_for_a_password_too(
+    boxarr, caplog
+):
+    stranger = Stranger(boxarr)
+    _switch_to_external(stranger)
+
+    with caplog.at_level(logging.WARNING):
+        boxarr("unset", username=OWNER)
+
+    assert "BOXARR_AUTH_USERNAME do not turn on Boxarr's login page" in caplog.text
+    assert (
+        "set BOXARR_AUTH_METHOD=forms and your own password in "
+        "BOXARR_AUTH_PASSWORD_FILE and restart Boxarr, and auth.json starts over "
+        "with that password."
+    ) in caplog.text
+
+
+def test_with_a_password_variable_settings_does_not_switch_to_forms(boxarr):
+    """The switch would leave the login on the stored hash until a restart:
+    refused, with the restart that does it all."""
+    stranger = Stranger(boxarr)
+    _switch_to_external(stranger)
+    app, _, _ = boxarr(
+        "unset",
+        username=OWNER,
+        password=OWNER_PASSWORD,
+        trusted_proxies="127.0.0.1",
+    )
+    proxied = TestClient(app, client=("127.0.0.1", 50000))
+
+    response = _post(
+        proxied,
+        "settings",
+        {"method": "forms", "current_password": OWNER_PASSWORD},
+        **{"Remote-User": "the-owner"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["message"] == (
+        "BOXARR_AUTH_PASSWORD is set: to use Boxarr's own sign-in with it, set "
+        "BOXARR_AUTH_METHOD=forms and restart Boxarr."
+    )
+    assert _stored(stranger.data)["method"] == "external"
 
 
 def test_a_settings_only_external_says_nothing(boxarr, caplog):

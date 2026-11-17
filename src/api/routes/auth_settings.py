@@ -389,7 +389,9 @@ def _settings_message(plan: SettingsPlan, runtime: AuthRuntime) -> str:
         return "Saved. Sign-in stays off."
     if plan.credentials_changed and runtime.state.mode == Mode.EXTERNAL:
         # Under External the proxy signs people in: no session ends here.
-        return "Saved. Settings → Security asks for the new password from now on."
+        if plan.new_password is not None:
+            return "Saved. Settings → Security asks for the new password from now on."
+        return "Security settings saved."
     if plan.credentials_changed:
         return (
             "Saved. Every other browser and device was signed out; this one "
