@@ -124,13 +124,6 @@ def auth_write_lock() -> asyncio.Lock:
         return lock
 
 
-def _takes_over(replaced: bool) -> str:
-    """How an environment password takes over from Settings → Security."""
-    if replaced:
-        return "replaces the one set in Settings → Security"
-    return "takes over a sign-in set up in Settings → Security without one"
-
-
 def _credential_variables(env: EnvAuthConfig) -> Tuple[str, ...]:
     """The username and password variables set, by name."""
     names = []
@@ -341,20 +334,21 @@ class AuthRuntime:
             new_hash = hash_password(plain)
 
         cleared: Tuple[str, ...] = ()
-        replaced = False
         if stored is not None:
             generation = stored.credential_generation + 1
             base = stored
-            if stored.password_source != "env":
-                # The environment takes over a sign-in set up in Settings →
-                # Security: a password set there is replaced, or there was
-                # none (a stored External without one). Whoever set it up may
-                # be whoever reached Boxarr while it was open, and the API
-                # key, the widget token and the trusted proxies made there
-                # would outlive it: start over, as the first enable does,
-                # keeping only the instance id. A password the environment had
-                # set before is the owner's own rotation, and keeps the rest.
-                replaced = stored.password_hash is not None
+            if stored.password_hash is not None and stored.password_source != "env":
+                # A password set in Settings → Security is replaced from the
+                # environment. Whoever set it may be whoever reached Boxarr
+                # while it was open, and the API key, the widget token and the
+                # trusted proxies made under it would outlive it: start over,
+                # as the first enable does, keeping only the instance id. A
+                # password the environment had set before is the owner's own
+                # rotation, and keeps the rest. A file with no password holds
+                # nothing a stranger could have made: Settings turns sign-in
+                # on only with a password, and removes it only by turning
+                # sign-in off, which clears the rest too. Such a file is the
+                # owner's (saved under BOXARR_AUTH_METHOD), and is kept.
                 cleared = tuple(
                     name
                     for name, value in (
@@ -364,8 +358,7 @@ class AuthRuntime:
                     )
                     if value
                 )
-                if replaced or cleared:
-                    base = AuthFile(method=Mode.FORMS, instance_id=stored.instance_id)
+                base = AuthFile(method=Mode.FORMS, instance_id=stored.instance_id)
         else:
             # Nothing to count from: start past any generation a leftover
             # sessions file could name.
@@ -390,8 +383,8 @@ class AuthRuntime:
                 # What was set in Settings must not stay in effect next to
                 # the owner's password: locked until auth.json can start over.
                 reason = (
-                    f"the password from {env.password_variable} "
-                    f"{_takes_over(replaced)}, so {self.paths.auth_file} must "
+                    f"the password from {env.password_variable} replaces the one "
+                    f"set in Settings → Security, so {self.paths.auth_file} must "
                     f"start over, but it could not be written "
                     f"({type(exc).__name__}): make its directory writable and "
                     f"restart Boxarr"
@@ -424,11 +417,11 @@ class AuthRuntime:
         )
         if starting_over:
             logger.warning(
-                "Authentication: the password from %s %s, so %s started over: %s "
-                "and every setting saved there were cleared. Sign in as %s%s; "
-                "create a new API key in Settings → Security if you use one.",
+                "Authentication: the password from %s replaces the one set in "
+                "Settings → Security, so %s started over: %s and every setting "
+                "saved there were cleared. Sign in as %s%s; create a new API key "
+                "in Settings → Security if you use one.",
                 env.password_variable,
-                _takes_over(replaced),
                 self.paths.auth_file,
                 ", ".join(cleared) if cleared else "the sign-in settings",
                 state.username,

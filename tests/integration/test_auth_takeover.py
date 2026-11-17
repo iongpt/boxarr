@@ -265,19 +265,6 @@ def the_remedy_for_a_username_over_a_stored_external(
     return app
 
 
-def env_forms_over_an_external_without_a_password(
-    boxarr, stranger: Stranger, monkeypatch=None
-):
-    """A stored External with no password (the stranger's proxy list, key
-    and token): the owner's password from the environment takes over, and
-    auth.json starts over all the same."""
-    _switch_to_external(stranger)
-    stored = _stored(stranger.data)
-    stored.pop("password_hash")
-    (stranger.data / "auth.json").write_text(json.dumps(stored))
-    return env_forms_by_password(boxarr, stranger)
-
-
 def the_owner_moves_their_password_then_rotates_it(
     boxarr, stranger: Stranger, monkeypatch=None
 ):
@@ -360,7 +347,6 @@ ROWS = [
     (the_remedy_for_env_external, {**_taken_back("external"), "proxy trusted": False}),
     (the_remedy_for_credentials_over_a_stored_external, _taken_back("forms")),
     (the_remedy_for_a_username_over_a_stored_external, _taken_back("forms")),
-    (env_forms_over_an_external_without_a_password, _taken_back("forms")),
     (the_same_password_by_a_new_hash, _taken_back("forms")),
     *[
         (
@@ -708,7 +694,6 @@ def test_a_key_made_under_env_external_survives_the_move_to_env_forms(boxarr):
     made = _post(proxied, "api-key", {}, **{"Remote-User": "the-owner"})
     assert made.status_code == 200, made.text
     key = made.json()["api_key"]
-    assert _stored(data)["password_source"] == "env"
 
     app, _, _ = boxarr(
         "env-forms", username=OWNER, password=OWNER_PASSWORD, api_key=None
@@ -744,6 +729,24 @@ def test_a_key_made_after_a_failed_first_write_survives_the_next_start(
     )
     assert signed_in.status_code == 200, signed_in.text
     made = _post(client, "api-key", {"current_password": OWNER_PASSWORD})
+    assert made.status_code == 200, made.text
+    key = made.json()["api_key"]
+
+    app, _, _ = boxarr(
+        "env-forms", username=OWNER, password=OWNER_PASSWORD, api_key=None
+    )
+
+    far = TestClient(app, client=FAR)
+    assert far.get("/api/config", headers={"X-Api-Key": key}).status_code == 200
+
+
+def test_a_key_made_under_env_external_over_a_none_file_survives_env_forms(boxarr):
+    """auth.json says none (Keep it open, or --auth-reset as the External
+    remedy says): a key the owner makes under BOXARR_AUTH_METHOD=external,
+    through their proxy, survives the move to forms by environment."""
+    app, _, data = boxarr("file-none", method="external", trusted_proxies="127.0.0.1")
+    proxied = TestClient(app, client=("127.0.0.1", 50000))
+    made = _post(proxied, "api-key", {})
     assert made.status_code == 200, made.text
     key = made.json()["api_key"]
 
