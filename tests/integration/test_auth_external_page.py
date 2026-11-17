@@ -470,8 +470,44 @@ def test_under_external_the_help_texts_say_what_holds_there(boxarr):
     )
     note = _text(soup.select_one("#securityWidgetProxyNote"))
     assert note.startswith("These URLs go through your reverse proxy")
-    assert "without its sign-in" in note
+    # Token widgets: a path let through the proxy without its sign-in would be
+    # public, token or not (Boxarr cannot tell), so the note says not to.
+    assert "embed Boxarr's own address instead" in note
+    assert "public, token or not" in note
     assert soup.select_one("#securityWidgetMessage").has_attr("hidden")
+
+
+def test_under_external_public_widgets_may_skip_the_proxys_sign_in(boxarr):
+    client, _ = boxarr()
+    _enable_and_sign_in(client)
+    _switch(client)
+
+    note = _text(_soup(client.get("/setup")).select_one("#securityWidgetProxyNote"))
+
+    assert "let the two widget paths through it without its sign-in" in note
+    assert "token or not" not in note
+
+
+def test_under_external_a_new_password_signs_no_one_out(boxarr):
+    """No Boxarr session to end there: the message says what changed."""
+    client, _ = boxarr()
+    _enable_and_sign_in(client)
+    _switch(client)
+
+    saved = client.post(
+        "/api/auth/settings",
+        json={
+            "new_password": "another-fake-password-2",
+            "confirm_password": "another-fake-password-2",
+            "current_password": PASSWORD,
+        },
+        headers=SAME_ORIGIN,
+    )
+
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["message"] == (
+        "Saved. Settings → Security asks for the new password from now on."
+    )
 
 
 def test_under_forms_the_help_texts_are_as_before(boxarr):

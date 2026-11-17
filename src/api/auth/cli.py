@@ -160,9 +160,17 @@ def auth_reset_command(
         "Settings → Security.\n"
     )
     method = (environ.get(ENV_METHOD) or "").strip().lower()
-    if method and method != "none":
+    if method in ("forms", "external"):
+        # Removing it would leave Boxarr open: the state a takeover starts
+        # from. Kept, it applies what the environment sets.
+        out.write(
+            f"{ENV_METHOD}={method} is set in this environment and overrides "
+            f"auth.json: after the restart, sign-in is {method}, with what the "
+            "environment sets. Remove it only if you want sign-in off.\n"
+        )
+    elif method and method != "none":
         out.write(
             f"{ENV_METHOD} is set in this environment and overrides auth.json: "
-            "remove it too before the restart.\n"
+            "fix or remove it before the restart.\n"
         )
     return 0

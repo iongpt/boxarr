@@ -247,6 +247,13 @@ def parse_trusted_proxies(
         if entry == "*":
             problems.refused.append(f"entry {position} is *, which trusts anyone")
             continue
+        if "%" in entry:
+            # An IPv6 zone (fe80::1%eth0) takes any text, newlines included,
+            # and a peer address never carries one: refused, never logged.
+            problems.invalid.append(
+                f"entry {position} has a zone (%), which no proxy needs"
+            )
+            continue
         network = _parse_network(entry)
         if network is None:
             problems.invalid.append(f"entry {position} is not an IP address or network")

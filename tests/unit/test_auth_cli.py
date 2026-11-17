@@ -250,7 +250,19 @@ def test_reset_warns_when_the_environment_overrides_it(tmp_path):
         _environ(tmp_path, BOXARR_AUTH_METHOD="forms"), out, io.StringIO()
     )
 
+    assert "BOXARR_AUTH_METHOD=forms is set" in out.getvalue()
+    assert "Remove it only if you want sign-in off." in out.getvalue()
+
+
+def test_reset_with_an_unknown_method_variable_echoes_nothing_of_it(tmp_path):
+    out = io.StringIO()
+
+    auth_reset_command(
+        _environ(tmp_path, BOXARR_AUTH_METHOD="bogus\nforged line"), out, io.StringIO()
+    )
+
     assert "BOXARR_AUTH_METHOD is set" in out.getvalue()
+    assert "bogus" not in out.getvalue() and "forged" not in out.getvalue()
 
 
 def test_reset_reports_an_unwritable_directory(tmp_path):

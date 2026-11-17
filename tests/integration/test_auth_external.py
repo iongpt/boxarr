@@ -555,7 +555,13 @@ def test_auth_reset_says_an_environment_external_still_applies(tmp_path):
         io.StringIO(),
     )
 
-    assert "BOXARR_AUTH_METHOD is set" in out.getvalue()
+    # Keeping the variable is what keeps Boxarr guarded after the reset.
+    assert (
+        "BOXARR_AUTH_METHOD=external is set in this environment and overrides "
+        "auth.json: after the restart, sign-in is external, with what the "
+        "environment sets. Remove it only if you want sign-in off."
+    ) in out.getvalue()
+    assert "remove it too" not in out.getvalue()
 
 
 def test_the_api_key_variable_works_under_external(external_env):

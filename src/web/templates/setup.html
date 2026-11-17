@@ -1106,7 +1106,9 @@
                         <button type="button" class="btn btn-secondary btn-sm" data-target="securityWidgetJson" onclick="boxarrCopyEmbed(this)">Copy</button>
                     </div>
                 </div>
-                {%- if sec.method == 'external' %}
+                {%- if sec.method == 'external' and we.mode == 'token' %}
+                <p class="text-muted" id="securityWidgetProxyNote">These URLs go through your reverse proxy, as this page does: embed Boxarr's own address instead. Boxarr cannot tell that the proxy skipped its sign-in, so a widget path let through it without one is public, token or not.</p>
+                {%- elif sec.method == 'external' %}
                 <p class="text-muted" id="securityWidgetProxyNote">These URLs go through your reverse proxy, as this page does: let the two widget paths through it without its sign-in, or embed Boxarr's own address instead.</p>
                 {%- endif %}
                 {%- elif we.mode == 'token' %}

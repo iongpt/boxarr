@@ -241,12 +241,15 @@ async def _check_password(
     if attempt is None:
         raise _Throttled(wait or 1)
     try:
-        if stored_hash is not None:
+        # A password from the environment wins over a stored hash, as every
+        # variable wins over Settings: under external it is never stored, and
+        # the stored hash may be whoever set sign-in up in Settings (#151).
+        if plain is not None:
+            ok = _same_text(password, plain.get_secret_value())
+        elif stored_hash is not None:
             ok = await runtime.run_hash(
                 verify_password, password, stored_hash.get_secret_value()
             )
-        elif plain is not None:
-            ok = _same_text(password, plain.get_secret_value())
         else:
             ok = False
     except HashBusy:
@@ -384,6 +387,9 @@ def _settings_message(plan: SettingsPlan, runtime: AuthRuntime) -> str:
         )
     if plan.kind == Kind.OFF:
         return "Saved. Sign-in stays off."
+    if plan.credentials_changed and runtime.state.mode == Mode.EXTERNAL:
+        # Under External the proxy signs people in: no session ends here.
+        return "Saved. Settings → Security asks for the new password from now on."
     if plan.credentials_changed:
         return (
             "Saved. Every other browser and device was signed out; this one "
