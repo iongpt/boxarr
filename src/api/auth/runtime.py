@@ -123,6 +123,50 @@ def auth_write_lock() -> asyncio.Lock:
         return lock
 
 
+def _settings_under_env_external(
+    env: EnvAuthConfig, found: AuthFileResult, state: AuthState
+) -> Tuple[str, ...]:
+    """What auth.json, filled in Settings → Security, still decides while
+    BOXARR_AUTH_METHOD=external is in effect: each item named, never a value
+    (the proxy addresses are settings, and the owner needs them to tell)."""
+    if env.method != Mode.EXTERNAL or state.mode != Mode.EXTERNAL:
+        return ()
+    stored = found.auth if found.state == FileState.VALID else None
+    if stored is None:
+        return ()
+    held = []
+    if stored.password_hash is not None and stored.password_source != "env":
+        held.append("a password")
+    if stored.api_key is not None and env.api_key_sha256 is None:
+        held.append("an API key")
+    if stored.widget_token and env.widget_token is None and state.widgets == "token":
+        held.append("the widget token")
+    if stored.trusted_proxies and env.trusted_proxies is None:
+        held.append("the trusted proxies (" + ", ".join(stored.trusted_proxies) + ")")
+    return tuple(held)
+
+
+def _warn_settings_under_env_external(
+    env: EnvAuthConfig, found: AuthFileResult, state: AuthState
+) -> None:
+    """Under BOXARR_AUTH_METHOD=external, name what still comes from
+    Settings → Security (#151). Whoever reached Boxarr while it was open may
+    have set it up, and nothing under external tells them from the owner
+    moving their own setup to a proxy: it is kept, and said at every start,
+    with the way to clear it."""
+    held = _settings_under_env_external(env, found, state)
+    if not held:
+        return
+    logger.warning(
+        "Authentication: BOXARR_AUTH_METHOD=external, and auth.json still holds "
+        "a sign-in set up in Settings → Security: %s. They still apply. If you "
+        "did not set them up, someone who reached Boxarr while sign-in was off "
+        "may have: run python -m src.main --auth-reset (in Docker: docker exec "
+        "boxarr python -m src.main --auth-reset) and restart Boxarr.",
+        ", ".join(held),
+    )
+
+
 class AuthRuntime:
     """What requests are checked against; see the module docstring."""
 
@@ -164,6 +208,7 @@ class AuthRuntime:
         log_findings(env, found, state)
         runtime = cls(paths, env, state)
         runtime._apply_env_password(found)
+        _warn_settings_under_env_external(env, found, runtime.state)
         if runtime.state.mode == Mode.FORMS:
             logger.info("Authentication: sign-in required (forms)")
         elif runtime.state.mode == Mode.EXTERNAL:

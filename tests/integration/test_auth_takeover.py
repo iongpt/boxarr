@@ -14,6 +14,7 @@ Every credential is an obviously fake value.
 
 import io
 import json
+import logging
 import os
 from typing import Any, Callable, Dict, Optional
 
@@ -214,12 +215,11 @@ ROWS = [
     (env_forms_by_hash, _taken_back("forms")),
     (env_forms_over_a_stored_external, _taken_back("forms")),
     (env_forms_over_a_planted_none, _taken_back("forms")),
-    # OPEN QUESTION (#151, v2.4.0): BOXARR_AUTH_METHOD=external over a
-    # sign-in set up in Settings keeps all of it. Under external there is no
-    # password to compare, so Boxarr cannot tell the owner moving to their
-    # proxy from the owner taking Boxarr back; Settings still asks for the
-    # stored password, so only --auth-reset clears it. These rows pin
-    # today's behaviour until that is decided.
+    # Decided for v2.4.0 (#151): BOXARR_AUTH_METHOD=external over a sign-in
+    # set up in Settings keeps all of it. Under external there is no
+    # password to compare, so Boxarr cannot tell the owner moving their own
+    # setup to a proxy from the owner taking Boxarr back; every start names
+    # what is kept and points at --auth-reset (the tests below).
     (
         env_external_with_a_list,
         {
@@ -258,3 +258,67 @@ def test_what_is_left_of_a_sign_in_someone_else_set_up(
     app = action(boxarr, stranger)
 
     assert _left(stranger, app) == expected
+
+
+# ------------------------------------------- the warning under env external
+
+WARNING_START = "BOXARR_AUTH_METHOD=external, and auth.json still holds"
+
+
+@pytest.mark.parametrize("env_list", [True, False])
+def test_external_over_a_sign_in_set_up_in_settings_says_so_at_every_start(
+    boxarr, caplog, env_list
+):
+    """Kept (the owner may have moved their own setup to a proxy), but named
+    at every start with the way to clear it."""
+    stranger = Stranger(boxarr)
+    extra = {"trusted_proxies": "10.9.9.9"} if env_list else {}
+
+    for _ in range(2):
+        caplog.clear()
+        with caplog.at_level(logging.WARNING):
+            boxarr("unset", method="external", **extra)
+        lines = [
+            r.getMessage() for r in caplog.records if WARNING_START in r.getMessage()
+        ]
+        assert len(lines) == 1
+        held = "a password, an API key, the widget token" + (
+            "" if env_list else ", the trusted proxies (127.0.0.1)"
+        )
+        assert f"Settings → Security: {held}. They still apply." in lines[0]
+        assert "--auth-reset" in lines[0]
+        assert stranger.key not in caplog.text and stranger.token not in caplog.text
+
+
+def test_after_auth_reset_external_says_nothing_of_settings(boxarr, caplog):
+    stranger = Stranger(boxarr)
+    auth_reset(boxarr, stranger)
+
+    with caplog.at_level(logging.WARNING):
+        boxarr("unset", method="external", trusted_proxies="10.9.9.9")
+
+    assert WARNING_START not in caplog.text
+
+
+def test_what_the_environment_sets_is_not_named(boxarr, caplog):
+    """An env key, token and list replace the stored ones, so only what is
+    still in effect from Settings is named: here, the password."""
+    Stranger(boxarr)
+
+    with caplog.at_level(logging.WARNING):
+        boxarr(
+            "unset",
+            method="external",
+            trusted_proxies="10.9.9.9",
+            api_key="bxk_" + "env-fake-key-000" * 3,
+            widget_token="bxw_" + "envfaketoken" * 3,
+        )
+
+    assert "Settings → Security: a password. They still apply." in caplog.text
+
+
+def test_external_set_up_by_the_environment_alone_says_nothing(boxarr, caplog):
+    with caplog.at_level(logging.WARNING):
+        boxarr("unset", method="external", trusted_proxies="10.9.9.9")
+
+    assert WARNING_START not in caplog.text
